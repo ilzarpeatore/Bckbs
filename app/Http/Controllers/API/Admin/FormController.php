@@ -1,0 +1,233 @@
+<?php
+
+namespace App\Http\Controllers\API\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\Form;
+use App\Models\FormAssignment;
+use App\Models\FormQuestion;
+use App\Models\FormSubmission;
+use App\Models\User;
+use Illuminate\Http\Request;
+
+class FormController extends Controller
+{
+    public function getList(Request $request)
+    {
+        $query = Form::withCount('questions')->orderBy('id', 'desc');
+
+        if ($request->kind == 'questionnaire') {
+            $query->questionnaires();
+        } elseif ($request->kind == 'checkin') {
+            $query->checkIns();
+        }
+
+        if ($request->filled('search')) {
+            $query->where('title', 'LIKE', '%' . $request->search . '%');
+        }
+
+        $perPage = $request->get('per_page', 50);
+        $items = $query->paginate($perPage);
+
+        return json_custom_response([
+            'pagination' => json_pagination_response($items),
+            'data'       => $items,
+        ]);
+    }
+
+    public function getAssignedList(Request $request)
+    {
+        $request->validate([
+            'client_id' => 'required|exists:users,id',
+            'kind'      => 'nullable|in:questionnaire,checkin',
+        ]);
+
+        $query = FormAssignment::with(['form.questions', 'submissions' => function ($q) {
+            $q->orderByDesc('submitted_at')->limit(1);
+        }])
+            ->where('client_id', $request->client_id)
+            ->where('active', true);
+
+        $query->whereHas('form', function ($q) use ($request) {
+            if ($request->kind == 'questionnaire') {
+                $q->questionnaires();
+            } elseif ($request->kind == 'checkin') {
+                $q->checkIns();
+            }
+        });
+
+        $items = $query->orderBy('created_at', 'desc')->get();
+
+        $items->each(function ($assignment) {
+            $latest = $assignment->submissions->first();
+            $assignment->submitted = !is_null($latest);
+            $assignment->submitted_at = $latest?->submitted_at;
+            $assignment->latest_submission_id = $latest?->id;
+        });
+
+        return json_custom_response(['data' => $items]);
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'id'          => 'sometimes|exists:forms,id',
+            'title'       => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'recurrence'  => 'nullable|string|in:daily,weekly,monthly',
+        ]);
+
+        $data = [
+            'coach_id'    => auth('sanctum')->id(),
+            'title'       => $request->title,
+            'description' => $request->description,
+            'recurrence'  => $request->recurrence,
+        ];
+
+        if ($request->filled('id')) {
+            $form = Form::findOrFail($request->id);
+            $form->update($data);
+        } else {
+            $form = Form::create($data);
+        }
+
+        $form->loadCount('questions');
+
+        return json_custom_response(['data' => $form, 'message' => 'Form saved.']);
+    }
+
+    public function destroy(Request $request)
+    {
+        $request->validate(['id' => 'required|exists:forms,id']);
+
+        Form::findOrFail($request->id)->delete();
+
+        return json_message_response('Form deleted.');
+    }
+
+    public function getDetail(Request $request)
+    {
+        $request->validate(['id' => 'required|exists:forms,id']);
+
+        $form = Form::with(['questions.metric:id,key,label,unit'])->findOrFail($request->id);
+
+        return json_custom_response(['data' => $form]);
+    }
+
+    public function storeQuestion(Request $request)
+    {
+        $request->validate([
+            'id'             => 'sometimes|exists:form_questions,id',
+            'form_id'        => 'required|exists:forms,id',
+            'question_text'  => 'required|string',
+            'type'           => 'required|in:text,textarea,number,scale,yes_no,date,multiple_choice,media,star_rating,signature,progress_photos,metric',
+            'options'        => 'nullable|array',
+            'options.*'      => 'nullable|string',
+            'max_files'      => 'nullable|integer|min:1|max:10',
+            'metric_id'      => 'nullable|exists:metrics_catalog,id',
+            'sync_type'      => 'nullable|in:progress_photos,metric',
+            'allow_multiple' => 'sometimes|boolean',
+            'placeholder'    => 'nullable|string',
+            'scale_max'      => 'sometimes|integer|min:1|max:100',
+            'star_max'       => 'sometimes|integer|min:1|max:10',
+            'order'          => 'sometimes|integer',
+            'is_required'    => 'sometimes|boolean',
+        ]);
+
+        $options = $request->options;
+        if (is_array($options)) {
+            $options = array_values(array_filter($options, fn ($o) => $o !== null && trim((string)$o) !== ''));
+        }
+
+        $data = [
+            'form_id'        => $request->form_id,
+            'question_text'  => $request->question_text,
+            'type'           => $request->type,
+            'options'        => $options,
+            'max_files'      => $request->max_files,
+            'metric_id'      => $request->metric_id,
+            'sync_type'      => $request->sync_type,
+            'allow_multiple' => $request->allow_multiple ?? false,
+            'placeholder'    => $request->placeholder,
+            'scale_max'      => $request->scale_max ?? 10,
+            'star_max'       => $request->star_max ?? 5,
+            'order'          => $request->order ?? 0,
+            'is_required'    => $request->is_required ?? false,
+        ];
+
+        if ($request->filled('id')) {
+            $question = FormQuestion::findOrFail($request->id);
+            $question->update($data);
+        } else {
+            $question = FormQuestion::create($data);
+        }
+
+        $question->load('metric:id,key,label,unit');
+
+        return json_custom_response(['data' => $question, 'message' => 'Question saved.']);
+    }
+
+    public function deleteQuestion(Request $request)
+    {
+        $request->validate(['id' => 'required|exists:form_questions,id']);
+
+        FormQuestion::findOrFail($request->id)->delete();
+
+        return json_message_response('Question deleted.');
+    }
+
+    public function getSubmissionList(Request $request)
+    {
+        $request->validate([
+            'form_id'   => 'sometimes|exists:forms,id',
+            'client_id' => 'sometimes|exists:users,id',
+        ]);
+
+        $query = FormSubmission::with(['answers.question', 'formAssignment.form', 'formAssignment.client'])
+            ->orderBy('submitted_at', 'desc');
+
+        if ($request->filled('form_id')) {
+            $query->whereHas('formAssignment', fn ($q) => $q->where('form_id', $request->form_id));
+        }
+
+        if ($request->filled('client_id')) {
+            $query->whereHas('formAssignment', fn ($q) => $q->where('client_id', $request->client_id));
+        }
+
+        $perPage = $request->get('per_page', 50);
+        $items = $query->paginate($perPage);
+
+        return json_custom_response([
+            'pagination' => json_pagination_response($items),
+            'data'       => $items,
+        ]);
+    }
+
+    public function leaveFeedback(Request $request)
+    {
+        $request->validate([
+            'submission_id' => 'required|exists:form_submissions,id',
+            'coach_feedback' => 'required|string',
+        ]);
+
+        $submission = FormSubmission::findOrFail($request->submission_id);
+        $submission->update(['coach_feedback' => $request->coach_feedback]);
+
+        return json_message_response('Feedback saved.');
+    }
+
+    public function assign(Request $request)
+    {
+        $request->validate([
+            'form_id'   => 'required|exists:forms,id',
+            'client_id' => 'required|exists:users,id',
+        ]);
+
+        FormAssignment::firstOrCreate(
+            ['form_id' => $request->form_id, 'client_id' => $request->client_id],
+            ['active' => true]
+        );
+
+        return json_message_response('Form assigned to client.');
+    }
+}

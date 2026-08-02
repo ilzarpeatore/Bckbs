@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flutter-web",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": ["-NoProfile", "-Command", "cd 'C:\\Users\\hamza\\Documents\\Default Project'; flutter run -d chrome --web-port=5050"],
+      "port": 5050
+    },
+    {
+      "name": "MobAI - Galaxy S9+",
+      "port": 8787,
+      "url": "http://127.0.0.1:8787"
+    }
+  ]
+}

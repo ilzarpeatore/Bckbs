@@ -1,0 +1,1392 @@
+[
+  {
+   "default_language_name": "Afrikaans (South Africa)",
+   "default_language_country_code": "af-ZA",
+   "default_language_code": "af"
+  },
+  {
+   "default_language_name": "Albanian (Albania)",
+   "default_language_country_code": "sq-AL",
+   "default_language_code": "sq"
+  },
+  {
+   "default_language_name": "Alsatian (France)",
+   "default_language_country_code": "gsw-FR",
+   "default_language_code": "gsw"
+  },
+  {
+   "default_language_name": "Amharic (Ethiopia)",
+   "default_language_country_code": "am-ET",
+   "default_language_code": "am"
+  },
+  {
+   "default_language_name": "Arabic (Algeria)",
+   "default_language_country_code": "ar-DZ",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Bahrain)",
+   "default_language_country_code": "ar-BH",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Egypt)",
+   "default_language_country_code": "ar-EG",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Iraq)",
+   "default_language_country_code": "ar-IQ",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Jordan)",
+   "default_language_country_code": "ar-JO",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Kuwait)",
+   "default_language_country_code": "ar-KW",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Lebanon)",
+   "default_language_country_code": "ar-LB",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Libya)",
+   "default_language_country_code": "ar-LY",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Morocco)",
+   "default_language_country_code": "ar-MA",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Oman)",
+   "default_language_country_code": "ar-OM",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Qatar)",
+   "default_language_country_code": "ar-QA",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Saudi Arabia)",
+   "default_language_country_code": "ar-SA",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Syria)",
+   "default_language_country_code": "ar-SY",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Tunisia)",
+   "default_language_country_code": "ar-TN",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (U.A.E.)",
+   "default_language_country_code": "ar-AE",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Arabic (Yemen)",
+   "default_language_country_code": "ar-YE",
+   "default_language_code": "ar"
+  },
+  {
+   "default_language_name": "Armenian (Armenia)",
+   "default_language_country_code": "hy-AM",
+   "default_language_code": "hy"
+  },
+  {
+   "default_language_name": "Assamese (India)",
+   "default_language_country_code": "as-IN",
+   "default_language_code": "as"
+  },
+  {
+   "default_language_name": "Azerbaijani (Cyrillic)",
+   "default_language_country_code": "az-Cyrl",
+   "default_language_code": "az"
+  },
+  {
+   "default_language_name": "Azerbaijani (Cyrillic, Azerbaijan)",
+   "default_language_country_code": "az-Cyrl-AZ",
+   "default_language_code": "az"
+  },
+  {
+   "default_language_name": "Azerbaijani (Latin)",
+   "default_language_country_code": "az-Latn",
+   "default_language_code": "az"
+  },
+  {
+   "default_language_name": "Azerbaijani (Latin, Azerbaijan)",
+   "default_language_country_code": "az-Latn-AZ",
+   "default_language_code": "az"
+  },
+  {
+   "default_language_name": "Bangla (Bangladesh)",
+   "default_language_country_code": "bn-BD",
+   "default_language_code": "bn"
+  },
+  {
+   "default_language_name": "Bangla (India)",
+   "default_language_country_code": "bn-IN",
+   "default_language_code": "bn"
+  },
+  {
+   "default_language_name": "Bashkir (Russia)",
+   "default_language_country_code": "ba-RU",
+   "default_language_code": "ba"
+  },
+  {
+   "default_language_name": "Basque (Spain)",
+   "default_language_country_code": "eu-ES",
+   "default_language_code": "eu"
+  },
+  {
+   "default_language_name": "Belarusian (Belarus)",
+   "default_language_country_code": "be-BY",
+   "default_language_code": "be"
+  },
+  {
+   "default_language_name": "Bosnian (Cyrillic)",
+   "default_language_country_code": "bs-Cyrl",
+   "default_language_code": "bs"
+  },
+  {
+   "default_language_name": "Bosnian (Cyrillic, Bosnia and Herzegovina)",
+   "default_language_country_code": "bs-Cyrl-BA",
+   "default_language_code": "bs"
+  },
+  {
+   "default_language_name": "Bosnian (Latin)",
+   "default_language_country_code": "bs-Latn",
+   "default_language_code": "bs"
+  },
+  {
+   "default_language_name": "Bosnian (Latin, Bosnia and Herzegovina)",
+   "default_language_country_code": "bs-Latn-BA",
+   "default_language_code": "bs"
+  },
+  {
+   "default_language_name": "Breton (France)",
+   "default_language_country_code": "br-FR",
+   "default_language_code": "br"
+  },
+  {
+   "default_language_name": "Bulgarian (Bulgaria)",
+   "default_language_country_code": "bg-BG",
+   "default_language_code": "bg"
+  },
+  {
+   "default_language_name": "Burmese (Myanmar)",
+   "default_language_country_code": "my-MM",
+   "default_language_code": "my"
+  },
+  {
+   "default_language_name": "Catalan (Spain)",
+   "default_language_country_code": "ca-ES",
+   "default_language_code": "ca"
+  },
+  {
+   "default_language_name": "Central Atlas Tamazight (Arabic, Morocco)",
+   "default_language_country_code": "tzm-Arab-MA",
+   "default_language_code": "tzm"
+  },
+  {
+   "default_language_name": "Central Kurdish",
+   "default_language_country_code": "ku-Arab",
+   "default_language_code": "ku"
+  },
+  {
+   "default_language_name": "Central Kurdish (Iraq)",
+   "default_language_country_code": "ku-Arab-IQ",
+   "default_language_code": "ku"
+  },
+  {
+   "default_language_name": "Cherokee",
+   "default_language_country_code": "chr-Cher",
+   "default_language_code": "chr"
+  },
+  {
+   "default_language_name": "Cherokee (United States)",
+   "default_language_country_code": "chr-Cher-US",
+   "default_language_code": "chr"
+  },
+  {
+   "default_language_name": "Chinese (Simplified) (zh-Hans)",
+   "default_language_country_code": "zh-Hans",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Simplified, People's Republic of China)",
+   "default_language_country_code": "zh-CN",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Simplified, Singapore)",
+   "default_language_country_code": "zh-SG",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Traditional) (zh-Hant)",
+   "default_language_country_code": "zh-Hant",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Traditional, Hong Kong S.A.R.)",
+   "default_language_country_code": "zh-HK",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Traditional, Macao S.A.R.)",
+   "default_language_country_code": "zh-MO",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Chinese (Traditional, Taiwan)",
+   "default_language_country_code": "zh-TW",
+   "default_language_code": "zh"
+  },
+  {
+   "default_language_name": "Corsican (France)",
+   "default_language_country_code": "co-FR",
+   "default_language_code": "co"
+  },
+  {
+   "default_language_name": "Croatian (Croatia)",
+   "default_language_country_code": "hr-HR",
+   "default_language_code": "hr"
+  },
+  {
+   "default_language_name": "Croatian (Latin, Bosnia and Herzegovina)",
+   "default_language_country_code": "hr-BA",
+   "default_language_code": "hr"
+  },
+  {
+   "default_language_name": "Czech (Czech Republic)",
+   "default_language_country_code": "cs-CZ",
+   "default_language_code": "cs"
+  },
+  {
+   "default_language_name": "Danish (Denmark)",
+   "default_language_country_code": "da-DK",
+   "default_language_code": "da"
+  },
+  {
+   "default_language_name": "Dari (Afghanistan)",
+   "default_language_country_code": "prs-AF",
+   "default_language_code": "prs"
+  },
+  {
+   "default_language_name": "Divehi (Maldives)",
+   "default_language_country_code": "dv-MV",
+   "default_language_code": "dv"
+  },
+  {
+   "default_language_name": "Dutch (Belgium)",
+   "default_language_country_code": "nl-BE",
+   "default_language_code": "nl"
+  },
+  {
+   "default_language_name": "Dutch (Netherlands)",
+   "default_language_country_code": "nl-NL",
+   "default_language_code": "nl"
+  },
+  {
+   "default_language_name": "Dzongkha (Bhutan)",
+   "default_language_country_code": "dz-BT",
+   "default_language_code": "dz"
+  },
+  {
+   "default_language_name": "English (Australia)",
+   "default_language_country_code": "en-AU",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Belize)",
+   "default_language_country_code": "en-BZ",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Canada)",
+   "default_language_country_code": "en-CA",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Caribbean)",
+   "default_language_country_code": "en-029",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Hong Kong)",
+   "default_language_country_code": "en-HK",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (India)",
+   "default_language_country_code": "en-IN",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Ireland)",
+   "default_language_country_code": "en-IE",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Jamaica)",
+   "default_language_country_code": "en-JM",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Malaysia)",
+   "default_language_country_code": "en-MY",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (New Zealand)",
+   "default_language_country_code": "en-NZ",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Republic of the Philippines)",
+   "default_language_country_code": "en-PH",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Singapore)",
+   "default_language_country_code": "en-SG",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (South Africa)",
+   "default_language_country_code": "en-ZA",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Trinidad and Tobago)",
+   "default_language_country_code": "en-TT",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (United Arab Emirates)",
+   "default_language_country_code": "en-AE",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (United Kingdom)",
+   "default_language_country_code": "en-GB",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (United States)",
+   "default_language_country_code": "en-US",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "English (Zimbabwe)",
+   "default_language_country_code": "en-ZW",
+   "default_language_code": "en"
+  },
+  {
+   "default_language_name": "Estonian (Estonia)",
+   "default_language_country_code": "et-EE",
+   "default_language_code": "et"
+  },
+  {
+   "default_language_name": "Faroese (Faroe Islands)",
+   "default_language_country_code": "fo-FO",
+   "default_language_code": "fo"
+  },
+  {
+   "default_language_name": "Filipino (Philippines)",
+   "default_language_country_code": "fil-PH",
+   "default_language_code": "fi"
+  },
+  {
+   "default_language_name": "Finnish (Finland)",
+   "default_language_country_code": "fi-FI",
+   "default_language_code": "fi"
+  },
+  {
+   "default_language_name": "French (Belgium)",
+   "default_language_country_code": "fr-BE",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Côte d’Ivoire)",
+   "default_language_country_code": "fr-CI",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Cameroon)",
+   "default_language_country_code": "fr-CM",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Canada)",
+   "default_language_country_code": "fr-CA",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Caribbean)",
+   "default_language_country_code": "fr-029",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Congo, DRC)",
+   "default_language_country_code": "fr-CD",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (France)",
+   "default_language_country_code": "fr-FR",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Haiti)",
+   "default_language_country_code": "fr-HT",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Luxembourg)",
+   "default_language_country_code": "fr-LU",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Mali)",
+   "default_language_country_code": "fr-ML",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Morocco)",
+   "default_language_country_code": "fr-MA",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Principality of Monaco)",
+   "default_language_country_code": "fr-MC",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Réunion)",
+   "default_language_country_code": "fr-RE",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Senegal)",
+   "default_language_country_code": "fr-SN",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "French (Switzerland)",
+   "default_language_country_code": "fr-CH",
+   "default_language_code": "fr"
+  },
+  {
+   "default_language_name": "Frisian (Netherlands)",
+   "default_language_country_code": "fy-NL",
+   "default_language_code": "fy"
+  },
+  {
+   "default_language_name": "Fulah (Latin)",
+   "default_language_country_code": "ff-Latn",
+   "default_language_code": "ff"
+  },
+  {
+   "default_language_name": "Fulah (Latin, Nigeria)",
+   "default_language_country_code": "ff-Latn-NG",
+   "default_language_code": "ff"
+  },
+  {
+   "default_language_name": "Fulah (Latin, Senegal)",
+   "default_language_country_code": "ff-Latn-SN",
+   "default_language_code": "ff"
+  },
+  {
+   "default_language_name": "Galician (Spain)",
+   "default_language_country_code": "gl-ES",
+   "default_language_code": "gl"
+  },
+  {
+   "default_language_name": "Georgian (Georgia)",
+   "default_language_country_code": "ka-GE",
+   "default_language_code": "ka"
+  },
+  {
+   "default_language_name": "German (Austria)",
+   "default_language_country_code": "de-AT",
+   "default_language_code": "de"
+  },
+  {
+   "default_language_name": "German (Germany)",
+   "default_language_country_code": "de-DE",
+   "default_language_code": "de"
+  },
+  {
+   "default_language_name": "German (Liechtenstein)",
+   "default_language_country_code": "de-LI",
+   "default_language_code": "de"
+  },
+  {
+   "default_language_name": "German (Luxembourg)",
+   "default_language_country_code": "de-LU",
+   "default_language_code": "de"
+  },
+  {
+   "default_language_name": "German (Switzerland)",
+   "default_language_country_code": "de-CH",
+   "default_language_code": "de"
+  },
+  {
+   "default_language_name": "Greek",
+   "default_language_country_code": "el-GR",
+   "default_language_code": "el"
+  },
+  {
+   "default_language_name": "Greenlandic (Greenland)",
+   "default_language_country_code": "kl-GL",
+   "default_language_code": "kl"
+  },
+  {
+   "default_language_name": "Guarani (Paraguay)",
+   "default_language_country_code": "gn-PY",
+   "default_language_code": "gn"
+  },
+  {
+   "default_language_name": "Gujarati",
+   "default_language_country_code": "gu-IN",
+   "default_language_code": "gu"
+  },
+  {
+   "default_language_name": "Hausa (Latin)",
+   "default_language_country_code": "ha-Latn",
+   "default_language_code": "ha"
+  },
+  {
+   "default_language_name": "Hausa (Latin, Nigeria)",
+   "default_language_country_code": "ha-Latn-NG",
+   "default_language_code": "ha"
+  },
+  {
+   "default_language_name": "Hawaiian (United States)",
+   "default_language_country_code": "haw-US",
+   "default_language_code": "haw"
+  },
+  {
+   "default_language_name": "Hebrew (Israel)",
+   "default_language_country_code": "he-IL",
+   "default_language_code": "he"
+  },
+  {
+   "default_language_name": "Hindi",
+   "default_language_country_code": "hi-IN",
+   "default_language_code": "hi"
+  },
+  {
+   "default_language_name": "Hungarian (Hungary)",
+   "default_language_country_code": "hu-HU",
+   "default_language_code": "hu"
+  },
+  {
+   "default_language_name": "Icelandic (Iceland)",
+   "default_language_country_code": "is-IS",
+   "default_language_code": "is"
+  },
+  {
+   "default_language_name": "Igbo (Nigeria)",
+   "default_language_country_code": "ig-NG",
+   "default_language_code": "ig"
+  },
+  {
+   "default_language_name": "Indonesian (Indonesia)",
+   "default_language_country_code": "id-ID",
+   "default_language_code": "id"
+  },
+  {
+   "default_language_name": "Inuktitut (Latin)",
+   "default_language_country_code": "iu-Latn",
+   "default_language_code": "iu"
+  },
+  {
+   "default_language_name": "Inuktitut (Latin, Canada)",
+   "default_language_country_code": "iu-Latn-CA",
+   "default_language_code": "iu"
+  },
+  {
+   "default_language_name": "Inuktitut (Syllabics)",
+   "default_language_country_code": "iu-Cans",
+   "default_language_code": "iu"
+  },
+  {
+   "default_language_name": "Inuktitut (Syllabics, Canada)",
+   "default_language_country_code": "iu-Cans-CA",
+   "default_language_code": "iu"
+  },
+  {
+   "default_language_name": "Irish (Ireland)",
+   "default_language_country_code": "ga-IE",
+   "default_language_code": "ga"
+  },
+  {
+   "default_language_name": "Italian (Italy)",
+   "default_language_country_code": "it-IT",
+   "default_language_code": "it"
+  },
+  {
+   "default_language_name": "Italian (Switzerland)",
+   "default_language_country_code": "it-CH",
+   "default_language_code": "it"
+  },
+  {
+   "default_language_name": "Japanese",
+   "default_language_country_code": "ja-JP",
+   "default_language_code": "ja"
+  },
+  {
+   "default_language_name": "Kannada (India)",
+   "default_language_country_code": "kn-IN",
+   "default_language_code": "kn"
+  },
+  {
+   "default_language_name": "Kanuri (Latin, Nigeria)",
+   "default_language_country_code": "kr-Latn-NG",
+   "default_language_code": "kr"
+  },
+  {
+   "default_language_name": "Kashmiri (Devanagari, India)",
+   "default_language_country_code": "ks-Deva-IN",
+   "default_language_code": "ks"
+  },
+  {
+   "default_language_name": "Kashmiri (Perso-Arabic)",
+   "default_language_country_code": "ks-Arab",
+   "default_language_code": "ks"
+  },
+  {
+   "default_language_name": "Kazakh (Kazakhstan)",
+   "default_language_country_code": "kk-KZ",
+   "default_language_code": "kk"
+  },
+  {
+   "default_language_name": "Khmer (Cambodia)",
+   "default_language_country_code": "km-KH",
+   "default_language_code": "km"
+  },
+  {
+   "default_language_name": "K'iche (Guatemala)",
+   "default_language_country_code": "qut-GT",
+   "default_language_code": "qut"
+  },
+  {
+   "default_language_name": "K'iche (Latin, Guatemala)",
+   "default_language_country_code": "quc-Latn-GT",
+   "default_language_code": "quc"
+  },
+  {
+   "default_language_name": "Kinyarwanda (Rwanda)",
+   "default_language_country_code": "rw-RW",
+   "default_language_code": "rw"
+  },
+  {
+   "default_language_name": "Kiswahili (Kenya)",
+   "default_language_country_code": "sw-KE",
+   "default_language_code": "sw"
+  },
+  {
+   "default_language_name": "Konkani (India)",
+   "default_language_country_code": "kok-IN",
+   "default_language_code": "kok"
+  },
+  {
+   "default_language_name": "Korean (Korea)",
+   "default_language_country_code": "ko-KR",
+   "default_language_code": "ko"
+  },
+  {
+   "default_language_name": "Kyrgyz (Kyrgyzstan)",
+   "default_language_country_code": "ky-KG",
+   "default_language_code": "ky"
+  },
+  {
+   "default_language_name": "Lao (Lao P.D.R.)",
+   "default_language_country_code": "lo-LA",
+   "default_language_code": "lo"
+  },
+  {
+   "default_language_name": "Latin (Vatican City)",
+   "default_language_country_code": "la-VA",
+   "default_language_code": "la"
+  },
+  {
+   "default_language_name": "Latvian (Latvia)",
+   "default_language_country_code": "lv-LV",
+   "default_language_code": "lv"
+  },
+  {
+   "default_language_name": "Lithuanian (Lithuania)",
+   "default_language_country_code": "lt-LT",
+   "default_language_code": "lt"
+  },
+  {
+   "default_language_name": "Lower Sorbian (Germany)",
+   "default_language_country_code": "dsb-DE",
+   "default_language_code": "dsb"
+  },
+  {
+   "default_language_name": "Luxembourgish (Luxembourg)",
+   "default_language_country_code": "lb-LU",
+   "default_language_code": "lb"
+  },
+  {
+   "default_language_name": "Macedonian (North Macedonia)",
+   "default_language_country_code": "mk-MK",
+   "default_language_code": "mk"
+  },
+  {
+   "default_language_name": "Malay (Brunei Darussalam)",
+   "default_language_country_code": "ms-BN",
+   "default_language_code": "ms"
+  },
+  {
+   "default_language_name": "Malay (Malaysia)",
+   "default_language_country_code": "ms-MY",
+   "default_language_code": "ms"
+  },
+  {
+   "default_language_name": "Malayalam (India)",
+   "default_language_country_code": "ml-IN",
+   "default_language_code": "ml"
+  },
+  {
+   "default_language_name": "Maltese (Malta)",
+   "default_language_country_code": "mt-MT",
+   "default_language_code": "mt"
+  },
+  {
+   "default_language_name": "Maori (New Zealand)",
+   "default_language_country_code": "mi-NZ",
+   "default_language_code": "mi"
+  },
+  {
+   "default_language_name": "Mapudungun (Chile)",
+   "default_language_country_code": "arn-CL",
+   "default_language_code": "arn"
+  },
+  {
+   "default_language_name": "Marathi (India)",
+   "default_language_country_code": "mr-IN",
+   "default_language_code": "mr"
+  },
+  {
+   "default_language_name": "Mohawk (Canada)",
+   "default_language_country_code": "moh-CA",
+   "default_language_code": "moh"
+  },
+  {
+   "default_language_name": "Mongolian (Cyrillic)",
+   "default_language_country_code": "mn-Cyrl",
+   "default_language_code": "mn"
+  },
+  {
+   "default_language_name": "Mongolian (Cyrillic, Mongolia)",
+   "default_language_country_code": "mn-MN",
+   "default_language_code": "mn"
+  },
+  {
+   "default_language_name": "Mongolian (Traditional Mongolian)",
+   "default_language_country_code": "mn-Mong",
+   "default_language_code": "mn"
+  },
+  {
+   "default_language_name": "Mongolian (Traditional Mongolian, Mongolia)",
+   "default_language_country_code": "mn-Mong-MN",
+   "default_language_code": "mn"
+  },
+  {
+   "default_language_name": "Mongolian (Traditional Mongolian, People's Republic of China)",
+   "default_language_country_code": "mn-Mong-CN",
+   "default_language_code": "mn"
+  },
+  {
+   "default_language_name": "Nepali (India)",
+   "default_language_country_code": "ne-IN",
+   "default_language_code": "ne"
+  },
+  {
+   "default_language_name": "Nepali (Nepal)",
+   "default_language_country_code": "ne-NP",
+   "default_language_code": "ne"
+  },
+  {
+   "default_language_name": "Norwegian, Bokmål (Norway)",
+   "default_language_country_code": "nb-NO",
+   "default_language_code": "nb"
+  },
+  {
+   "default_language_name": "Norwegian, Nynorsk (Norway)",
+   "default_language_country_code": "nn-NO",
+   "default_language_code": "nn"
+  },
+  {
+   "default_language_name": "Occitan (France)",
+   "default_language_country_code": "oc-FR",
+   "default_language_code": "oc"
+  },
+  {
+   "default_language_name": "Odia (India)",
+   "default_language_country_code": "or-IN",
+   "default_language_code": "or"
+  },
+  {
+   "default_language_name": "Oromo (Ethiopia)",
+   "default_language_country_code": "om-ET",
+   "default_language_code": "om"
+  },
+  {
+   "default_language_name": "Pashto (Afghanistan)",
+   "default_language_country_code": "ps-AF",
+   "default_language_code": "ps"
+  },
+  {
+   "default_language_name": "Persian (Iran)",
+   "default_language_country_code": "fa-IR",
+   "default_language_code": "fa"
+  },
+  {
+   "default_language_name": "Polish (Poland)",
+   "default_language_country_code": "pl-PL",
+   "default_language_code": "pl"
+  },
+  {
+   "default_language_name": "Portuguese (Brazil)",
+   "default_language_country_code": "pt-BR",
+   "default_language_code": "pt"
+  },
+  {
+   "default_language_name": "Portuguese (Portugal)",
+   "default_language_country_code": "pt-PT",
+   "default_language_code": "pt"
+  },
+  {
+   "default_language_name": "Punjabi - Arab",
+   "default_language_country_code": "pa-Arab",
+   "default_language_code": "pa"
+  },
+  {
+   "default_language_name": "Punjabi (India)",
+   "default_language_country_code": "pa-IN",
+   "default_language_code": "pa"
+  },
+  {
+   "default_language_name": "Punjabi (Islamic Republic of Pakistan)",
+   "default_language_country_code": "pa-Arab-PK",
+   "default_language_code": "pa"
+  },
+  {
+   "default_language_name": "Quechua (Bolivia)",
+   "default_language_country_code": "quz-BO",
+   "default_language_code": "quz"
+  },
+  {
+   "default_language_name": "Quechua (Ecuador)",
+   "default_language_country_code": "quz-EC",
+   "default_language_code": "quz"
+  },
+  {
+   "default_language_name": "Quechua (Peru)",
+   "default_language_country_code": "quz-PE",
+   "default_language_code": "quz"
+  },
+  {
+   "default_language_name": "Romanian (Moldova)",
+   "default_language_country_code": "ro-MD",
+   "default_language_code": "ro"
+  },
+  {
+   "default_language_name": "Romanian (Romania)",
+   "default_language_country_code": "ro-RO",
+   "default_language_code": "ro"
+  },
+  {
+   "default_language_name": "Romansh (Switzerland)",
+   "default_language_country_code": "rm-CH",
+   "default_language_code": "rm"
+  },
+  {
+   "default_language_name": "Russian (Moldova)",
+   "default_language_country_code": "ru-MD",
+   "default_language_code": "ru"
+  },
+  {
+   "default_language_name": "Russian (Russia)",
+   "default_language_country_code": "ru-RU",
+   "default_language_code": "ru"
+  },
+  {
+   "default_language_name": "Sakha (Russia)",
+   "default_language_country_code": "sah-RU",
+   "default_language_code": "sah"
+  },
+  {
+   "default_language_name": "Sami, Inari (Finland)",
+   "default_language_country_code": "smn-FI",
+   "default_language_code": "smn"
+  },
+  {
+   "default_language_name": "Sami, Lule (Norway)",
+   "default_language_country_code": "smj-NO",
+   "default_language_code": "smj"
+  },
+  {
+   "default_language_name": "Sami, Lule (Sweden)",
+   "default_language_country_code": "smj-SE",
+   "default_language_code": "smj"
+  },
+  {
+   "default_language_name": "Sami, Northern (Finland)",
+   "default_language_country_code": "se-FI",
+   "default_language_code": "se"
+  },
+  {
+   "default_language_name": "Sami, Northern (Norway)",
+   "default_language_country_code": "se-NO",
+   "default_language_code": "se"
+  },
+  {
+   "default_language_name": "Sami, Northern (Sweden)",
+   "default_language_country_code": "se-SE",
+   "default_language_code": "se"
+  },
+  {
+   "default_language_name": "Sami, Skolt (Finland)",
+   "default_language_country_code": "sms-FI",
+   "default_language_code": "sm"
+  },
+  {
+   "default_language_name": "Sami, Southern (Norway)",
+   "default_language_country_code": "sma-NO",
+   "default_language_code": "sm"
+  },
+  {
+   "default_language_name": "Sami, Southern (Sweden)",
+   "default_language_country_code": "sma-SE",
+   "default_language_code": "sm"
+  },
+  {
+   "default_language_name": "Sanskrit (India)",
+   "default_language_country_code": "sa-IN",
+   "default_language_code": "sa"
+  },
+  {
+   "default_language_name": "Scottish Gaelic (United Kingdom)",
+   "default_language_country_code": "gd-GB",
+   "default_language_code": "gd"
+  },
+  {
+   "default_language_name": "Serbian (Cyrillic)",
+   "default_language_country_code": "sr-Cyrl",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Cyrillic, Bosnia and Herzegovina)",
+   "default_language_country_code": "sr-Cyrl-BA",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Cyrillic, Montenegro)",
+   "default_language_country_code": "sr-Cyrl-ME",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Cyrillic, Serbia and Montenegro (Former))",
+   "default_language_country_code": "sr-Cyrl-CS",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Cyrillic, Serbia)",
+   "default_language_country_code": "sr-Cyrl-RS",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Latin)",
+   "default_language_country_code": "sr-Latn",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Latin, Bosnia and Herzegovina)",
+   "default_language_country_code": "sr-Latn-BA",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Latin, Montenegro)",
+   "default_language_country_code": "sr-Latn-ME",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Latin, Serbia and Montenegro (Former))",
+   "default_language_country_code": "sr-Latn-CS",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Serbian (Latin, Serbia)",
+   "default_language_country_code": "sr-Latn-RS",
+   "default_language_code": "sr"
+  },
+  {
+   "default_language_name": "Sesotho sa Leboa (South Africa)",
+   "default_language_country_code": "nso-ZA",
+   "default_language_code": "nso"
+  },
+  {
+   "default_language_name": "Setswana (Botswana)",
+   "default_language_country_code": "tn-BW",
+   "default_language_code": "tn"
+  },
+  {
+   "default_language_name": "Setswana (South Africa)",
+   "default_language_country_code": "tn-ZA",
+   "default_language_code": "tn"
+  },
+  {
+   "default_language_name": "Sindhi",
+   "default_language_country_code": "sd-Arab",
+   "default_language_code": "sd"
+  },
+  {
+   "default_language_name": "Sindhi (Islamic Republic of Pakistan)",
+   "default_language_country_code": "sd-Arab-PK",
+   "default_language_code": "sd"
+  },
+  {
+   "default_language_name": "Sinhala (Sri Lanka)",
+   "default_language_country_code": "si-LK",
+   "default_language_code": "si"
+  },
+  {
+   "default_language_name": "Slovak (Slovakia)",
+   "default_language_country_code": "sk-SK",
+   "default_language_code": "sk"
+  },
+  {
+   "default_language_name": "Slovenian (Slovenia)",
+   "default_language_country_code": "sl-SI",
+   "default_language_code": "sl"
+  },
+  {
+   "default_language_name": "Somali (Somalia)",
+   "default_language_country_code": "so-SO",
+   "default_language_code": "so"
+  },
+  {
+   "default_language_name": "Sotho (South Africa)",
+   "default_language_country_code": "st-ZA",
+   "default_language_code": "st"
+  },
+  {
+   "default_language_name": "Spanish (Argentina)",
+   "default_language_country_code": "es-AR",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Bolivarian Republic of Venezuela)",
+   "default_language_country_code": "es-VE",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Bolivia)",
+   "default_language_country_code": "es-BO",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Chile)",
+   "default_language_country_code": "es-CL",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Colombia)",
+   "default_language_country_code": "es-CO",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Costa Rica)",
+   "default_language_country_code": "es-CR",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Cuba)",
+   "default_language_country_code": "es-CU",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Dominican Republic)",
+   "default_language_country_code": "es-DO",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Ecuador)",
+   "default_language_country_code": "es-EC",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (El Salvador)",
+   "default_language_country_code": "es-SV",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Guatemala)",
+   "default_language_country_code": "es-GT",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Honduras)",
+   "default_language_country_code": "es-HN",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Latin America)",
+   "default_language_country_code": "es-419",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Mexico)",
+   "default_language_country_code": "es-MX",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Nicaragua)",
+   "default_language_country_code": "es-NI",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Panama)",
+   "default_language_country_code": "es-PA",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Paraguay)",
+   "default_language_country_code": "es-PY",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Peru)",
+   "default_language_country_code": "es-PE",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Puerto Rico)",
+   "default_language_country_code": "es-PR",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Spain, International Sort)",
+   "default_language_country_code": "es-ES",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Traditional Sort)",
+   "default_language_country_code": "es-ES",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (United States)",
+   "default_language_country_code": "es-US",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Spanish (Uruguay)",
+   "default_language_country_code": "es-UY",
+   "default_language_code": "es"
+  },
+  {
+   "default_language_name": "Swedish (Finland)",
+   "default_language_country_code": "sv-FI",
+   "default_language_code": "sv"
+  },
+  {
+   "default_language_name": "Swedish (Sweden)",
+   "default_language_country_code": "sv-SE",
+   "default_language_code": "sv"
+  },
+  {
+   "default_language_name": "Syriac (Syria)",
+   "default_language_country_code": "syr-SY",
+   "default_language_code": "syr"
+  },
+  {
+   "default_language_name": "Tajik (Cyrillic)",
+   "default_language_country_code": "tg-Cyrl",
+   "default_language_code": "tg"
+  },
+  {
+   "default_language_name": "Tajik (Cyrillic, Tajikistan)",
+   "default_language_country_code": "tg-Cyrl-TJ",
+   "default_language_code": "tg"
+  },
+  {
+   "default_language_name": "Tamazight (Latin)",
+   "default_language_country_code": "tzm-Latn",
+   "default_language_code": "tzm"
+  },
+  {
+   "default_language_name": "Tamazight (Latin, Algeria)",
+   "default_language_country_code": "tzm-Latn-DZ",
+   "default_language_code": "tzm"
+  },
+  {
+   "default_language_name": "Tamil (India)",
+   "default_language_country_code": "ta-IN",
+   "default_language_code": "ta"
+  },
+  {
+   "default_language_name": "Tamil (Sri Lanka)",
+   "default_language_country_code": "ta-LK",
+   "default_language_code": "ta"
+  },
+  {
+   "default_language_name": "Tatar (Russia)",
+   "default_language_country_code": "tt-RU",
+   "default_language_code": "tt"
+  },
+  {
+   "default_language_name": "Telugu (India)",
+   "default_language_country_code": "te-IN",
+   "default_language_code": "te"
+  },
+  {
+   "default_language_name": "Thai (Thailand)",
+   "default_language_country_code": "th-TH",
+   "default_language_code": "th"
+  },
+  {
+   "default_language_name": "Tibetan (People's Republic of China)",
+   "default_language_country_code": "bo-CN",
+   "default_language_code": "bo"
+  },
+  {
+   "default_language_name": "Tigrinya (Eritrea)",
+   "default_language_country_code": "ti-ER",
+   "default_language_code": "ti"
+  },
+  {
+   "default_language_name": "Tigrinya (Ethiopia)",
+   "default_language_country_code": "ti-ET",
+   "default_language_code": "ti"
+  },
+  {
+   "default_language_name": "Tsonga (South Africa)",
+   "default_language_country_code": "ts-ZA",
+   "default_language_code": "ts"
+  },
+  {
+   "default_language_name": "Turkish (Turkey)",
+   "default_language_country_code": "tr-TR",
+   "default_language_code": "tr"
+  },
+  {
+   "default_language_name": "Turkmen (Turkmenistan)",
+   "default_language_country_code": "tk-TM",
+   "default_language_code": "tk"
+  },
+  {
+   "default_language_name": "Ukrainian (Ukraine)",
+   "default_language_country_code": "uk-UA",
+   "default_language_code": "uk"
+  },
+  {
+   "default_language_name": "Upper Sorbian (Germany)",
+   "default_language_country_code": "hsb-DE",
+   "default_language_code": "hsb"
+  },
+  {
+   "default_language_name": "Urdu (India)",
+   "default_language_country_code": "ur-IN",
+   "default_language_code": "ur"
+  },
+  {
+   "default_language_name": "Urdu (Islamic Republic of Pakistan)",
+   "default_language_country_code": "ur-PK",
+   "default_language_code": "ur"
+  },
+  {
+   "default_language_name": "Uyghur (People's Republic of China)",
+   "default_language_country_code": "ug-CN",
+   "default_language_code": "ug"
+  },
+  {
+   "default_language_name": "Uzbek (Cyrillic)",
+   "default_language_country_code": "uz-Cyrl",
+   "default_language_code": "uz"
+  },
+  {
+   "default_language_name": "Uzbek (Cyrillic, Uzbekistan)",
+   "default_language_country_code": "uz-Cyrl-UZ",
+   "default_language_code": "uz"
+  },
+  {
+   "default_language_name": "Uzbek (Latin)",
+   "default_language_country_code": "uz-Latn",
+   "default_language_code": "uz"
+  },
+  {
+   "default_language_name": "Uzbek (Latin, Uzbekistan)",
+   "default_language_country_code": "uz-Latn-UZ",
+   "default_language_code": "uz"
+  },
+  {
+   "default_language_name": "Valencian (Spain)",
+   "default_language_country_code": "ca-ES-valencia",
+   "default_language_code": "ca"
+  },
+  {
+   "default_language_name": "Venda (South Africa)",
+   "default_language_country_code": "ve-ZA",
+   "default_language_code": "ve"
+  },
+  {
+   "default_language_name": "Vietnamese (Vietnam)",
+   "default_language_country_code": "vi-VN",
+   "default_language_code": "vi"
+  },
+  {
+   "default_language_name": "Welsh (United Kingdom)",
+   "default_language_country_code": "cy-GB",
+   "default_language_code": "cy"
+  },
+  {
+   "default_language_name": "Wolof (Senegal)",
+   "default_language_country_code": "wo-SN",
+   "default_language_code": "wo"
+  },
+  {
+   "default_language_name": "Xhosa (South Africa)",
+   "default_language_country_code": "xh-ZA",
+   "default_language_code": "xh"
+  },
+  {
+   "default_language_name": "Yi (People's Republic of China)",
+   "default_language_country_code": "ii-CN",
+   "default_language_code": "ii"
+  },
+  {
+   "default_language_name": "Yiddish (World)",
+   "default_language_country_code": "yi-001",
+   "default_language_code": "yi"
+  },
+  {
+   "default_language_name": "Yoruba (Nigeria)",
+   "default_language_country_code": "yo-NG",
+   "default_language_code": "yo"
+  },
+  {
+   "default_language_name": "Zulu (South Africa)",
+   "default_language_country_code": "zu-ZA",
+   "default_language_code": "zu"
+  }
+ ]

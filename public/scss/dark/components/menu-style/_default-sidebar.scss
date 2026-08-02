@@ -1,0 +1,106 @@
+.sidebar {
+    background-color: $card-bg;
+    .navbar-brand {
+        .logo-title {
+            color: $white;
+        }
+    }
+    .sidebar-header {
+        border-color: $border-color;
+    }
+    @include nav-item(false) {
+        color: $light;
+    }
+    @include nav-item() {
+        color: $body-color;
+        &.active,&[aria-expanded=true]{
+            @include sidebar-item-color-varients($white ,$primary);
+        }
+        &:hover:not(.active):not([aria-expanded=true]) {
+            @include sidebar-nav-item-hover($primary);
+        }
+    }
+
+    .logo-main{
+        .logo-normal.dark-normal{
+            min-height: 30px;
+            height: 30px;
+            opacity: 1;
+            display: block;
+            transition: all 0.3s ease-in-out;
+        }
+        .logo-mini.dark-mini{
+            opacity: 0;
+            display: none;
+            min-height: 30px;
+            height: 30px;
+            transition: all 0.3s ease-in-out;
+        }
+    }
+    .logo-main{
+        .logo-mini{
+            min-height: 30px;
+            height: 30px;
+            transition: all 0.3s ease-in-out;
+            opacity: 0;
+            display: none;
+        }
+        .logo-normal{
+            min-height: 30px;
+            height: 30px;
+            opacity: 0;
+            display: none;
+            transition: all 0.3s ease-in-out;
+        }
+    }
+    &.sidebar-mini{
+        .dark-mini.logo-mini {
+            min-height: 30px;
+            height: 30px;
+            opacity: 1;
+            display: block;
+            transition: all 0.3s ease-in-out;
+        }
+        .dark-normal.logo-normal {
+            min-height: 30px;
+            height: 30px;
+            opacity: 0;
+            display: none;
+            transition: all 0.3s ease-in-out;
+        }
+    }
+}
+.sidebar-color {
+    .navbar-nav {
+        .nav-item{
+            .nav-link:not(.disabled){
+                &.active, &[aria-expanded=true]{
+                    background-color: $white !important;
+                    color: var(--bs-primary) !important;
+                    box-shadow: unset !important;
+                }
+            }
+        }
+    }
+}
+.sidebar-dark, .sidebar-white, .sidebar-transparent {
+    .navbar-nav {
+        .nav-item{
+            .nav-link:not(.disabled){
+                &.active, &[aria-expanded=true]{
+                    background-color: var(--bs-primary) !important;
+                    color: $white !important;
+                    box-shadow: unset !important;
+                }
+            }
+        }
+    }
+}
+.sidebar-dark, .sidebar-white, .sidebar-transparent{
+    .navbar-nav .nav-item .nav-link:not(.disabled):hover:not(.active):not([aria-expanded=true]) {
+        background-color: rgba(var(--bs-primary-rgb), 0.2) !important;
+        color: var(--bs-primary) !important;
+    }
+} 
+
+

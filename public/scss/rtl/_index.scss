@@ -1,0 +1,45 @@
+[dir="rtl"] {
+    @import "utilities/utilities-reset";
+    @import "utilities/utilities";
+    @import "../bootstrap/utilities/api";
+
+    @import "./reboot/reboot";
+    @import "components/menu-style/index";
+    @import "./components/accordion/accordion";
+    @import "components/button/bs-btn";
+    @import "components/button/fixed-btn";
+    @import "components/progressbar/progressbar";
+    @import "components/profile/profile";
+    @import "components/widgets/progress-widget";
+    @import "components/widgets/profile-widget";
+    @import "components/widgets/credit-card";
+    @import "components/button-group/button-group";
+    @import "components/forms/form-check";
+    @import "components/dropdown/bs-dropdown";
+    @import "components/timeline/simple-timeline";
+
+    @import "pages/auth/authentication";
+    @import "pages/kanban/kanban";
+    @import "pages/pricing/pricing";
+
+    .iti--allow-dropdown .iti__flag-container, .iti--separate-dial-code .iti__flag-container {
+        left: auto;
+        right: 0;
+    }
+    .iti--allow-dropdown input[type=text]#number.form-control  {
+        padding-left: 6px !important;
+        padding-right: var(--block-width);
+    }
+
+    .iti--separate-dial-code .iti__selected-dial-code {
+        margin-left: 0;
+        margin-right: 6px;
+    }
+
+    .iti__flag-box,  .iti__country-name {
+        margin-left: 6px;
+    }
+    .form-control.is-invalid, .was-validated .form-control:invalid {
+        background-position: left calc(.375em + .1875rem) center;
+    }
+}
