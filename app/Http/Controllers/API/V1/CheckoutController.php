@@ -12,6 +12,14 @@ use Stripe\StripeClient;
 use Stripe\Webhook;
 use Stripe\Exception\SignatureVerificationException;
 use UnexpectedValueException;
+use PaypalServerSdkLib\Environment as PaypalEnvironment;
+use PaypalServerSdkLib\PaypalServerSdkClientBuilder;
+use PaypalServerSdkLib\Authentication\ClientCredentialsAuthCredentialsBuilder;
+use PaypalServerSdkLib\Models\CheckoutPaymentIntent;
+use PaypalServerSdkLib\Models\Builders\OrderRequestBuilder;
+use PaypalServerSdkLib\Models\Builders\PurchaseUnitRequestBuilder;
+use PaypalServerSdkLib\Models\Builders\AmountWithBreakdownBuilder;
+use PaypalServerSdkLib\Models\Builders\OrderApplicationContextBuilder;
 
 /**
  * Checkout de Packages (suscripciones recurrentes Y programas individuales de
@@ -27,6 +35,12 @@ use UnexpectedValueException;
  * directamente, solo crea la fila correcta (mismo patrón que ya usa
  * SubscriptionController::subscribeToPackage(), pensado para esto desde su
  * propio comentario: "gateway de pago real más adelante").
+ *
+ * Dos pasarelas en paralelo, mismo destino (Subscription::create() con
+ * status=active/payment_status=paid): Stripe (tarjeta+Bizum+Link, vía
+ * Checkout Session + webhook) y PayPal (vía create-order/capture-order,
+ * SDK `paypal/paypal-server-sdk` ya instalado, sin webhook porque el propio
+ * frontend confirma la captura tras el retorno desde paypal.com).
  */
 class CheckoutController extends Controller
 {
@@ -149,5 +163,142 @@ class CheckoutController extends Controller
         ]);
         // Al guardarse, Subscription::boot() dispara PackageFulfillmentService
         // automáticamente -- no hace falta llamarlo aquí.
+    }
+
+    /**
+     * Cliente del SDK de PayPal, con las credenciales de config/services.php.
+     * PayPal no tiene "un cliente por request" como Stripe (StripeClient con
+     * la secret key basta) -- este SDK usa OAuth2 client-credentials, el
+     * propio cliente gestiona el token internamente.
+     */
+    private function paypalClient(): \PaypalServerSdkLib\PaypalServerSdkClient
+    {
+        return PaypalServerSdkClientBuilder::init()
+            ->clientCredentialsAuthCredentials(
+                ClientCredentialsAuthCredentialsBuilder::init(
+                    config('services.paypal.client_id'),
+                    config('services.paypal.client_secret')
+                )
+            )
+            ->environment(
+                config('services.paypal.mode') === 'live'
+                    ? PaypalEnvironment::PRODUCTION
+                    : PaypalEnvironment::SANDBOX
+            )
+            ->build();
+    }
+
+    /**
+     * Crea una orden de PayPal para un Package y devuelve el link de
+     * aprobación (rel=approve) al que redirigir al cliente -- PayPal no usa
+     * una URL de checkout hospedada como Stripe, el cliente aprueba en
+     * paypal.com y vuelve a nuestra `return_url`, donde el frontend llama a
+     * capture-order con el order id.
+     */
+    public function createPaypalOrder(Request $request)
+    {
+        $validated = $request->validate([
+            'package_id' => 'required|exists:packages,id',
+        ]);
+
+        $user = auth()->user();
+        $package = Package::where('status', 'active')->findOrFail($validated['package_id']);
+
+        $purchaseUnit = PurchaseUnitRequestBuilder::init(
+            AmountWithBreakdownBuilder::init('EUR', number_format($package->price, 2, '.', ''))->build()
+        )
+            ->description($package->name)
+            // custom_id viaja con la orden y con la captura -- es cómo
+            // identificamos user_id/package_id al confirmar el pago (PayPal
+            // no tiene un campo "metadata" libre como Stripe).
+            ->customId($user->id . ':' . $package->id)
+            ->build();
+
+        $applicationContext = OrderApplicationContextBuilder::init()
+            ->returnUrl(rtrim(config('services.frontend_url'), '/') . '/checkout/paypal-retorno')
+            ->cancelUrl(rtrim(config('services.frontend_url'), '/') . '/checkout/cancelado')
+            ->build();
+
+        $orderRequest = OrderRequestBuilder::init(CheckoutPaymentIntent::CAPTURE, [$purchaseUnit])
+            ->applicationContext($applicationContext)
+            ->build();
+
+        $response = $this->paypalClient()->getOrdersController()->createOrder([
+            'body' => $orderRequest,
+        ]);
+
+        $order = $response->getResult();
+
+        $approveLink = collect($order->getLinks() ?? [])
+            ->first(fn ($link) => $link->getRel() === 'approve');
+
+        return json_custom_response([
+            'order_id' => $order->getId(),
+            'approve_url' => $approveLink?->getHref(),
+        ]);
+    }
+
+    /**
+     * Captura una orden ya aprobada por el cliente en PayPal y crea la
+     * Subscription (mismo mecanismo que fulfillStripeSession) -- llamada por
+     * el frontend justo después de que PayPal redirige a return_url.
+     */
+    public function capturePaypalOrder(Request $request)
+    {
+        $validated = $request->validate([
+            'order_id' => 'required|string',
+        ]);
+
+        $response = $this->paypalClient()->getOrdersController()->captureOrder([
+            'id' => $validated['order_id'],
+        ]);
+
+        $order = $response->getResult();
+
+        if ($order->getStatus() !== 'COMPLETED') {
+            Log::warning('PayPal captureOrder no completado', ['order_id' => $validated['order_id'], 'status' => $order->getStatus()]);
+            return response()->json(['error' => 'not_completed'], 422);
+        }
+
+        // Idempotencia: si el frontend reintenta la llamada a capture-order
+        // (doble clic, refresh de la página de retorno) no se duplica.
+        if (Subscription::where('txn_id', $order->getId())->exists()) {
+            return json_custom_response(['status' => 'already_fulfilled']);
+        }
+
+        $purchaseUnit = ($order->getPurchaseUnits() ?? [])[0] ?? null;
+        $customId = $purchaseUnit?->getCustomId();
+        [$userId, $packageId] = array_pad(explode(':', (string) $customId, 2), 2, null);
+
+        if (!$userId || !$packageId) {
+            Log::warning('PayPal captureOrder sin custom_id esperado', ['order_id' => $order->getId()]);
+            return response()->json(['error' => 'missing_custom_id'], 422);
+        }
+
+        $package = Package::find($packageId);
+        if (!$package) {
+            Log::warning('PayPal captureOrder: package no encontrado', ['package_id' => $packageId, 'order_id' => $order->getId()]);
+            return response()->json(['error' => 'package_not_found'], 422);
+        }
+
+        $start = now()->startOfDay();
+        $end = PackageFulfillmentService::computeEndDate($package, $start);
+
+        Subscription::create([
+            'user_id'                 => $userId,
+            'package_id'              => $package->id,
+            'total_amount'            => $package->price,
+            'payment_type'            => 'paypal',
+            'txn_id'                  => $order->getId(),
+            'transaction_detail'      => json_decode(json_encode($order), true),
+            'payment_status'          => 'paid',
+            'status'                  => config('constant.SUBSCRIPTION_STATUS.ACTIVE'),
+            'subscription_start_date' => $start,
+            'subscription_end_date'   => $end,
+        ]);
+        // Al guardarse, Subscription::boot() dispara PackageFulfillmentService
+        // automáticamente, igual que en el flujo de Stripe.
+
+        return json_custom_response(['status' => 'fulfilled']);
     }
 }

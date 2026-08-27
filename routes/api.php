@@ -213,6 +213,14 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // confirma el pago (webhooks/stripe) es una ruta pública aparte, ver
         // fuera de este grupo auth:sanctum.
         Route::post('checkout/stripe/create-session', [ API\V1\CheckoutController::class, 'createStripeSession' ]);
+
+        // AÑADIDO: checkout de Packages con PayPal, alternativa a Stripe --
+        // mismo Package/Subscription, distinto flujo (PayPal no tiene una
+        // URL de checkout hospedada como Stripe: create-order devuelve un
+        // link de aprobación de paypal.com, capture-order la confirma
+        // cuando el frontend recibe la vuelta desde PayPal).
+        Route::post('checkout/paypal/create-order', [ API\V1\CheckoutController::class, 'createPaypalOrder' ]);
+        Route::post('checkout/paypal/capture-order', [ API\V1\CheckoutController::class, 'capturePaypalOrder' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);
