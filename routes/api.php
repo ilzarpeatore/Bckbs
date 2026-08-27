@@ -69,6 +69,19 @@ Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrie
 
     Route::get('workout-exercise-detail', [ API\V1\WorkoutController::class, 'exerciseDetail' ]);
 
+    // AÑADIDO: catálogo de Packages (planes recurrentes + programas
+    // individuales de pago único) visible SIN sesión para la web (webbs) --
+    // reutiliza el mismo controlador/lógica que la ya-existente 'package-list'
+    // autenticada (no filtra nada por usuario, solo status=active), así que
+    // no hace falta duplicar código, solo un segundo nombre de ruta público.
+    Route::get('package-catalog', [ API\PackageController::class, 'getList' ]);
+
+// AÑADIDO: webhook de Stripe -- ruta pública a propósito (Stripe la llama
+// directamente, no un cliente logueado con token; se verifica por firma
+// Stripe-Signature dentro del controlador, no por auth:sanctum). Ver
+// docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa.
+Route::post('webhooks/stripe', [ API\V1\CheckoutController::class, 'stripeWebhook' ]);
+
 Route::group(['middleware' => ['auth:sanctum']], function () {
 
     Route::post('update-profile', [ API\UserController::class, 'updateProfile']);
@@ -191,6 +204,15 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // AÑADIDO: readiness diario obligatorio antes de Workout Preview.
         Route::get('readiness-today', [ API\ReadinessController::class, 'today' ]);
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
+
+        // AÑADIDO: checkout de Packages desde la web (webbs) -- ver
+        // docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa. Autenticado a
+        // propósito (el usuario ya tiene que haber iniciado sesión antes de
+        // pagar, decisión de producto explícita -- así el backend siempre
+        // sabe qué usuario es en el momento del pago). El webhook que
+        // confirma el pago (webhooks/stripe) es una ruta pública aparte, ver
+        // fuera de este grupo auth:sanctum.
+        Route::post('checkout/stripe/create-session', [ API\V1\CheckoutController::class, 'createStripeSession' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);

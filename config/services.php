@@ -44,8 +44,17 @@ return [
     'stripe' => [
         'secret' => env('STRIPE_SECRET_KEY'),
         'key' => env('STRIPE_PUBLIC_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
-    
+
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'client_secret' => env('PAYPAL_CLIENT_SECRET'),
+        // 'sandbox' o 'live' -- controla contra qué entorno de PayPal habla el SDK.
+        'mode' => env('PAYPAL_MODE', 'sandbox'),
+        'webhook_id' => env('PAYPAL_WEBHOOK_ID'),
+    ],
+
     'razorpay' => [
         'key' => env('RAZORPAY_KEY'),
         'secret' => env('RAZORPAY_SECRET'),
@@ -54,5 +63,9 @@ return [
     'usda' => [
         'api_key' => env('USDA_API_KEY', ''),
     ],
+
+    // URL base de la web (webbs) -- usada para las páginas de éxito/cancelación
+    // a las que Stripe/PayPal redirigen tras el pago.
+    'frontend_url' => env('FRONTEND_URL', 'https://bestronger.es'),
 
 ];
