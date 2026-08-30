@@ -12,10 +12,11 @@ class WorkoutTemplate extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive'];
+    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive', 'is_demo'];
 
     protected $casts = [
         'is_exclusive' => 'boolean',
+        'is_demo'      => 'boolean',
     ];
 
     public function coach()

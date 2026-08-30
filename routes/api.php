@@ -200,10 +200,14 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::get('my-calendar-day-detail', [ API\ClientCalendarController::class, 'getDayDetail' ]);
         Route::post('my-calendar-log-sets', [ API\ClientCalendarController::class, 'logSets' ]);
         Route::post('my-calendar-finish-session', [ API\ClientCalendarController::class, 'finishSession' ]);
+        // AÑADIDO: reorganizar el calendario semanal ("Guardar cambios" tras arrastrar entre días).
+        Route::post('my-calendar-move-assignments', [ API\ClientCalendarController::class, 'moveAssignments' ]);
 
         // AÑADIDO: readiness diario obligatorio antes de Workout Preview.
         Route::get('readiness-today', [ API\ReadinessController::class, 'today' ]);
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
+        // AÑADIDO: resumen ligero de readiness (stopgap subjetivo, ver ReadinessController::summary()).
+        Route::get('readiness-summary', [ API\ReadinessController::class, 'summary' ]);
 
         // AÑADIDO: checkout de Packages desde la web (webbs) -- ver
         // docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa. Autenticado a
