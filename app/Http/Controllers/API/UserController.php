@@ -25,6 +25,12 @@ use App\Models\FormAssignment;
 use App\Models\PersonalClientInvite;
 use App\Services\WelcomeMailService;
 use Illuminate\Support\Facades\Log;
+use App\Models\WorkoutTemplate;
+use App\Models\TrainingProgram;
+use App\Models\ProgramClientAssignment;
+use App\Models\ProgramDayAssignment;
+use App\Services\CalendarDateMapper;
+use Carbon\Carbon;
 
 class UserController extends Controller
 {
@@ -111,6 +117,10 @@ class UserController extends Controller
                     ['active' => true]
                 );
             });
+
+            // AÑADIDO: entrenamiento de bienvenida en el calendario del
+            // cliente nuevo desde el primer día — ver assignDemoWorkoutIfNeeded().
+            $this->assignDemoWorkoutIfNeeded($user);
         }
 
         $user->api_token = $user->createToken('auth_token')->plainTextToken;
@@ -125,6 +135,80 @@ class UserController extends Controller
         ];
 
         return json_custom_response($response);
+    }
+
+    /**
+     * AÑADIDO: "Tu entrenamiento de hoy" desde el primer día — asigna la
+     * plantilla de bienvenida (DemoWorkoutTemplateSeeder, marcada
+     * is_demo=true) al calendario PERSONAL del cliente nuevo, en la fecha
+     * de hoy. Reutiliza exactamente el mismo mecanismo que ya usa el
+     * calendario real (TrainingProgram is_personal + ProgramClientAssignment
+     * + ProgramDayAssignment, ver ClientProfileCalendarController::
+     * getOrCreatePersonalProgram()) — no una tabla ni una relación nueva,
+     * así que si el coach asigna después algo más a este cliente desde el
+     * panel Admin, cae en el mismo programa personal en vez de crear uno
+     * duplicado.
+     *
+     * Defensivo: comprueba que el usuario no tenga ya ningún
+     * ProgramDayAssignment real (con workout asignado) antes de tocar
+     * nada — en un alta nueva esto siempre es cierto, pero por si el flujo
+     * de registro cambia en el futuro (p.ej. invite codes que ya traigan
+     * calendario) no queremos pisar nada.
+     */
+    private function assignDemoWorkoutIfNeeded(User $user): void
+    {
+        $hasRealAssignment = ProgramDayAssignment::whereIn(
+            'training_program_id',
+            ProgramClientAssignment::where('client_id', $user->id)->where('activo', true)->pluck('training_program_id')
+        )->whereNotNull('workout_template_id')->exists();
+
+        if ($hasRealAssignment) {
+            return;
+        }
+
+        $demoTemplate = WorkoutTemplate::where('is_demo', true)->first();
+        if (!$demoTemplate) {
+            // DemoWorkoutTemplateSeeder no se ha corrido todavía en este
+            // entorno — no hay nada que asignar, no rompemos el registro.
+            return;
+        }
+
+        // Misma fecha ancla que usa el panel Admin para el calendario
+        // personal (ClientProfileCalendarController::PERSONAL_ANCHOR_DATE),
+        // referenciada directamente para que week_number/day_of_week
+        // salgan siempre iguales sea cual sea el sitio que cree el día.
+        $anchor = ClientProfileCalendarController::PERSONAL_ANCHOR_DATE;
+
+        $program = TrainingProgram::firstOrCreate(
+            ['personal_client_id' => $user->id, 'is_personal' => true],
+            [
+                'title'        => 'Calendario personal',
+                'coach_id'     => $demoTemplate->coach_id,
+                'num_weeks'    => 1000,
+                'fecha_inicio' => $anchor,
+                'activo'       => true,
+            ]
+        );
+
+        ProgramClientAssignment::firstOrCreate(
+            ['training_program_id' => $program->id, 'client_id' => $user->id],
+            ['start_date' => $anchor, 'activo' => true]
+        );
+
+        $mapper = new CalendarDateMapper();
+        $wd = $mapper->toWeekAndDay(Carbon::parse($anchor), Carbon::now());
+
+        ProgramDayAssignment::firstOrCreate(
+            [
+                'training_program_id' => $program->id,
+                'week_number'         => $wd['week_number'],
+                'day_of_week'         => $wd['day_of_week'],
+            ],
+            [
+                'workout_template_id' => $demoTemplate->id,
+                'scheduled_date'      => now()->toDateString(),
+            ]
+        );
     }
 
     public function login(Request $request)

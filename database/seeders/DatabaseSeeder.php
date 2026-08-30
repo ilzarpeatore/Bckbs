@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             UserTableSeeder::class,
             AppSettingTableSeeder::class,
             StandardProfileFormSeeder::class,
+            DemoWorkoutTemplateSeeder::class,
             BlogCategorySeeder::class,
         ]);
         

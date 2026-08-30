@@ -13,10 +13,40 @@ use App\Services\CalendarDateMapper;
 use App\Services\WorkoutSessionStatsService;
 use App\Traits\HasYoutubeThumbnail;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ClientCalendarController extends Controller
 {
     use HasYoutubeThumbnail;
+
+    /**
+     * AÑADIDO: resuelve un program_day_assignment_id comprobando que
+     * pertenezca a un programa realmente asignado (ProgramClientAssignment
+     * activo) del cliente autenticado — mismo criterio de scoping que ya
+     * usa getMyMonth(). Se usa en getDayDetail(), logSets() y
+     * moveAssignments() en vez de find()/exists: sueltos, que no
+     * comprobaban de quién era la asignación (IDOR: cualquier cliente
+     * autenticado podía leer/enlazar el día de entrenamiento de otro
+     * cliente pasando su id).
+     */
+    private function resolveOwnedAssignment(int $id): ProgramDayAssignment
+    {
+        $assignment = ProgramDayAssignment::find($id);
+        if (!$assignment) {
+            abort(404, 'No encontrado.');
+        }
+
+        $owns = ProgramClientAssignment::where('client_id', auth('sanctum')->id())
+            ->where('training_program_id', $assignment->training_program_id)
+            ->where('activo', true)
+            ->exists();
+
+        if (!$owns) {
+            abort(403, 'No tienes acceso a este entrenamiento.');
+        }
+
+        return $assignment;
+    }
 
     /**
      * ACTUALIZADO: ahora combina TODOS los programas activos del
@@ -83,16 +113,21 @@ class ClientCalendarController extends Controller
     }
 
     /**
-     * Sin cambios respecto a la versión anterior — sigue funcionando
-     * igual, ya que recibe directamente el program_day_assignment_id
-     * (que es único independientemente de a qué programa pertenezca).
+     * CORREGIDO (IDOR): antes solo se validaba que el
+     * program_day_assignment_id EXISTIERA (exists:program_day_assignments,id)
+     * y se cargaba con find() sin comprobar de quién era — cualquier
+     * cliente autenticado podía pasar el id de otro cliente y leer su día
+     * de entrenamiento. Ahora se resuelve siempre a través de
+     * resolveOwnedAssignment(), que aborta con 403/404 si no pertenece al
+     * cliente autenticado.
      */
     public function getDayDetail(Request $request)
     {
-        $request->validate(['program_day_assignment_id' => 'required|exists:program_day_assignments,id']);
+        $request->validate(['program_day_assignment_id' => 'required|integer']);
 
         $client_id = auth('sanctum')->id();
-        $assignment = ProgramDayAssignment::with('workoutTemplate.blocks.exercises.exercise')->find($request->program_day_assignment_id);
+        $assignment = $this->resolveOwnedAssignment((int) $request->program_day_assignment_id)
+            ->load('workoutTemplate.blocks.exercises.exercise');
 
         if ($assignment->workout_template_id == null) {
             return json_custom_response(['data' => ['workout_day_id' => $assignment->id, 'sequence' => $assignment->day_of_week, 'is_rest' => 1, 'blocks' => []]]);
@@ -175,9 +210,19 @@ class ClientCalendarController extends Controller
             'workout_template_exercise_id' => 'nullable|exists:workout_template_exercises,id',
             'exercise_id'                   => 'required_without:workout_template_exercise_id|nullable|exists:exercises,id',
             'logged_sets'                   => 'required|array',
-            'program_day_assignment_id'     => 'nullable|exists:program_day_assignments,id',
+            'program_day_assignment_id'     => 'nullable|integer',
             'notes'                         => 'nullable|string|max:2000',
         ]);
+
+        // CORREGIDO (IDOR): antes se guardaba directamente el
+        // program_day_assignment_id recibido (solo validado con
+        // exists:program_day_assignments,id) sin comprobar que fuera del
+        // propio cliente — el log en sí ya quedaba scoped por client_id,
+        // pero quedaba enlazado al día de entrenamiento de otro cliente.
+        // Se resuelve siempre vía resolveOwnedAssignment() cuando viene.
+        if ($request->program_day_assignment_id) {
+            $this->resolveOwnedAssignment((int) $request->program_day_assignment_id);
+        }
 
         if ($request->workout_template_exercise_id) {
             $wte = \App\Models\WorkoutTemplateExercise::find($request->workout_template_exercise_id);
@@ -263,5 +308,74 @@ class ClientCalendarController extends Controller
             'data' => $review,
             'achievements' => $achievements,
         ]);
+    }
+
+    /**
+     * NUEVO: reorganizar el calendario semanal desde la app cliente
+     * ("Guardar cambios" tras arrastrar entrenamientos entre días) —
+     * POST v1/my-calendar-move-assignments, payload
+     * { moves: [{ assignment_id, to_date }] }.
+     *
+     * Cada assignment_id se resuelve vía resolveOwnedAssignment() (mismo
+     * fix de IDOR que getDayDetail/logSets). Solo se permite mover DENTRO
+     * de la misma semana ISO en la que ya estaba el entrenamiento — se
+     * recalcula (week_number, day_of_week) para to_date con el mismo
+     * CalendarDateMapper que usa el resto del calendario, y se rechaza si
+     * el week_number cambia (eso sería reprogramar a otra semana, no
+     * reorganizar la semana actual). Se actualizan week_number/day_of_week
+     * (lo que getMyMonth realmente usa para agrupar los días) y también
+     * scheduled_date, por consistencia con el resto de "mover" ya
+     * existentes (ver RealCalendarController::moveAssignment()). Todo el
+     * lote se aplica en una única transacción: o se guardan todos los
+     * moves, o ninguno.
+     */
+    public function moveAssignments(Request $request)
+    {
+        $request->validate([
+            'moves'                  => 'required|array|min:1',
+            'moves.*.assignment_id'  => 'required|integer',
+            'moves.*.to_date'        => 'required|date',
+        ]);
+
+        $client_id = auth('sanctum')->id();
+        $mapper = new CalendarDateMapper();
+
+        $updated = DB::transaction(function () use ($request, $client_id, $mapper) {
+            $results = [];
+
+            foreach ($request->moves as $move) {
+                $assignment = $this->resolveOwnedAssignment((int) $move['assignment_id']);
+
+                $client_assignment = ProgramClientAssignment::where('client_id', $client_id)
+                    ->where('training_program_id', $assignment->training_program_id)
+                    ->where('activo', true)
+                    ->first();
+
+                if (!$client_assignment) {
+                    // Ya lo comprobó resolveOwnedAssignment(), pero por
+                    // seguridad ante una carrera (desactivación entre medias).
+                    abort(403, 'No tienes acceso a este entrenamiento.');
+                }
+
+                $start_date = Carbon::parse($client_assignment->start_date);
+                $to_date = Carbon::parse($move['to_date']);
+                $wd = $mapper->toWeekAndDay($start_date, $to_date);
+
+                if ($wd['week_number'] !== (int) $assignment->week_number) {
+                    abort(422, 'Solo puedes reorganizar entrenamientos dentro de la misma semana — esa fecha cae en otra semana distinta.');
+                }
+
+                $assignment->update([
+                    'day_of_week'    => $wd['day_of_week'],
+                    'scheduled_date' => $to_date->toDateString(),
+                ]);
+
+                $results[] = $assignment;
+            }
+
+            return $results;
+        });
+
+        return json_custom_response(['data' => $updated]);
     }
 }
