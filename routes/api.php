@@ -217,6 +217,26 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // AÑADIDO: resumen ligero de readiness (stopgap subjetivo, ver ReadinessController::summary()).
         Route::get('readiness-summary', [ API\ReadinessController::class, 'summary' ]);
 
+        // AÑADIDO: rutas para ClientHabitController, que ya estaba
+        // implementado (espejo cliente de HabitController) pero nunca se
+        // había conectado a ninguna ruta -- la pantalla de Hábitos de la
+        // app llamaba a estos paths y siempre recibía 404.
+        Route::get('habit-my-list', [ API\ClientHabitController::class, 'getMyList' ]);
+        Route::get('habit-library', [ API\ClientHabitController::class, 'getLibrary' ]);
+        Route::post('habit-adopt', [ API\ClientHabitController::class, 'adopt' ]);
+        Route::post('habit-personal-store', [ API\ClientHabitController::class, 'storePersonal' ]);
+        Route::post('habit-my-log', [ API\ClientHabitController::class, 'logHabit' ]);
+        Route::post('habit-my-delete', [ API\ClientHabitController::class, 'destroy' ]);
+
+        // AÑADIDO: rutas para BodyMetricController, espejo cliente de
+        // Admin\ClientBodyMetricController que tampoco tenía ninguna ruta
+        // conectada -- la pantalla de Métricas de la app recibía 404.
+        Route::get('my-body-metric-types', [ API\BodyMetricController::class, 'types' ]);
+        Route::get('my-body-metrics', [ API\BodyMetricController::class, 'index' ]);
+        Route::get('my-body-metrics-chart', [ API\BodyMetricController::class, 'chart' ]);
+        Route::post('my-body-metrics-store', [ API\BodyMetricController::class, 'store' ]);
+        Route::post('my-body-metrics-delete', [ API\BodyMetricController::class, 'destroy' ]);
+
         // AÑADIDO: checkout de Packages desde la web (webbs) -- ver
         // docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa. Autenticado a
         // propósito (el usuario ya tiene que haber iniciado sesión antes de
