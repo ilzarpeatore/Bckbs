@@ -229,6 +229,22 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // cuando el frontend recibe la vuelta desde PayPal).
         Route::post('checkout/paypal/create-order', [ API\V1\CheckoutController::class, 'createPaypalOrder' ]);
         Route::post('checkout/paypal/capture-order', [ API\V1\CheckoutController::class, 'capturePaypalOrder' ]);
+
+        // AÑADIDO: Onboarding v2, etapas 2-4 + marcado de completado -- la
+        // etapa 1 reutiliza update-profile y no vive aquí. Ver
+        // docs/ONBOARDING_V2.md para el contrato completo.
+        Route::prefix('onboarding')->group(function () {
+            Route::post('par-q', [ API\OnboardingController::class, 'parq' ]);
+            Route::post('training-questionnaire', [ API\OnboardingController::class, 'trainingQuestionnaire' ]);
+            Route::post('nutrition-questionnaire', [ API\OnboardingController::class, 'nutritionQuestionnaire' ]);
+            Route::post('complete', [ API\OnboardingController::class, 'complete' ]);
+        });
+
+        // AÑADIDO: borrado de cuenta -- el cliente (app) llama a esta URL
+        // exacta (authApi.deleteAccount() -> POST v1/delete-account), no a
+        // 'delete-user-account'. Mismo método que esa ruta antigua (se deja
+        // por compatibilidad), ver docs/BORRADO_CUENTA_BACKEND.md.
+        Route::post('delete-account', [ API\UserController::class, 'deleteUserAccount' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);
@@ -654,4 +670,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('admin-resource-store', [API\Admin\ResourceController::class, 'store']);
     Route::post('admin-resource-update', [API\Admin\ResourceController::class, 'update']);
     Route::post('admin-resource-delete', [API\Admin\ResourceController::class, 'destroy']);
+
+    // ═══ V2: Onboarding ═══════════════════════════════════════════════
+    Route::get('admin-onboarding-list', [API\Admin\OnboardingController::class, 'getList']);
+    Route::get('admin-onboarding-detail', [API\Admin\OnboardingController::class, 'getDetail']);
 });

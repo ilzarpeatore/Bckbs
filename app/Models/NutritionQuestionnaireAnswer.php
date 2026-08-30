@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class NutritionQuestionnaireAnswer extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'user_id',
+        'allergies_intolerances',
+        'disliked_foods',
+        'liked_foods',
+        'current_meals_per_day',
+        'desired_meals_per_day',
+        'typical_day_meals',
+        'favorite_meats',
+        'favorite_fish',
+        'favorite_fruits_vegetables',
+        'favorite_combined_dishes',
+    ];
+
+    protected $casts = [
+        'current_meals_per_day' => 'integer',
+        'desired_meals_per_day' => 'integer',
+    ];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id', 'id');
+    }
+}
