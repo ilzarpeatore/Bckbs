@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -34,6 +35,8 @@ class AuthController extends Controller
         $token = $user->createToken('admin_token')->plainTextToken;
 
         $permissions = $user->getAllPermissions()->pluck('name')->toArray();
+
+        AuditLogger::log('login', 'users', $user->id, "Inicio de sesión de {$user->email}.", $user->id);
 
         $response = [
             'data' => [
@@ -76,6 +79,10 @@ class AuthController extends Controller
 
     public function logout(Request $request)
     {
+        $user = $request->user();
+
+        AuditLogger::log('logout', 'users', $user->id, 'Cierre de sesión.', $user->id);
+
         $request->user()->currentAccessToken()->delete();
 
         return json_message_response('Logged out successfully.');

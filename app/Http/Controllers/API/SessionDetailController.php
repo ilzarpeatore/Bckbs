@@ -11,6 +11,9 @@ use App\Models\PersonalRecord;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
 use App\Models\WorkoutTemplateBlock;
+use App\Models\User;
+use App\Notifications\CommonNotification;
+use App\Services\MuscleVolumeService;
 use App\Traits\HasYoutubeThumbnail;
 use Carbon\Carbon;
 
@@ -21,10 +24,17 @@ class SessionDetailController extends Controller
     const DIFFICULTY_LABELS = [1 => 'Okay', 2 => 'Good', 3 => 'Fun', 4 => 'Great', 5 => 'Amazing'];
 
     /**
-     * El resumen de una sesión concreta (una asignación de calendario +
-     * un cliente): bloques con sus ejercicios, serie a serie con
-     * 1RM/Volumen calculados y marcados los PRs, más totales generales.
-     * Es lo que se abre al hacer clic en un "badge" del calendario.
+     * El resumen de una sesión concreta: bloques con sus ejercicios, serie
+     * a serie con 1RM/Volumen calculados y marcados los PRs, más totales
+     * generales. Es lo que se abre al hacer clic en un "badge" del
+     * calendario, o en un entrenamiento completado del perfil del cliente.
+     *
+     * Acepta DOS orígenes posibles (uno de los dos, no ambos):
+     * - `program_day_assignment_id`: día de un programa asignado en
+     *   calendario — el caso original, con anulaciones (overrides) propias.
+     * - `workout_template_id` + `date`: un "workout suelto" (sin
+     *   asignación de calendario) — `date` (YYYY-MM-DD) es obligatorio
+     *   aquí para distinguir sesiones distintas del mismo workout suelto.
      *
      * ACTUALIZADO: el prescrito que se devuelve es SIEMPRE el de ESTE
      * cliente concreto — si existe una anulación (client_exercise_overrides)
@@ -35,40 +45,63 @@ class SessionDetailController extends Controller
     public function getSessionDetail(Request $request)
     {
         $request->validate([
-            'program_day_assignment_id' => 'required|exists:program_day_assignments,id',
+            'program_day_assignment_id' => 'required_without:workout_template_id|nullable|exists:program_day_assignments,id',
+            'workout_template_id'        => 'required_without:program_day_assignment_id|nullable|exists:workout_templates,id',
+            'date'                       => 'required_with:workout_template_id|nullable|date',
             'client_id'                  => 'required|exists:users,id',
         ]);
 
-        $assignment = ProgramDayAssignment::with('workoutTemplate.blocks.exercises.exercise')->find($request->program_day_assignment_id);
+        $isStandalone = (bool) $request->workout_template_id;
 
-        if (!$assignment->workoutTemplate) {
-            return json_message_response('Este día no tiene un entrenamiento asignado.', 404);
+        if ($isStandalone) {
+            $workoutTemplate = \App\Models\WorkoutTemplate::with('blocks.exercises.exercise')->find($request->workout_template_id);
+            $sessionDate = $request->date;
+        } else {
+            $assignment = ProgramDayAssignment::with('workoutTemplate.blocks.exercises.exercise')->find($request->program_day_assignment_id);
+            $workoutTemplate = $assignment->workoutTemplate;
+            $sessionDate = $assignment->scheduled_date?->toDateString() ?? now()->toDateString();
         }
 
-        $review = WorkoutSessionReview::where('program_day_assignment_id', $assignment->id)
-            ->where('user_id', $request->client_id)
-            ->first();
+        if (!$workoutTemplate) {
+            return json_message_response('Este entrenamiento no tiene una plantilla asociada.', 404);
+        }
 
-        // Batch-load overrides, logs, and PRs BEFORE the loop to avoid N+1
-        $overrides = ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
-            ->where('client_id', $request->client_id)
-            ->get()
-            ->keyBy('workout_template_exercise_id');
+        $reviewQuery = WorkoutSessionReview::where('user_id', $request->client_id);
+        $review = $isStandalone
+            ? $reviewQuery->where('workout_template_id', $workoutTemplate->id)->whereDate('completed_at', $sessionDate)->first()
+            : $reviewQuery->where('program_day_assignment_id', $request->program_day_assignment_id)->first();
 
-        $allExerciseIds = $assignment->workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
-        $allTemplateExerciseIds = $assignment->workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('id')->values())->unique()->values()->all();
+        // Las anulaciones (client_exercise_overrides) solo existen para dias
+        // de programa asignado en calendario - un workout suelto no tiene
+        // "asignacion" que anular, siempre usa el prescrito de la plantilla.
+        $overrides = $isStandalone
+            ? collect()
+            : ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+                ->where('client_id', $request->client_id)
+                ->get()
+                ->keyBy('workout_template_exercise_id');
+
+        $allExerciseIds = $workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+        $allTemplateExerciseIds = $workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('id')->values())->unique()->values()->all();
 
         // Batch-load logs (keyed by workout_template_exercise_id, keeping only latest)
-        $logs = ClientExerciseLog::where('client_id', $request->client_id)
-            ->where('program_day_assignment_id', $request->program_day_assignment_id)
-            ->whereIn('workout_template_exercise_id', $allTemplateExerciseIds)
-            ->orderByDesc('created_at')
+        // orderByDesc('id') en vez de created_at: los timestamps son de
+        // precision de segundo, y varias series de un mismo ejercicio se
+        // registran (INSERT nuevo cada vez, ver logSets) en la misma sesion
+        // a menudo dentro del mismo segundo - con 'created_at' como unico
+        // criterio, un empate podia devolver el log con MENOS series en vez
+        // del ultimo (con todas), mostrando solo 1 serie en vez de todas.
+        $logsQuery = ClientExerciseLog::where('client_id', $request->client_id)
+            ->whereIn('workout_template_exercise_id', $allTemplateExerciseIds);
+        $logsQuery = $isStandalone
+            ? $logsQuery->whereNull('program_day_assignment_id')->whereDate('performed_date', $sessionDate)
+            : $logsQuery->where('program_day_assignment_id', $request->program_day_assignment_id);
+        $logs = $logsQuery->orderByDesc('id')
             ->get()
             ->unique('workout_template_exercise_id')
             ->keyBy('workout_template_exercise_id');
 
         // Batch-load PRs for this session date (keyed by exercise_id)
-        $sessionDate = $assignment->scheduled_date?->toDateString() ?? now()->toDateString();
         $prsToday = PersonalRecord::where('user_id', $request->client_id)
             ->whereIn('exercise_id', $allExerciseIds)
             ->whereDate('achieved_at', $sessionDate)
@@ -81,7 +114,7 @@ class SessionDetailController extends Controller
         $total_reps = 0;
         $total_prs = 0;
 
-        $blocks = $assignment->workoutTemplate->blocks->map(function ($block) use ($request, $overrides, $logs, $prsToday, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
+        $blocks = $workoutTemplate->blocks->map(function ($block) use ($request, $overrides, $logs, $prsToday, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
             $exercises = $block->exercises->map(function ($ex) use ($request, $overrides, $logs, $prsToday, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
                 $override = $overrides->get($ex->id);
                 $effective_prescribed = array_merge($ex->prescribed ?? [], $override->prescribed_override ?? []);
@@ -101,6 +134,7 @@ class SessionDetailController extends Controller
                         'workout_template_exercise_id' => $ex->id,
                         'prescribed'                   => $effective_prescribed, // ACTUALIZADO
                         'notes'                        => $notes, // AÑADIDO
+                        'client_note'                  => null, // AÑADIDO
                         'title'                        => optional($ex->exercise)->title,
                         'exercise_image'               => $exercise_image,
                         'video_url'                    => optional($ex->exercise)->video_url,
@@ -143,6 +177,7 @@ class SessionDetailController extends Controller
                     'workout_template_exercise_id' => $ex->id,
                     'prescribed'                   => $effective_prescribed, // ACTUALIZADO
                     'notes'                        => $notes, // AÑADIDO
+                    'client_note'                  => $log->notes ?: null, // AÑADIDO
                     'title'         => optional($ex->exercise)->title,
                     'exercise_image' => $exercise_image,
                     'video_url'      => optional($ex->exercise)->video_url,
@@ -163,8 +198,8 @@ class SessionDetailController extends Controller
 
         return json_custom_response([
             'data' => [
-                'title'             => $assignment->workoutTemplate->title,
-                'date'              => $assignment->scheduled_date,
+                'title'             => $workoutTemplate->title,
+                'date'              => $sessionDate,
                 'difficulty_label'  => $review ? (self::DIFFICULTY_LABELS[$review->difficulty_rating] ?? null) : null,
                 'comment'           => $review->comment ?? null,
                 'total_sets'        => $total_sets,
@@ -174,6 +209,129 @@ class SessionDetailController extends Controller
                 'blocks'            => $blocks,
             ],
         ]);
+    }
+
+    /**
+     * Lista de sesiones REALMENTE completadas por un cliente (el cliente
+     * pulso "Finalizar entrenamiento" en la app - WorkoutSessionReview,
+     * no una fila de calendario con fecha pasada que puede no tener nada
+     * registrado). Antes "Entrenamientos completados" en el perfil del
+     * cliente listaba cualquier dia de calendario con fecha <= hoy y
+     * abria el dialogo de EDICION de la plantilla al hacer clic - no
+     * mostraba nada de lo que el cliente registro de verdad. Esto
+     * devuelve, para cada sesion, el identificador correcto (asignacion
+     * de calendario O workout suelto + fecha) para poder pedir despues
+     * el detalle real via getSessionDetail().
+     */
+    public function listCompletedSessions(Request $request)
+    {
+        $request->validate(['client_id' => 'required|exists:users,id']);
+
+        $reviews = WorkoutSessionReview::where('user_id', $request->client_id)
+            ->whereNotNull('completed_at')
+            ->with(['programDayAssignment.workoutTemplate', 'workoutTemplate'])
+            ->orderByDesc('completed_at')
+            ->limit(100)
+            ->get()
+            ->map(function ($r) {
+                $template = optional($r->programDayAssignment)->workoutTemplate ?? $r->workoutTemplate;
+                $media = $template ? $template->getFirstMedia('image') : null;
+
+                return [
+                    'id'                        => $r->id,
+                    'program_day_assignment_id' => $r->program_day_assignment_id,
+                    'workout_template_id'       => $r->workout_template_id,
+                    'title'                     => $template->title ?? 'Entrenamiento',
+                    'thumbnail'                 => $media ? $media->getUrl() : null,
+                    'date'                      => optional($r->completed_at)->toDateTimeString(),
+                    'duration_seconds'          => $r->duration_seconds,
+                    'volume_kg'                 => $r->volume_kg,
+                    'calories_burned'           => $r->calories_burned,
+                    'difficulty_rating'         => $r->difficulty_rating,
+                    'difficulty_label'          => self::DIFFICULTY_LABELS[$r->difficulty_rating] ?? null,
+                ];
+            });
+
+        return json_custom_response(['data' => $reviews]);
+    }
+
+    /**
+     * Espejo cliente de listCompletedSessions/getSessionDetail — mismo
+     * cálculo exacto que ya usa el admin en "Entrenamientos completados",
+     * solo que aquí client_id se fuerza al usuario autenticado en vez de
+     * venir del query string. Pedido por el cliente: poder ver su propio
+     * historial de entrenamientos realizados igual que ya lo ve su coach.
+     */
+    public function listMyCompletedSessions(Request $request)
+    {
+        $request->merge(['client_id' => auth('sanctum')->id()]);
+        return $this->listCompletedSessions($request);
+    }
+
+    public function getMySessionDetail(Request $request)
+    {
+        $request->merge(['client_id' => auth('sanctum')->id()]);
+        return $this->getSessionDetail($request);
+    }
+
+    /**
+     * Historial de ejercicios de un cliente concreto para el admin (pestaña
+     * "Historial de ejercicios" del perfil del cliente) - una fila por serie
+     * realmente registrada (client_exercise_logs, sistema V2), no por
+     * PersonalRecord. Antes esta pestaña llamaba a
+     * PersonalRecordController::getExerciseHistory, que es un endpoint DE
+     * CLIENTE (usa auth()->id(), ignora el client_id que mandaba el admin)
+     * y encima exige `exercise_id` (que el admin nunca envia) - por eso
+     * la tabla salia siempre vacia, sin ningun error visible.
+     */
+    public function getClientExerciseHistory(Request $request)
+    {
+        $request->validate(['client_id' => 'required|exists:users,id']);
+
+        $logs = ClientExerciseLog::where('client_id', $request->client_id)
+            ->with('exercise:id,title')
+            ->orderByDesc('id')
+            ->limit(200)
+            ->get();
+
+        $rows = [];
+        foreach ($logs as $log) {
+            $date = optional($log->performed_date)->toDateString() ?? $log->created_at->toDateString();
+            foreach (($log->logged_sets ?? []) as $i => $set) {
+                $weight = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : null;
+                $reps = isset($set['reps']) && is_numeric($set['reps']) ? (int) $set['reps'] : null;
+                $one_rm = ($weight && $reps) ? round(PersonalRecord::calculateEpley1RM($weight, $reps), 1) : null;
+
+                $rows[] = [
+                    'id'          => "{$log->id}-{$i}",
+                    'exercise_id' => $log->exercise_id,
+                    'exercise'    => ['title' => optional($log->exercise)->title ?? 'Ejercicio'],
+                    'date'        => $date,
+                    'weight'      => $weight,
+                    'reps'        => $reps,
+                    'one_rm'      => $one_rm,
+                ];
+            }
+        }
+
+        return json_custom_response(['data' => $rows]);
+    }
+
+    /**
+     * Volumen de trabajo por grupo muscular de un cliente — misma logica de
+     * reparto EMG que antes vivia solo en el frontend del admin
+     * (src/lib/muscle-volume.ts), ahora servida desde MuscleVolumeService
+     * para que app movil y admin panel consuman siempre el mismo calculo.
+     */
+    public function getMuscleVolume(Request $request)
+    {
+        $request->validate(['client_id' => 'required|exists:users,id']);
+        $days = (int) $request->input('days', 0);
+        $multiplierEnabled = $request->boolean('multiplier_enabled', true);
+
+        $data = MuscleVolumeService::computeForClient((int) $request->client_id, $days, $multiplierEnabled);
+
+        return json_custom_response(['data' => $data]);
     }
 
     /**
@@ -216,14 +374,27 @@ class SessionDetailController extends Controller
             'notes'                          => 'nullable|string',
         ]);
 
-        $override = ClientExerciseOverride::updateOrCreate(
-            [
-                'program_day_assignment_id'   => $request->program_day_assignment_id,
-                'client_id'                    => $request->client_id,
-                'workout_template_exercise_id' => $request->workout_template_exercise_id,
-            ],
-            ['notes' => $request->notes]
-        );
+        $criteria = [
+            'program_day_assignment_id'   => $request->program_day_assignment_id,
+            'client_id'                    => $request->client_id,
+            'workout_template_exercise_id' => $request->workout_template_exercise_id,
+        ];
+        $previousNotes = ClientExerciseOverride::where($criteria)->value('notes');
+
+        $override = ClientExerciseOverride::updateOrCreate($criteria, ['notes' => $request->notes]);
+
+        $newNotes = trim((string) $request->notes);
+        if ($newNotes !== '' && $newNotes !== trim((string) $previousNotes)) {
+            $client = User::find($request->client_id);
+            if ($client) {
+                $client->notify(new CommonNotification('coach_feedback', [
+                    'id'      => $override->id,
+                    'type'    => 'coach_feedback',
+                    'subject' => 'Feedback de tu coach',
+                    'message' => 'Tu coach ha dejado una nota en uno de tus ejercicios.',
+                ]));
+            }
+        }
 
         return json_custom_response(['data' => $override]);
     }
@@ -312,7 +483,7 @@ class SessionDetailController extends Controller
             'workout_template_block_id' => $block->id,
             'exercise_id'               => $request->exercise_id,
             'sequence'                  => $order + 1,
-            'prescribed'                => $request->input('prescribed', ['sets' => '']),
+            'prescribed'                => $request->input('prescribed', ['series' => '']),
             'enabled_metrics'           => $request->input('enabled_metrics', ['reps', 'weight', 'rest', 'rpe', 'rir']),
             'notes'                     => $request->input('notes'),
         ]);

@@ -66,7 +66,12 @@ class RecipeController extends BaseController
             $perPage = 250;
         }
 
-        $items = $query->orderBy('id', 'desc')->paginate($perPage);
+        // Sorting
+        $allowedSorts = ['id', 'title', 'calories', 'protein', 'fats', 'carbs', 'preparation_time', 'created_at'];
+        $sortBy = in_array($request->get('orderby'), $allowedSorts) ? $request->get('orderby') : 'id';
+        $sortOrder = $request->get('order', 'desc') === 'asc' ? 'asc' : 'desc';
+
+        $items = $query->orderBy($sortBy, $sortOrder)->paginate($perPage);
 
         $resourceClass = $this->getResourceClass();
         $items = $resourceClass::collection($items);

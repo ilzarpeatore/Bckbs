@@ -11,9 +11,13 @@ class TrainingProgram extends Model
     use HasFactory, SoftDeletes;
 
     // AÑADIDO: is_personal, personal_client_id (calendario personal por cliente)
+    // AÑADIDO: is_free_accessible, billing_plan_id (acceso gratuito / plan)
+    // AÑADIDO: source, source_id (procedencia de imports de programas)
     protected $fillable = [
         'title', 'is_personal', 'personal_client_id', 'workout_id', 'coach_id', 'client_id',
         'num_weeks', 'fecha_inicio', 'fecha_fin', 'activo',
+        'is_free_accessible', 'billing_plan_id',
+        'source', 'source_id',
     ];
 
     protected $casts = [
@@ -38,15 +42,14 @@ class TrainingProgram extends Model
         return $this->belongsTo(User::class, 'client_id', 'id');
     }
 
-    public function progressionRules()
-    {
-        return $this->hasMany(ProgressionRule::class, 'training_program_id', 'id')
-            ->orderBy('week_number');
-    }
-
     public function clientAssignments()
     {
         return $this->hasMany(ProgramClientAssignment::class, 'training_program_id', 'id');
+    }
+
+    public function dayAssignments()
+    {
+        return $this->hasMany(ProgramDayAssignment::class, 'training_program_id', 'id');
     }
 
     public function scopeActive($query)

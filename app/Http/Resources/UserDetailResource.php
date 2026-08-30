@@ -34,6 +34,7 @@ class UserDetailResource extends JsonResource
             'user_profile'      => isset($this->userProfile) ? new UserProfileResource($this->userProfile) : null,
             'is_subscribe'      => $this->is_subscribe,
             'is_personal_client' => (bool) $this->is_personal_client,
+            'access_tier'       => $this->access_tier,
         ];
     }
 }

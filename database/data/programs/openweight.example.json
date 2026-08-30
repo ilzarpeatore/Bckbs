@@ -1,0 +1,192 @@
+{
+  "id": "ow-ppl-12w",
+  "name": "Push Pull Legs 12 semanas (openweight)",
+  "notes": "Programa de ejemplo en formato openweight con progresión explícita de 2 semanas.",
+  "program": {
+    "warm_up": [],
+    "cool_down": []
+  },
+  "workout_templates": [
+    {
+      "id": "push-a",
+      "name": "Push A",
+      "notes": "Empuje pesado",
+      "sets": [
+        {
+          "title": "Parte principal",
+          "notes": null,
+          "circuit": [
+            {
+              "id": "ex-bench",
+              "name": "Press banca con barra",
+              "sets": 4,
+              "reps": "6-8",
+              "rest_seconds": 150,
+              "weight": 60,
+              "rir_min": 2,
+              "rir_max": 2,
+              "rpe_min": 8,
+              "rpe_max": 9
+            },
+            {
+              "id": "ex-incline-db",
+              "name": "Press inclinado con mancuerna",
+              "sets": 3,
+              "reps": "8-10",
+              "rest_seconds": 120,
+              "weight": 22
+            },
+            {
+              "id": "ex-fly",
+              "name": "Aperturas con mancuernas",
+              "sets": 3,
+              "reps": "12-15",
+              "rest_seconds": 90,
+              "weight": 12
+            }
+          ]
+        },
+        {
+          "title": "Superserie brazos",
+          "notes": "Superserie: tríceps + hombro",
+          "circuit": [
+            {
+              "id": "ex-pushdown",
+              "name": "Extensión de tríceps en polea",
+              "sets": 3,
+              "reps": "10-12",
+              "rest_seconds": 60,
+              "weight": 25
+            },
+            {
+              "id": "ex-latraise",
+              "name": "Elevación lateral con mancuernas",
+              "sets": 3,
+              "reps": "12-15",
+              "rest_seconds": 60,
+              "weight": 8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pull-a",
+      "name": "Pull A",
+      "notes": "Tirón pesado",
+      "sets": [
+        {
+          "title": "Parte principal",
+          "notes": null,
+          "circuit": [
+            {
+              "id": "ex-deadlift",
+              "name": "Peso muerto",
+              "sets": 4,
+              "reps": "5-6",
+              "rest_seconds": 180,
+              "weight": 100
+            },
+            {
+              "id": "ex-row",
+              "name": "Remo con barra",
+              "sets": 4,
+              "reps": "8-10",
+              "rest_seconds": 120,
+              "weight": 50
+            },
+            {
+              "id": "ex-pulldown",
+              "name": "Jalón al pecho",
+              "sets": 3,
+              "reps": "10-12",
+              "rest_seconds": 90,
+              "weight": 55
+            }
+          ]
+        },
+        {
+          "title": "Brazos",
+          "notes": null,
+          "circuit": [
+            {
+              "id": "ex-curl",
+              "name": "Curl de bíceps con barra",
+              "sets": 3,
+              "reps": "8-10",
+              "rest_seconds": 90,
+              "weight": 25
+            },
+            {
+              "id": "ex-hammer",
+              "name": "Curl martillo",
+              "sets": 3,
+              "reps": "10-12",
+              "rest_seconds": 90,
+              "weight": 12
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "legs-a",
+      "name": "Legs A",
+      "notes": "Pierna completa",
+      "sets": [
+        {
+          "title": "Parte principal",
+          "notes": null,
+          "circuit": [
+            {
+              "id": "ex-squat",
+              "name": "Sentadilla trasera",
+              "sets": 4,
+              "reps": "6-8",
+              "rest_seconds": 180,
+              "weight": 80
+            },
+            {
+              "id": "ex-rdl",
+              "name": "Peso muerto rumano",
+              "sets": 3,
+              "reps": "8-10",
+              "rest_seconds": 120,
+              "weight": 70
+            },
+            {
+              "id": "ex-legpress",
+              "name": "Prensa de piernas",
+              "sets": 3,
+              "reps": "10-12",
+              "rest_seconds": 120,
+              "weight": 120
+            }
+          ]
+        },
+        {
+          "title": "Accesorios",
+          "notes": null,
+          "circuit": [
+            {
+              "id": "ex-legcurl",
+              "name": "Curl femoral tumbado",
+              "sets": 3,
+              "reps": "10-12",
+              "rest_seconds": 90,
+              "weight": 35
+            },
+            {
+              "id": "ex-calf",
+              "name": "Elevación de talones de pie",
+              "sets": 4,
+              "reps": "12-15",
+              "rest_seconds": 60,
+              "weight": 40
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -94,12 +94,22 @@ class Recipe extends Model implements HasMedia
             $q->where('title', 'LIKE', '%' . request('title') . '%');
         });
 
+        // recipes.meal_type (columna JSON) esta vacia en todo el catalogo real -
+        // la categorizacion real vive en recipe_category_mappings, asi que se
+        // traduce cada meal_type pedido a su recipe_categories.id (config
+        // macro-nutrient.MEAL_TYPE_CATEGORY) y se filtra por esa relacion, en
+        // vez de comparar contra una columna que nunca se rellena. Antes esto
+        // dejaba "Añadir comida" sin resultados siempre, para cualquier busqueda.
         $query->when(is_array(request('meal_type')), function ($q) {
-            $q->where(function ($sub) {
-                foreach (request('meal_type') as $type) {
-                    $sub->orWhereJsonContains('meal_type', $type);
-                }
-            });
+            $categoryIds = collect(request('meal_type'))
+                ->map(fn ($type) => config('macro-nutrient.MEAL_TYPE_CATEGORY.' . $type))
+                ->filter()
+                ->values();
+            if ($categoryIds->isNotEmpty()) {
+                $q->whereHas('categories', function ($sub) use ($categoryIds) {
+                    $sub->whereIn('recipe_category_id', $categoryIds);
+                });
+            }
         });
 
         $query->when(is_array(request('recipe_category_ids')), function ($q) {

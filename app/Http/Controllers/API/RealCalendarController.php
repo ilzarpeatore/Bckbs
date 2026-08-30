@@ -28,7 +28,7 @@ class RealCalendarController extends Controller
             'month'                => 'required|integer|min:1|max:12',
         ]);
 
-        $program = TrainingProgram::with('progressionRules')->findOrFail($request->training_program_id);
+        $program = TrainingProgram::findOrFail($request->training_program_id);
         $mapper = new CalendarDateMapper();
         $start_date = $this->resolveStartDate($request, $program);
 
@@ -55,7 +55,6 @@ class RealCalendarController extends Controller
             }
 
             $day_assignments = $assignments->get($wd['week_number'].'-'.$wd['day_of_week'], collect());
-            $rule = $program->progressionRules->firstWhere('week_number', $wd['week_number']);
 
             return [
                 'date'         => $date->toDateString(),
@@ -63,7 +62,6 @@ class RealCalendarController extends Controller
                 'in_range'     => true,
                 'week_number'  => $wd['week_number'],
                 'day_of_week'  => $wd['day_of_week'],
-                'is_deload'    => $rule->is_deload ?? false,
                 // AÑADIDO: array, no un solo objeto
                 'workouts'     => $day_assignments->filter(fn ($a) => $a->workout_template_id)->map(fn ($a) => [
                     'assignment_id' => $a->id,
@@ -183,7 +181,7 @@ class RealCalendarController extends Controller
     {
         $request->validate(['training_program_id' => 'required|exists:training_programs,id']);
 
-        $program = TrainingProgram::with('progressionRules')->findOrFail($request->training_program_id);
+        $program = TrainingProgram::findOrFail($request->training_program_id);
 
         // AÑADIDO: paginación — solo se calculan/devuelven las semanas
         // pedidas, no el programa entero de golpe.
@@ -210,7 +208,6 @@ class RealCalendarController extends Controller
 
         $weeks = [];
         for ($week = $start_week; $week <= $end_week; $week++) {
-            $rule = $program->progressionRules->firstWhere('week_number', $week);
             $days = [];
 
             for ($day = 1; $day <= 7; $day++) {
@@ -234,8 +231,6 @@ class RealCalendarController extends Controller
 
             $weeks[] = [
                 'week_number'     => $week,
-                'is_deload'       => $rule->is_deload ?? false,
-                'load_multiplier' => $rule->load_multiplier ?? 1.00,
                 'days'            => $days,
             ];
         }

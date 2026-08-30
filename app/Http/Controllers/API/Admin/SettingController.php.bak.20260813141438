@@ -1,0 +1,177 @@
+<?php
+
+namespace App\Http\Controllers\API\Admin;
+
+use Illuminate\Http\Request;
+use App\Http\Controllers\Controller;
+use App\Models\AppSetting;
+use App\Models\PaymentGateway;
+use App\Models\Setting;
+use Illuminate\Support\Facades\DB;
+
+class SettingController extends Controller
+{
+    /**
+     * Tipos (columna `type`) que agrupa cada pestaña del panel.
+     * La tabla real es `settings(id, key, type, value)`.
+     */
+    private const TAB_TYPES = [
+        'general'    => ['site'],
+        'mail'       => ['MAIL'],
+        'firebase'   => ['FIREBASE'],
+        'mobile'     => [
+            'CURRENCY', 'ONESIGNAL', 'ADMOB', 'AdsBannerDetail', 'CHATGPT',
+            'QUOTE', 'APPVERSION', 'CRISP_CHAT_CONFIGURATION', 'MOBILE_GAME_ENABLE',
+        ],
+        'payment'    => ['PAYMENT'],
+        'subscription' => ['subscription'],
+        'mail_alerts'  => ['mail_alert'],
+        'login_enable' => ['login_enable'],
+        'terms'        => ['terms_condition'],
+        'privacy'      => ['privacy_policy'],
+    ];
+
+    public function getSettings(Request $request)
+    {
+        $page = $request->get('page', 'general');
+
+        if ($page === 'payment') {
+            return $this->getPaymentSettings();
+        }
+
+        $types = self::TAB_TYPES[$page] ?? self::TAB_TYPES['general'];
+
+        $items = Setting::whereIn('type', $types)
+            ->orderBy('key')
+            ->get()
+            ->map(fn (Setting $setting) => [
+                'id'             => $setting->id,
+                'setting_group'  => $setting->type,
+                'setting_key'    => $setting->key,
+                'setting_value'  => $setting->value,
+            ])
+            ->values();
+
+        return json_custom_response(['data' => $items]);
+    }
+
+    public function updateSettings(Request $request)
+    {
+        $request->validate([
+            'settings' => 'required|array',
+        ]);
+
+        DB::transaction(function () use ($request) {
+            foreach ($request->settings as $group => $values) {
+                if (!is_array($values)) {
+                    continue;
+                }
+
+                foreach ($values as $key => $value) {
+                    if ($group === 'payment' && is_string($key) && str_contains($key, '.')) {
+                        $this->updatePaymentGatewayField($key, $value);
+                        continue;
+                    }
+
+                    $type = $this->typeForGroup($group, $key);
+
+                    Setting::updateOrCreate(
+                        ['type' => $type, 'key' => $key],
+                        ['value' => $value !== null ? (string) $value : null]
+                    );
+                }
+            }
+        });
+
+        return json_message_response('Settings updated successfully.');
+    }
+
+    public function getAppSettings(Request $request)
+    {
+        $settings = AppSetting::first();
+
+        if (!$settings) {
+            $settings = AppSetting::create([]);
+        }
+
+        return json_custom_response(['data' => $settings]);
+    }
+
+    public function updateAppSettings(Request $request)
+    {
+        $settings = AppSetting::first();
+
+        if (!$settings) {
+            $settings = AppSetting::create([]);
+        }
+
+        $settings->fill($request->only((new AppSetting)->getFillable()))->update();
+
+        return json_custom_response([
+            'message' => 'App settings updated successfully.',
+            'data'    => $settings,
+        ]);
+    }
+
+    private function getPaymentSettings()
+    {
+        $items = collect();
+
+        PaymentGateway::orderBy('type')->get()->each(function (PaymentGateway $gateway) use ($items) {
+            foreach (['status', 'is_test', 'test_value', 'live_value'] as $field) {
+                if ($gateway->{$field} === null) {
+                    continue;
+                }
+
+                $items->push([
+                    'id'            => $gateway->id,
+                    'setting_group' => 'payment',
+                    'setting_key'   => $gateway->type . '.' . $field,
+                    'setting_value' => (string) $gateway->{$field},
+                ]);
+            }
+        });
+
+        $settingsItems = Setting::where('type', 'PAYMENT')
+            ->get()
+            ->map(fn (Setting $setting) => [
+                'id'            => $setting->id,
+                'setting_group' => 'payment',
+                'setting_key'   => $setting->key,
+                'setting_value' => $setting->value,
+            ]);
+
+        return json_custom_response(['data' => $items->merge($settingsItems)->values()]);
+    }
+
+    private function updatePaymentGatewayField(string $key, $value): void
+    {
+        [$type, $field] = explode('.', $key, 2);
+
+        if (!in_array($field, ['status', 'is_test', 'test_value', 'live_value'], true)) {
+            return;
+        }
+
+        PaymentGateway::updateOrCreate(
+            ['type' => $type],
+            [$field => $value]
+        );
+    }
+
+    private function typeForGroup(string $group, string $key): string
+    {
+        if ($group === 'mobile') {
+            $prefix = strtoupper(explode('_', $key, 2)[0]);
+
+            foreach (self::TAB_TYPES['mobile'] as $type) {
+                if (strtoupper($type) === $prefix) {
+                    return $type;
+                }
+            }
+        }
+
+        $types = self::TAB_TYPES[$group] ?? null;
+
+        return $types[0] ?? $group;
+    }
+}

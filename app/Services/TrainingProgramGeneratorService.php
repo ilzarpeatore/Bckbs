@@ -12,13 +12,12 @@ class TrainingProgramGeneratorService
     /**
      * A partir de los workout_days de la SEMANA 1 (ya creados a mano por
      * el coach, con su estructura de bloques/ejercicios/prescripción),
-     * genera automáticamente las semanas 2..num_weeks aplicando
-     * `progression_rules`: multiplica la carga prescrita por
-     * `load_multiplier`, y marca `allow_special_techniques`/`is_deload`
-     * como metadato de esa semana. NO asume ningún valor de progresión
-     * propio — si no hay progression_rules para una semana, esa semana
-     * se clona igual que S1 (multiplicador 1.00 por defecto), nunca se
-     * inventa una progresión no definida por el coach.
+     * genera automáticamente las semanas 2..num_weeks clonando S1 tal
+     * cual. El modelador de semanas de descarga (progression_rules,
+     * load_multiplier/is_deload) se retiró (nunca se usó en producción,
+     * 0 filas en 20 programas reales) — la progresión de carga real la
+     * decide el Motor de Auto-Regulación (SessionProgressionRuleEngine)
+     * sesión a sesión, no un multiplicador fijado al generar el programa.
      */
     public function generateFromWeekOne(TrainingProgram $program): array
     {
@@ -37,9 +36,6 @@ class TrainingProgramGeneratorService
         $created_days = [];
 
         for ($week = 2; $week <= $program->num_weeks; $week++) {
-            $rule = $program->progressionRules->firstWhere('week_number', $week);
-            $load_multiplier = $rule->load_multiplier ?? 1.00;
-
             foreach ($week_one_days as $source_day) {
                 $new_day = WorkoutDay::create([
                     'workout_id'  => $source_day->workout_id,
@@ -60,13 +56,13 @@ class TrainingProgramGeneratorService
                         $block_map[$source_block->id] = $new_block->id;
 
                         foreach ($source_block->exercises as $source_exercise) {
-                            $this->cloneExercise($source_exercise, $new_day->id, $new_block->id, $load_multiplier);
+                            $this->cloneExercise($source_exercise, $new_day->id, $new_block->id);
                         }
                     }
 
                     // Ejercicios sin bloque (creados antes del sistema de bloques).
                     foreach ($source_day->workoutDayExercise as $source_exercise) {
-                        $this->cloneExercise($source_exercise, $new_day->id, null, $load_multiplier);
+                        $this->cloneExercise($source_exercise, $new_day->id, null);
                     }
                 }
 
@@ -78,19 +74,12 @@ class TrainingProgramGeneratorService
     }
 
     /**
-     * Clona un ejercicio prescrito aplicando el multiplicador de carga
-     * SOLO al campo `carga` dentro de `sets` (si existe) — el resto de
-     * prescripción (reps, RPE, tempo, notas) se mantiene igual, ya que
-     * la progresión de tu metodología es de carga, no de reps/RPE.
-     * Las métricas habilitadas (enabled_metrics) se copian tal cual.
+     * Clona un ejercicio prescrito tal cual (reps, carga, RPE, tempo,
+     * notas, enabled_metrics) — sin ningún multiplicador de carga.
      */
-    private function cloneExercise(WorkoutDayExercise $source, int $new_day_id, ?int $new_block_id, float $load_multiplier): void
+    private function cloneExercise(WorkoutDayExercise $source, int $new_day_id, ?int $new_block_id): void
     {
         $prescribed = $source->sets ?? [];
-
-        if (isset($prescribed['carga']) && is_numeric($prescribed['carga'])) {
-            $prescribed['carga'] = round($prescribed['carga'] * $load_multiplier, 2);
-        }
 
         WorkoutDayExercise::create([
             'workout_id'            => $source->workout_id,

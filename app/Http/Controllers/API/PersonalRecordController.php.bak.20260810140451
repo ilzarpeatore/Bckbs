@@ -1,0 +1,161 @@
+<?php
+
+namespace App\Http\Controllers\API;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\PersonalRecord;
+use App\Models\UserExercise;
+use App\Models\Exercise;
+use App\Models\ClientExerciseLog;
+
+class PersonalRecordController extends Controller
+{
+    /**
+     * Pantalla "Exercise History": 4 tarjetas resumen + histórico sesión
+     * a sesión con % de mejora respecto a la sesión anterior.
+     * Ver sección 7.2 del análisis (RPE/RIR intercambiables, referencia
+     * de última vez).
+     */
+    public function getExerciseHistory(Request $request)
+    {
+        $request->validate(['exercise_id' => 'required|exists:exercises,id']);
+
+        $user_id = auth('sanctum')->id();
+
+        $max_weight = PersonalRecord::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->where('record_type', 'max_weight')->max('value');
+
+        $max_1rm = PersonalRecord::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->where('record_type', 'max_1rm')->max('value');
+
+        $best_volume = PersonalRecord::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->where('record_type', 'max_volume')->max('value');
+
+        $sessions_count = UserExercise::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->count();
+
+        $sessions = UserExercise::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->select('id', 'created_at', 'logged_sets')
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get();
+
+        $response = [
+            'max_weight'   => $max_weight,
+            'max_1rm'      => $max_1rm,
+            'best_volume'  => $best_volume,
+            'sessions_count' => $sessions_count,
+            'sessions'     => $sessions,
+        ];
+
+        return json_custom_response($response);
+    }
+
+    /**
+     * Ranking de marcas personales de TODOS los ejercicios del cliente
+     * autenticado — pantalla "Marcas personales" de Estadísticas. A
+     * diferencia de getExerciseHistory (una fila nueva por cada vez que se
+     * bate un récord, para poder ver progresión), aquí solo interesa la
+     * marca ACTUAL de cada ejercicio: como storeIfRecord() en
+     * ClientExerciseLogObserver solo inserta cuando se supera el récord
+     * anterior, el valor mas alto por (ejercicio, record_type) es siempre
+     * el vigente.
+     */
+    public function getMyPersonalRecords(Request $request)
+    {
+        $userId = auth('sanctum')->id();
+
+        $weightRecords = PersonalRecord::where('user_id', $userId)
+            ->where('record_type', 'max_weight')
+            ->get(['exercise_id', 'value', 'achieved_at'])
+            ->groupBy('exercise_id')
+            ->map(fn ($rows) => $rows->sortByDesc('value')->first());
+
+        $oneRmRecords = PersonalRecord::where('user_id', $userId)
+            ->where('record_type', 'max_1rm')
+            ->get(['exercise_id', 'value'])
+            ->groupBy('exercise_id')
+            ->map(fn ($rows) => $rows->sortByDesc('value')->first());
+
+        $exercises = Exercise::whereIn('id', $weightRecords->keys())
+            ->get(['id', 'title'])
+            ->keyBy('id');
+
+        $data = [];
+        foreach ($weightRecords as $exerciseId => $row) {
+            $exercise = $exercises->get($exerciseId);
+            if (!$exercise) {
+                continue;
+            }
+            $data[] = [
+                'exercise_id' => $exerciseId,
+                'title'       => $exercise->title,
+                'image'       => getSingleMedia($exercise, 'exercise_image', null),
+                'max_weight'  => (float) $row->value,
+                'max_1rm'     => (float) ($oneRmRecords[$exerciseId]->value ?? 0),
+                'achieved_at' => optional($row->achieved_at)->toDateString(),
+                'max_reps'    => $this->findRepsForRecord($userId, $exerciseId, (float) $row->value, $row->achieved_at),
+            ];
+        }
+        usort($data, fn ($a, $b) => $b['max_weight'] <=> $a['max_weight']);
+
+        return json_custom_response(['data' => array_values($data)]);
+    }
+
+    /**
+     * Reps de la serie que logro la marca de max_weight -- no hay columna
+     * propia para esto en personal_records (solo guarda el valor), pero el
+     * dato ya existe en logged_sets del log que disparo el record (mismo
+     * client_id/exercise_id/fecha). Es solo lectura sobre datos existentes,
+     * no altera la tabla ni el observer que crea los records.
+     */
+    private function findRepsForRecord(int $userId, int $exerciseId, float $maxWeight, $achievedAt): ?int
+    {
+        if (!$achievedAt) {
+            return null;
+        }
+        $logs = ClientExerciseLog::where('client_id', $userId)
+            ->where('exercise_id', $exerciseId)
+            ->whereDate('performed_date', $achievedAt->toDateString())
+            ->get(['logged_sets']);
+
+        $bestReps = null;
+        foreach ($logs as $log) {
+            foreach (($log->logged_sets ?? []) as $set) {
+                $carga = (float) ($set['carga'] ?? 0);
+                if (abs($carga - $maxWeight) < 0.01) {
+                    $reps = (int) ($set['reps'] ?? 0);
+                    if ($reps > 0 && ($bestReps === null || $reps > $bestReps)) {
+                        $bestReps = $reps;
+                    }
+                }
+            }
+        }
+        return $bestReps;
+    }
+
+    /**
+     * "Última vez que se hizo este ejercicio" — se resuelve aquí, sin
+     * tabla propia, tal como quedó definido en el análisis. Se usa como
+     * referencia al abrir el ejercicio para rellenar la sesión actual.
+     */
+    public function getLastPerformance(Request $request)
+    {
+        $request->validate(['exercise_id' => 'required|exists:exercises,id']);
+
+        $user_id = auth('sanctum')->id();
+
+        $last = UserExercise::where('user_id', $user_id)
+            ->where('exercise_id', $request->exercise_id)
+            ->orderByDesc('created_at')
+            ->first();
+
+        return json_custom_response(['data' => $last]);
+    }
+}

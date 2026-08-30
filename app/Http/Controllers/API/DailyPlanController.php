@@ -24,12 +24,18 @@ class DailyPlanController extends Controller
             'daily_plan_id' => $daily_plan->id,
         ])->get()->groupBy('meal_type');
 
-        // Total del dia = todo lo agregado al plan, este o no marcado como
-        // "comido" (is_complete) - coincide con el subtotal de cada seccion
-        // (getSumOfDailyPlanRecipe), que nunca filtro por is_complete. Antes
-        // esta suma si filtraba por is_complete, lo que dejaba el "Daily
-        // Total" en 0 justo despues de agregar una comida sin marcarla.
+        // Total del dia = SOLO lo marcado como "comido" (is_complete = true).
+        // Añadir una receta al plan es planificación, no consumo: por eso el
+        // "Daily Total" (y el subtotal de cada sección, ver
+        // getSumOfDailyPlanRecipe) deben contar únicamente is_complete=true,
+        // igual que el subtotal por sección. Revertido el 2026-08-09: el
+        // intento anterior (2026-08-02) de sumar TODO sin filtrar para que
+        // "Daily Total" coincidiera con el subtotal era la causa real del bug
+        // reportado por el usuario (kcal ya no bajaban al desmarcar/borrar
+        // comidas sin marcar). La solución correcta es filtrar por
+        // is_complete en ambos sitios, no dejar de filtrar en ninguno.
         $sumRow = DailyPlanRecipe::where('daily_plan_id', $daily_plan->id)
+            ->where('is_complete', true)
             ->selectRaw('SUM(protein) as total_protein, SUM(fats) as total_fats, SUM(carbs) as total_carbs, SUM(calories) as total_calories')
             ->first();
 

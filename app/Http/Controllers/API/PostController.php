@@ -78,7 +78,17 @@ class PostController extends Controller
 
     public function getDetail(Request $request)
     {
-        $post = Post::where('id', request('id'))->first();
+        // AÑADIDO: además del id (usado por la app, bsa/api/blog.ts), acepta
+        // slug -- lo usa la web (webbs) para URLs legibles /blog/[slug]. El
+        // slug ya existe y es único (Post::getSlugOptions(), autogenerado al
+        // crear cada post), no hace falta ninguna migración.
+        $query = Post::query();
+        if ($request->filled('slug')) {
+            $query->where('slug', $request->input('slug'));
+        } else {
+            $query->where('id', $request->input('id'));
+        }
+        $post = $query->first();
 
         if ($post == null) {
             return json_message_response(__('message.not_found_entry', ['name' => __('message.post')]));

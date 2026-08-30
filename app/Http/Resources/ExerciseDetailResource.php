@@ -43,6 +43,8 @@ class ExerciseDetailResource extends JsonResource
             'sets'              => $this->sets,
             'based'             => $this->based,
             'type'              => $this->type,
+            'exercise_type'       => $this->exercise_type,
+            'exercise_type_label' => \App\Models\Exercise::EXERCISE_TYPES[$this->exercise_type] ?? null,
             'equipment_id'      => $this->equipment_id,
             'equipment_title'   => optional($this->equipment)->title,
             'equipment_image'   => getSingleMedia($this->equipment, 'equipment_image',null),

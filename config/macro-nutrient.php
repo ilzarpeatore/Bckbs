@@ -34,4 +34,19 @@ return [
     ],
     
     'MEAL_TYPE' => [ 'breakfast', 'lunch', 'dinner', 'snacks' ],
+
+    /**
+     * recipes.meal_type (columna JSON) esta vacia en todo el catalogo real -
+     * la categorizacion real vive en recipe_category_mappings. Este mapeo
+     * traduce cada meal_type logico a su recipe_categories.id real, para que
+     * el buscador de "Añadir comida" (Recipe::scopeRecipeFilter) pueda
+     * filtrar contra datos que sí existen. Ids segun el seed real (ver
+     * recipe_categories: 8=Desayuno, 9=Comida, 10=Cena, 11=Snack).
+     */
+    'MEAL_TYPE_CATEGORY' => [
+        'breakfast' => 8,
+        'lunch'     => 9,
+        'dinner'    => 10,
+        'snacks'    => 11,
+    ],
 ];

@@ -37,6 +37,8 @@ class ExerciseResource extends JsonResource
             'bodypart_ids'    => $this->bodypart_ids,
             'bodypart_names'  => $bodypartNames,
             'type'            => $this->type,
+            'exercise_type'       => $this->exercise_type,
+            'exercise_type_label' => \App\Models\Exercise::EXERCISE_TYPES[$this->exercise_type] ?? null,
             'based'           => $this->based,
             'duration'        => $this->duration,
             'sets'            => $this->sets,

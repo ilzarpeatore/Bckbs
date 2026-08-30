@@ -22,7 +22,7 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
      *
      * @var array
      */
-    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'is_subscribe', 'is_personal_client', 'timezone','last_notification_seen', 'apple_user_identifier' ];
+    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'is_subscribe', 'is_personal_client', 'timezone','last_notification_seen', 'apple_user_identifier', 'two_factor_enabled', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at' ];
 
     /**
      * The attributes that should be hidden for arrays.
@@ -43,6 +43,9 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         'email_verified_at' => 'datetime',
         'is_subscribe'  => 'integer',
         'is_personal_client' => 'boolean',
+        'two_factor_enabled' => 'boolean',
+        'two_factor_backup_codes' => 'array',
+        'two_factor_confirmed_at' => 'datetime',
     ];
 
     public function userProfile() {
@@ -122,6 +125,17 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
                 $model->refresh();
                 self::resetDailyPlan($model);
             }
+            // Motor de Auto-Regulación de Carga (2026-08-12): al pasar a
+            // cliente 1:1, su historial de sesiones ya existente (mientras
+            // era free) nunca generó exercise_session_metrics -- sin esto,
+            // el motor arrancaría de cero pese a tener años de datos reales.
+            // Único punto de enganche real (Admin\UserController::update()
+            // Y API\UserController::register() con invite code escriben
+            // is_personal_client por separado -- un observer aquí cubre
+            // ambos sin duplicar el hook).
+            if ($model->wasChanged('is_personal_client') && $model->is_personal_client) {
+                \App\Jobs\BackfillClientSessionHistory::dispatch($model);
+            }
         });
     }
 
@@ -137,6 +151,10 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
     // AÑADIDO: a diferencia de subscriptionPackage() (hasOne, una sola suscripción
     // "de membresía" activa), un cliente free puede tener varios Package de contenido
     // (entrenamiento/nutrición) comprados y activos en paralelo.
+    // DEPRECADO 2026-08-13: Package/Subscription es el sistema viejo, sin caller real
+    // hoy (el admin concede acceso vía Plan/PlanSubscription desde hace tiempo,
+    // PlanSubscriptionController::grantPlan()). Se deja el método por si algo legacy
+    // lo sigue leyendo directamente, pero el gate real ahora es activePlanSubscriptions().
     public function activePackageSubscriptions()
     {
         return $this->hasMany(Subscription::class, 'user_id', 'id')
@@ -146,6 +164,58 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
                 $q->whereNull('subscription_end_date')
                   ->orWhere('subscription_end_date', '>=', now());
             });
+    }
+
+    // AÑADIDO 2026-08-13: gate real de acceso a contenido (PackageAccessService)
+    // — antes leía activePackageSubscriptions() (Package/Subscription, sistema
+    // viejo) mientras el único botón real de conceder acceso (admin, grantPlan())
+    // escribía en PlanSubscription — desconectados entre sí, bug real confirmado
+    // (un Plan con grants_full_recipe_library=true concedido de verdad no
+    // desbloqueaba nada). subscriber es MorphTo en PlanSubscription
+    // ('subscriber_type'/'subscriber_id'), de ahí el morphMany aquí.
+    public function activePlanSubscriptions()
+    {
+        return $this->morphMany(PlanSubscription::class, 'subscriber')
+            ->where('payment_status', 'paid')
+            ->whereNull('canceled_at')
+            ->whereNull('access_revoked_at')
+            ->where(function ($q) {
+                $q->whereNull('ends_at')
+                  ->orWhere('ends_at', '>', now());
+            });
+    }
+
+    /**
+     * Nivel de acceso a contenido del cliente (no confundir con user_type: admin/coach/user).
+     * Calculado siempre en vivo, nunca guardado en BD -> refleja el estado real de sus
+     * Subscriptions en cada request, sin desincronizarse si una expira.
+     * - personal: is_personal_client=true, acceso total sin pagar por Package.
+     * - subscriber: tiene al menos 1 Subscription activa+pagada a algun Package
+     *   (el contenido especifico que desbloquea sigue decidiendolo PackageAccessService
+     *   por Package concreto, esto es solo para gatear features nuevas no ligadas a un
+     *   item especifico).
+     * - free: por defecto.
+     */
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 1) — resolver el
+    // coach de un cliente para notificaciones (ej. alerta de dolor).
+    // coach_id ya existe en la tabla (self-referencing FK, ver migración
+    // add_coach_id_to_users_table).
+    public function coach()
+    {
+        return $this->belongsTo(User::class, 'coach_id', 'id');
+    }
+
+    public function getAccessTierAttribute(): string
+    {
+        if ($this->is_personal_client) {
+            return 'personal';
+        }
+
+        if ($this->activePlanSubscriptions()->exists()) {
+            return 'subscriber';
+        }
+
+        return 'free';
     }
 
     public function classSchedulePlan(){

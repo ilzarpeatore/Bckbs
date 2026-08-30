@@ -1,0 +1,1 @@
+[2026-08-29 18:23:56] production.WARNING: WelcomeMailService: failed to send welcome email for user 77 {"error":"An email must have a \"From\" or a \"Sender\" header."} 

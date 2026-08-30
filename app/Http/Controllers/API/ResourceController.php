@@ -9,7 +9,7 @@ use App\Models\Resource;
 class ResourceController extends Controller
 {
     /**
-     * Lo que un cliente ve: sus recursos compartidos + los suyos personales.
+     * Lo que un cliente ve: sus recursos compartidos + los suyos asignados.
      * Usa el scope visibleTo() definido en el Model.
      */
     public function getList(Request $request)
@@ -20,6 +20,14 @@ class ResourceController extends Controller
 
         $resource->when($request->type, function ($q) use ($request) {
             return $q->where('type', $request->type);
+        });
+
+        $resource->when($request->scope, function ($q) use ($request) {
+            return $q->where('scope', $request->scope);
+        });
+
+        $resource->when($request->category, function ($q) use ($request) {
+            return $q->where('category', $request->category);
         });
 
         $per_page = config('constant.PER_PAGE_LIMIT');
@@ -54,26 +62,27 @@ class ResourceController extends Controller
     }
 
     /**
-     * Crear un recurso desde el panel Admin. `scope=personal` exige `client_id`;
-     * `scope=shared` lo ignora (es visible para todo el roster del coach).
+     * Uso secundario - la via real de creacion es el panel Admin
+     * (Admin\ResourceController, que ademas gestiona la asignacion a
+     * clientes). Se deja disponible por si un coach crea contenido desde
+     * la propia app cliente en el futuro.
      */
     public function store(Request $request)
     {
         $request->validate([
             'title' => 'required|string|max:255',
             'type'  => 'required|string',
-            'scope' => 'required|in:shared,personal',
-            'client_id' => 'required_if:scope,personal|exists:users,id',
+            'scope' => 'required|in:shared,assigned',
         ]);
 
         $resource = Resource::create([
             'coach_id'      => auth('sanctum')->id(),
-            'client_id'     => $request->scope == 'personal' ? $request->client_id : null,
             'title'         => $request->title,
             'type'          => $request->type,
             'content'       => $request->content,
             'external_url'  => $request->external_url,
             'scope'         => $request->scope,
+            'category'      => $request->category,
         ]);
 
         return json_message_response(__('message.save_form', ['form' => 'Resource']));
@@ -87,7 +96,7 @@ class ResourceController extends Controller
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
         }
 
-        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope', 'client_id']));
+        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope', 'category']));
 
         return json_message_response(__('message.save_form', ['form' => 'Resource']));
     }

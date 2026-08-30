@@ -5,9 +5,11 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\TrainingProgram;
-use App\Models\ProgressionRule;
 use App\Models\ProgramClientAssignment;
+use App\Models\User;
+use App\Notifications\CommonNotification;
 use App\Services\TrainingProgramGeneratorService;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class TrainingProgramController extends Controller
@@ -20,7 +22,7 @@ class TrainingProgramController extends Controller
     {
         $user = auth('sanctum')->user();
 
-        $program = TrainingProgram::with(['workout', 'progressionRules', 'client'])
+        $program = TrainingProgram::with(['workout', 'client'])
             ->where('is_personal', false);
 
         if ($request->has('client_id') && !empty($request->client_id)) {
@@ -62,7 +64,7 @@ class TrainingProgramController extends Controller
      */
     public function getDetail(Request $request)
     {
-        $program = TrainingProgram::with(['workout.workoutDay.workoutDayExercise', 'progressionRules'])
+        $program = TrainingProgram::with(['workout.workoutDay.workoutDayExercise'])
             ->where('id', $request->id)
             ->first();
 
@@ -80,7 +82,6 @@ class TrainingProgramController extends Controller
 
         $response = [
             'data'                      => $program,
-            'progression_rule'          => $program->progressionRules->firstWhere('week_number', $request->week_number),
             'workout_days'              => $workout_days,
             'workout_days_with_blocks'  => $workout_days_with_blocks,
         ];
@@ -100,7 +101,6 @@ class TrainingProgramController extends Controller
             'client_id'     => 'nullable|exists:users,id',
             'num_weeks'     => 'required|integer|min:1',
             'fecha_inicio'  => 'required|date',
-            'progression_rules' => 'sometimes|array',
         ]);
 
         $coach_id = auth('sanctum')->id();
@@ -118,18 +118,7 @@ class TrainingProgramController extends Controller
                 'activo'        => true,
             ]);
 
-            foreach ($request->input('progression_rules', []) as $rule) {
-                ProgressionRule::create([
-                    'training_program_id'      => $program->id,
-                    'week_number'              => $rule['week_number'],
-                    'load_multiplier'          => $rule['load_multiplier'] ?? 1.00,
-                    'is_deload'                => $rule['is_deload'] ?? false,
-                    'allow_special_techniques' => $rule['allow_special_techniques'] ?? false,
-                ]);
-            }
-
             if ($program->num_weeks > 1 && $request->boolean('auto_generate', true)) {
-                $program->load('progressionRules');
                 (new TrainingProgramGeneratorService())->generateFromWeekOne($program);
             }
 
@@ -150,7 +139,7 @@ class TrainingProgramController extends Controller
      */
     public function generateWeeks(Request $request)
     {
-        $program = TrainingProgram::with('progressionRules')->find($request->id);
+        $program = TrainingProgram::find($request->id);
 
         if ($program == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
@@ -176,19 +165,6 @@ class TrainingProgramController extends Controller
         DB::beginTransaction();
         try {
             $program->update($request->only(['title', 'num_weeks', 'fecha_inicio', 'fecha_fin', 'activo']));
-
-            if ($request->has('progression_rules')) {
-                foreach ($request->input('progression_rules', []) as $rule) {
-                    ProgressionRule::updateOrCreate(
-                        ['training_program_id' => $program->id, 'week_number' => $rule['week_number']],
-                        [
-                            'load_multiplier'          => $rule['load_multiplier'] ?? 1.00,
-                            'is_deload'                => $rule['is_deload'] ?? false,
-                            'allow_special_techniques' => $rule['allow_special_techniques'] ?? false,
-                        ]
-                    );
-                }
-            }
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -220,12 +196,22 @@ class TrainingProgramController extends Controller
             'start_date'          => 'required|date',
         ]);
 
+        $program = TrainingProgram::find($request->training_program_id);
+        $startDate = Carbon::parse($request->start_date);
+        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
+
         $existing = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
             ->where('client_id', $request->client_id)
             ->first();
 
         if ($existing) {
-            $existing->update(['start_date' => $request->start_date, 'activo' => true]);
+            $existing->update([
+                'start_date' => $request->start_date,
+                'fecha_fin'  => $fechaFin->toDateString(),
+                'activo'     => true,
+                'cerrado_at' => null, // renovación = nuevo ciclo del mesociclo, no continuación del cerrado
+            ]);
+            $this->notifyProgramAssigned($request->client_id, $program);
             return json_custom_response(['data' => $existing, 'message' => 'Assignment updated']);
         }
 
@@ -233,10 +219,27 @@ class TrainingProgramController extends Controller
             'training_program_id' => $request->training_program_id,
             'client_id'           => $request->client_id,
             'start_date'          => $request->start_date,
+            'fecha_fin'           => $fechaFin->toDateString(),
             'activo'              => true,
         ]);
 
+        $this->notifyProgramAssigned($request->client_id, $program);
+
         return json_custom_response(['data' => $assignment, 'message' => 'Client assigned']);
+    }
+
+    private function notifyProgramAssigned(int $client_id, ?TrainingProgram $program): void
+    {
+        $user = User::find($client_id);
+        if (!$user || !$program) {
+            return;
+        }
+        $user->notify(new CommonNotification('new_training_program', [
+            'id'      => $program->id,
+            'type'    => 'new_training_program',
+            'subject' => 'Nuevo programa de entrenamiento',
+            'message' => "Tu coach te ha asignado el programa \"{$program->title}\".",
+        ]));
     }
 
     public function removeAssignment(Request $request)

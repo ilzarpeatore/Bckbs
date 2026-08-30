@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Observers;
+
+use App\Models\ClientExerciseLog;
+use App\Models\PersonalRecord;
+use App\Models\User;
+use App\Models\Exercise;
+use App\Notifications\CommonNotification;
+
+/**
+ * Listener documentado desde el principio en la migracion de
+ * personal_records ("se rellena mediante un listener disparado al
+ * completar una sesion") pero nunca implementado - la tabla estaba
+ * siempre vacia. Se dispara en cada guardado de series (logSets ya
+ * envia el estado acumulado de series completadas de ese ejercicio,
+ * no solo la ultima), y solo crea un registro nuevo si supera el
+ * record anterior de ese mismo tipo.
+ */
+class ClientExerciseLogObserver
+{
+    public function created(ClientExerciseLog $log): void
+    {
+        $sets = $log->logged_sets ?? [];
+        if (empty($sets)) {
+            return;
+        }
+
+        $maxWeight = 0.0;
+        $maxOneRm = 0.0;
+        $totalVolume = 0.0;
+
+        foreach ($sets as $set) {
+            $weight = (float) ($set['carga'] ?? 0);
+            $reps = (int) ($set['reps'] ?? 0);
+            if ($weight <= 0 || $reps <= 0) {
+                continue;
+            }
+
+            $totalVolume += $weight * $reps;
+            $maxWeight = max($maxWeight, $weight);
+            $maxOneRm = max($maxOneRm, PersonalRecord::calculateEpley1RM($weight, $reps));
+        }
+
+        if ($maxWeight <= 0 && $maxOneRm <= 0 && $totalVolume <= 0) {
+            return;
+        }
+
+        $achievedAt = $log->performed_date ?? now();
+
+        // Un solo aviso aunque se batan varios tipos de récord a la vez
+        // (max_weight/max_1rm/max_volume) en la misma serie — evita 3
+        // notificaciones seguidas por un único set.
+        $gotRecord = false;
+        $gotRecord = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_weight', $maxWeight, $achievedAt) || $gotRecord;
+        $gotRecord = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_1rm', $maxOneRm, $achievedAt) || $gotRecord;
+        $gotRecord = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_volume', $totalVolume, $achievedAt) || $gotRecord;
+
+        if ($gotRecord) {
+            $this->notifyNewRecord($log->client_id, $log->exercise_id);
+        }
+    }
+
+    private function storeIfRecord(int $userId, int $exerciseId, string $recordType, float $value, $achievedAt): bool
+    {
+        if ($value <= 0) {
+            return false;
+        }
+
+        $previousBest = PersonalRecord::where('user_id', $userId)
+            ->where('exercise_id', $exerciseId)
+            ->where('record_type', $recordType)
+            ->max('value');
+
+        if ($previousBest !== null && $value <= $previousBest) {
+            return false;
+        }
+
+        PersonalRecord::create([
+            'user_id'      => $userId,
+            'exercise_id'  => $exerciseId,
+            'record_type'  => $recordType,
+            'value'        => round($value, 2),
+            'achieved_at'  => $achievedAt,
+        ]);
+
+        return true;
+    }
+
+    private function notifyNewRecord(int $userId, int $exerciseId): void
+    {
+        $user = User::find($userId);
+        $exercise = Exercise::find($exerciseId);
+        if (!$user || !$exercise) {
+            return;
+        }
+        $user->notify(new CommonNotification('personal_record', [
+            'id'      => $exerciseId,
+            'type'    => 'personal_record',
+            'subject' => 'Nuevo récord personal',
+            'message' => "¡Nuevo récord en \"{$exercise->title}\"! Sigue así.",
+        ]));
+    }
+}

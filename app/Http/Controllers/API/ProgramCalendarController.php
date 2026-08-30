@@ -15,7 +15,7 @@ class ProgramCalendarController extends Controller
     {
         $request->validate(['training_program_id' => 'required|exists:training_programs,id']);
 
-        $program = TrainingProgram::with('progressionRules')->find($request->training_program_id);
+        $program = TrainingProgram::find($request->training_program_id);
 
         $assignments = ProgramDayAssignment::where('training_program_id', $request->training_program_id)
             ->with('workoutTemplate.blocks.exercises.exercise')
@@ -24,22 +24,17 @@ class ProgramCalendarController extends Controller
             ->get()
             ->groupBy('week_number');
 
-        $calendar = $assignments->map(function ($days, $week) use ($program) {
-            $rule = $program->progressionRules->firstWhere('week_number', $week);
-            $multiplier = $rule->load_multiplier ?? 1.00;
-
+        $calendar = $assignments->map(function ($days, $week) {
             return [
                 'week_number'      => (int) $week,
-                'load_multiplier'  => $multiplier,
-                'is_deload'        => $rule->is_deload ?? false,
-                'days'             => $days->map(function ($day) use ($multiplier) {
+                'days'             => $days->map(function ($day) {
                     return [
                         'assignment_id'   => $day->id,
                         'day_of_week'     => $day->day_of_week,
                         'scheduled_date'  => $day->scheduled_date,
                         'is_rest'         => $day->is_rest,
                         'workout'         => $day->workout_template_id
-                            ? $this->applyMultiplierToWorkout($day->workoutTemplate, $multiplier)
+                            ? $this->serializeWorkout($day->workoutTemplate)
                             : null,
                     ];
                 })->values(),
@@ -49,30 +44,21 @@ class ProgramCalendarController extends Controller
         return json_custom_response(['data' => $calendar]);
     }
 
-    /**
-     * Aplica el load_multiplier de la semana AL LEER, sin tocar el
-     * workout_template original (que puede estar usándose en otras
-     * semanas/programas con multiplicadores distintos).
-     */
-    private function applyMultiplierToWorkout($workout, float $multiplier): array
+    private function serializeWorkout($workout): array
     {
         return [
             'id'     => $workout->id,
             'title'  => $workout->title,
-            'blocks' => $workout->blocks->map(function ($block) use ($multiplier) {
+            'blocks' => $workout->blocks->map(function ($block) {
                 return [
                     'id'    => $block->id,
                     'title' => $block->title,
-                    'exercises' => $block->exercises->map(function ($ex) use ($multiplier) {
-                        $prescribed = $ex->prescribed ?? [];
-                        if (isset($prescribed['carga']) && is_numeric($prescribed['carga'])) {
-                            $prescribed['carga'] = round($prescribed['carga'] * $multiplier, 2);
-                        }
+                    'exercises' => $block->exercises->map(function ($ex) {
                         return [
                             'id'              => $ex->id,
                             'exercise_id'     => $ex->exercise_id,
                             'title'           => optional($ex->exercise)->title,
-                            'prescribed'      => $prescribed,
+                            'prescribed'      => $ex->prescribed ?? [],
                             'enabled_metrics' => $ex->enabled_metrics,
                         ];
                     })->values(),

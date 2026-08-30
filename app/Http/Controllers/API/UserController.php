@@ -24,6 +24,8 @@ use App\Models\Form;
 use App\Models\FormAssignment;
 use App\Models\PersonalClientInvite;
 use App\Services\WelcomeMailService;
+use App\Models\Posting;
+use App\Models\WorkoutSessionReview;
 
 class UserController extends Controller
 {
@@ -534,6 +536,31 @@ class UserController extends Controller
         $response = [
             'data' => $user_detail,
             'subscription_detail' => $this->subscriptionPlanDetail($user->id),
+        ];
+
+        return json_custom_response($response);
+    }
+
+    /**
+     * AÑADIDO 2026-08-13 — Perfil de otro usuario (pantalla social
+     * other_user_profile_screen.tsx pedía "num. entrenamientos" y "num.
+     * posts" y no existía ningún endpoint que los expusiera). Ruta
+     * autenticada (dentro del grupo auth:sanctum), a diferencia de
+     * `user-detail` (pública) — solo devuelve contadores, sin PII.
+     */
+    public function userSocialStats(Request $request)
+    {
+        $request->validate(['user_id' => 'required|exists:users,id']);
+        $userId = $request->user_id;
+
+        $postingCount = Posting::published()->where('user_id', $userId)->count();
+        $workoutCount = WorkoutSessionReview::where('user_id', $userId)->whereNotNull('completed_at')->count();
+
+        $response = [
+            'data' => [
+                'posting_count' => $postingCount,
+                'workout_count' => $workoutCount,
+            ],
         ];
 
         return json_custom_response($response);

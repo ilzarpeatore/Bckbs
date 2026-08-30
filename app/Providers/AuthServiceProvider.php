@@ -25,6 +25,12 @@ class AuthServiceProvider extends ServiceProvider
     {
         $this->registerPolicies();
 
-        //
+        // Gate reutilizable para features nuevas que deban limitarse a clientes
+        // de pago (subscriber o personal), sin ligarse a un Package/Programa/
+        // Receta concreto -> para eso sigue usandose PackageAccessService.
+        // Uso: Gate::allows('paid-tier') o $request->user()->can('paid-tier').
+        Gate::define('paid-tier', function ($user) {
+            return $user->access_tier !== 'free';
+        });
     }
 }

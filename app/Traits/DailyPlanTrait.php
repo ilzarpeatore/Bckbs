@@ -64,7 +64,12 @@ trait DailyPlanTrait
                 'meal_type'     => $meal,
             ];
             
-            $daily_plan_recipe_sum = DailyPlanRecipe::sumProtienCarbsFatsCalories()->planRecipeData($query_data)->first();
+            // Solo cuenta lo marcado como "comido" (is_complete = true) - ver
+            // nota en DailyPlanController::recipeMealTypeResponse.
+            $daily_plan_recipe_sum = DailyPlanRecipe::sumProtienCarbsFatsCalories()
+                ->planRecipeData($query_data)
+                ->where('is_complete', true)
+                ->first();
 
             return [
                 'key'          => $meal,

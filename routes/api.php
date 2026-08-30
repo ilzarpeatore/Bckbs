@@ -19,12 +19,19 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::post('register',[ API\UserController::class, 'register']);
+// Pública (Stripe la llama directamente, no un cliente autenticado) — la
+// firma se verifica dentro del propio controller con STRIPE_WEBHOOK_SECRET.
+// El checkout real vive en una web fuera de este repo; esto solo escucha
+// la confirmación de pago y concede el acceso vía Plan/PlanSubscription
+// (mismo PlanFulfillmentService::fulfill() que ya usa el grant manual del admin).
+Route::post('webhooks/stripe', [API\StripeWebhookController::class, 'handle']);
+
+Route::post('register',[ API\UserController::class, 'register'])->middleware('throttle:10,1');
 Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
-Route::post('login',[ API\UserController::class, 'login']);
-Route::post('forget-password',[ API\UserController::class, 'forgetPassword']);
-Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
-Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
+Route::post('login',[ API\UserController::class, 'login'])->middleware('throttle:10,1');
+Route::post('forget-password',[ API\UserController::class, 'forgetPassword'])->middleware('throttle:10,1');
+Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ])->middleware('throttle:10,1');
+Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ])->middleware('throttle:10,1');
 Route::get('user-detail',[ API\UserController::class, 'userDetail']);
 Route::get('get-appsetting', [ API\UserController::class, 'getAppSetting'] );
 Route::get('language-table-list',[API\LanguageTableController::class, 'getList']);
@@ -32,6 +39,7 @@ Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrie
 
     Route::get('get-setting',[ API\DashboardController::class, 'getSetting']);
     Route::get('dashboard-detail',[ API\DashboardController::class, 'dashboard']);
+    Route::get('motivational-phrase', [API\MotivationalPhraseController::class, 'getPhrase']);
 
     Route::get('equipment-list', [ API\EquipmentController::class, 'getList' ]);
 
@@ -77,8 +85,6 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('delete-user-account', [ API\UserController::class, 'deleteUserAccount']);
     Route::get('logout',[ API\UserController::class, 'logout']);
 
-    Route::get('payment-gateway-list', [ API\PaymentGatewayController::class, 'getList'] );
-
     Route::get('assign-diet-list', [ API\AssignUserController::class, 'getAssignDiet' ]);
     Route::get('assign-workout-list', [ API\AssignUserController::class, 'getAssignWorkout' ]);
 
@@ -96,12 +102,14 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::get('get-user-exercise', [ API\ExerciseController::class, 'getUserExercise' ]);
     
 
-    Route::get('package-list', [ API\PackageController::class, 'getList' ]);
-
-    Route::get('subscriptionplan-list',[ API\SubscriptionController::class, 'getList']);
-    Route::post('subscribe-package',[ API\SubscriptionController::class, 'subscriptionSave']);
-    Route::post('subscribe-to-package',[ API\SubscriptionController::class, 'subscribeToPackage']);
-    Route::post('cancel-subscription',[ API\SubscriptionController::class, 'cancelSubscription']);
+    // RETIRADAS 2026-08-13 (package-list, subscriptionplan-list, subscribe-package,
+    // subscribe-to-package, cancel-subscription, payment-gateway-list): autoservicio
+    // de compra dentro de la app, sistema Package/Subscription legacy. Apple/Google
+    // exigen que la app no venda nada dentro (ver plan de migración) — la compra
+    // pasa a ser 100% externa (web) y el acceso se concede vía Plan/PlanSubscription
+    // (PlanSubscriptionController::grantPlan(), o el webhook de Stripe). El estado
+    // de solo lectura del cliente ahora vive en GET my-plan, más abajo.
+    Route::get('my-plan', [ API\SubscriptionController::class, 'myPlan']);
 
 
 
@@ -113,7 +121,8 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('notification-list', [ API\NotificationController::class, 'getList'] );
     Route::get('notification-detail', [ API\NotificationController::class, 'getNotificationDetail'] );
 
-    Route::get('user-profile-detail',[ API\UserController::class, 'userProfileDetail']); 
+    Route::get('user-profile-detail',[ API\UserController::class, 'userProfileDetail']);
+    Route::get('user-social-stats',[ API\UserController::class, 'userSocialStats']);
 
     Route::get('chatgpt-fit-bot-list',[ API\ChatgptFitBotController::class, 'getList']); 
     Route::post('chatgpt-fit-bot-save',[ API\ChatgptFitBotController::class, 'store']); 
@@ -188,6 +197,23 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::post('my-calendar-log-sets', [ API\ClientCalendarController::class, 'logSets' ]);
         Route::post('my-calendar-finish-session', [ API\ClientCalendarController::class, 'finishSession' ]);
 
+        // AÑADIDO: volumen por grupo muscular (heatmap + progreso semanal/mensual).
+        Route::get('my-muscle-volume', [ API\ClientCalendarController::class, 'getMyMuscleVolume' ]);
+        Route::post('muscle-volume-compute', [ API\ClientCalendarController::class, 'computeMuscleVolume' ]);
+
+        // AÑADIDO: KPIs de sesión (entrenamientos/duración/volumen) por rango de fechas — pantalla Estadísticas.
+        Route::get('my-period-stats', [ API\ClientCalendarController::class, 'getMyPeriodStats' ]);
+
+        // AÑADIDO: ranking de ejercicios por frecuencia — pantalla "Ejercicios principales" de Estadísticas.
+        Route::get('my-top-exercises', [ API\ClientCalendarController::class, 'getMyTopExercises' ]);
+
+        // AÑADIDO: sesiones del mes + PRs del mes — pantalla "Informe mensual" de Estadísticas.
+        Route::get('my-monthly-extras', [ API\ClientCalendarController::class, 'getMyMonthlyExtras' ]);
+
+        // AÑADIDO (temporal): FAB de revisión de pantallas — borrar cuando ya no haga falta.
+        Route::post('screen-review-mark', [ API\ScreenReviewMarkController::class, 'store' ]);
+        Route::get('screen-review-marks', [ API\ScreenReviewMarkController::class, 'index' ]);
+
         // AÑADIDO: readiness diario obligatorio antes de Workout Preview.
         Route::get('readiness-today', [ API\ReadinessController::class, 'today' ]);
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
@@ -218,9 +244,136 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
 
     // ═══ V2: Forms (Check-ins) — Client API ═══════════════════════════
     Route::get('form-assigned-list', [API\FormController::class, 'getAssignedList']);
+    Route::get('form-assigned-calendar', [API\FormController::class, 'getAssignedCalendar']);
     Route::get('form-detail', [API\FormController::class, 'getDetail']);
     Route::post('form-submit', [API\FormController::class, 'submit']);
     Route::post('form-feedback', [API\FormController::class, 'leaveFeedback']);
+
+    // ═══ V2: Habits — Client API ═══════════════════════════════════════
+    Route::get('habit-my-list', [API\ClientHabitController::class, 'getMyList']);
+    Route::get('habit-library', [API\ClientHabitController::class, 'getLibrary']);
+    Route::post('habit-adopt', [API\ClientHabitController::class, 'adopt']);
+    Route::post('habit-personal-store', [API\ClientHabitController::class, 'storePersonal']);
+    Route::post('habit-my-log', [API\ClientHabitController::class, 'logHabit']);
+    Route::post('habit-my-delete', [API\ClientHabitController::class, 'destroy']);
+
+    // ═══ V2: Resources — Client API ════════════════════════════════════
+    // CORREGIDO: estas 5 rutas vivian por error dentro del grupo
+    // admin+admin.api mas abajo en este archivo, haciendolas inalcanzables
+    // para un cliente normal de la app (siempre 403). Movidas al grupo
+    // auth:sanctum real que usa el resto de endpoints de cliente.
+    Route::get('resource-list', [API\ResourceController::class, 'getList']);
+    Route::get('resource-detail', [API\ResourceController::class, 'getDetail']);
+    Route::post('resource-store', [API\ResourceController::class, 'store']);
+    Route::post('resource-update', [API\ResourceController::class, 'update']);
+    Route::post('resource-delete', [API\ResourceController::class, 'destroy']);
+
+    // ═══ V2: Exercise History / PRs — CORREGIDO: vivian por error dentro
+    // del grupo admin+admin.api mas abajo en este archivo (mismo problema
+    // que resource-list arriba), haciendolas inalcanzables para un cliente
+    // normal (404, la ruta con ese path no existia fuera de /admin). Estas
+    // 3 usan auth('sanctum')->id() (el propio usuario), no un client_id de
+    // admin, asi que van aqui con el resto de rutas de cliente. ═══
+    Route::get('exercise-history', [API\PersonalRecordController::class, 'getExerciseHistory']);
+    Route::get('exercise-last-performance', [API\PersonalRecordController::class, 'getLastPerformance']);
+    Route::get('my-personal-records', [API\PersonalRecordController::class, 'getMyPersonalRecords']);
+
+    // AÑADIDO: antropometría — espejo cliente de Admin\ClientBodyMetricController,
+    // pantalla Report rediseñada.
+    Route::get('my-body-metric-types', [API\BodyMetricController::class, 'types']);
+    Route::get('my-body-metrics', [API\BodyMetricController::class, 'index']);
+    Route::get('my-body-metrics-chart', [API\BodyMetricController::class, 'chart']);
+    Route::post('my-body-metrics-store', [API\BodyMetricController::class, 'store']);
+    Route::post('my-body-metrics-delete', [API\BodyMetricController::class, 'destroy']);
+
+    // AÑADIDO: adherencia de entrenamiento — pantalla Report rediseñada.
+    Route::get('my-workout-adherence', [API\ClientCalendarController::class, 'getMyAdherence']);
+
+    // AÑADIDO: historial real de entrenamientos completados — mismo dato que
+    // ya ve el coach en "Entrenamientos completados" del panel admin.
+    Route::get('my-completed-sessions', [API\SessionDetailController::class, 'listMyCompletedSessions']);
+    Route::get('my-session-detail', [API\SessionDetailController::class, 'getMySessionDetail']);
+
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 1) — bloqueo por
+    // dolor (sin gate de tier, aplica a todos los clientes) y consulta de
+    // métricas interpretadas (debug/coach). logSets()/finishSession() ya
+    // existen (arriba, ClientCalendarController) y no se duplican aquí.
+    Route::post('sessions/{id}/pain-report', [API\SessionInterpretationController::class, 'painReport']);
+    Route::get('clients/{id}/exercises/{exerciseId}/metrics', [API\SessionInterpretationController::class, 'exerciseMetrics']);
+
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 2) — reglas de
+    // progresión, panel de excepciones y auditoría. Mismo criterio que las
+    // rutas de Fase 1 justo arriba: sin prefijo /admin (no existe un rol
+    // "coach" separado de "admin" en este esquema), autorización resuelta
+    // dentro del controlador (SessionProgressionRuleController::requireCoach)
+    // comparando el {id} de la URL / el coach dueño de la regla contra
+    // auth()->id(), igual que el resto de recursos coach_id=auth()->id()
+    // del proyecto (WorkoutTemplateController, ClientTagController, etc.).
+    Route::post('coaches/{id}/rules', [API\SessionProgressionRuleController::class, 'store']);
+    Route::get('coaches/{id}/rules', [API\SessionProgressionRuleController::class, 'index']);
+    Route::put('rules/{id}', [API\SessionProgressionRuleController::class, 'update']);
+    Route::delete('rules/{id}', [API\SessionProgressionRuleController::class, 'destroy']);
+    Route::post('rules/{id}/simulate', [API\SessionProgressionRuleController::class, 'simulate']);
+    Route::get('rules/{id}/shadow-evaluations', [API\SessionProgressionRuleController::class, 'shadowEvaluations']);
+    Route::get('rules/{id}/audit', [API\SessionProgressionRuleController::class, 'audit']);
+    Route::get('clients/{id}/pending-suggestions', [API\SessionProgressionRuleController::class, 'pendingSuggestions']);
+    Route::post('suggestions/{id}/approve', [API\SessionProgressionRuleController::class, 'approve']);
+    Route::post('suggestions/{id}/edit', [API\SessionProgressionRuleController::class, 'edit']);
+    Route::post('suggestions/{id}/reject', [API\SessionProgressionRuleController::class, 'reject']);
+    Route::get('exercises/{id}/progression-history', [API\SessionProgressionRuleController::class, 'progressionHistory']);
+
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 4) — readiness score
+    // (sync de lecturas de salud del dispositivo) y modo vida real (plan
+    // adaptativo de semana reducida). Sin gate de tier en el sync (ver
+    // HealthDataPointController); el gate real vive en el job diario de
+    // ReadinessCalculationService. generate()/approve() sí gatean por
+    // coach_id del cliente (mismo criterio que exerciseMetrics() arriba).
+    Route::post('health-data-points/sync', [API\HealthDataPointController::class, 'sync']);
+    Route::post('adaptive-week-plans/generate', [API\AdaptiveWeekPlanController::class, 'generate']);
+    Route::post('adaptive-week-plans/{id}/approve', [API\AdaptiveWeekPlanController::class, 'approve']);
+    // AÑADIDO 2026-08-12: rechazar -- hueco real, no existía ningún camino
+    // para denegar una propuesta sin dejarla huérfana en 'propuesto'.
+    Route::post('adaptive-week-plans/{id}/reject', [API\AdaptiveWeekPlanController::class, 'reject']);
+    // AÑADIDO 2026-08-12: trigger del propio cliente -- selecciona desde su
+    // calendario qué días no puede entrenar (en vez del coach dando un
+    // número de sesiones + estrategia). Sigue naciendo 'propuesto', pasa
+    // por el mismo Panel de Excepciones y requiere aprobación del coach.
+    Route::post('adaptive-week-plans/request-unavailable', [API\AdaptiveWeekPlanController::class, 'requestFromClient']);
+
+    // AÑADIDO: Motor de Auto-Regulación de Carga -- espejo admin de
+    // suggestions/{id}/approve|edit|reject y adaptive-week-plans/{id}/
+    // approve arriba (Plan_Cierre_Motor_UI.md, Fase 1). Definidos también
+    // dentro del grupo /admin (mismo bloque que coach-exceptions*), ver
+    // más abajo en este archivo.
+
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 3) — sistema de
+    // evidencia visible (feed de logros), gateado a paid-tier dentro del
+    // controlador (mismo criterio que pending-suggestions arriba). La
+    // sustitución de ejercicio (exercise_substitutions) no tiene endpoint
+    // propio — vive dentro del motor de reglas de Fase 2 (SessionProgressionRuleEngine),
+    // sin necesidad de una ruta nueva.
+    Route::get('clients/{id}/achievements', [API\AchievementEventController::class, 'index']);
+    Route::post('clients/{id}/achievements/{achievementId}/seen', [API\AchievementEventController::class, 'markSeen']);
+    Route::get('coaches/{id}/achievement-settings', [API\AchievementEventController::class, 'achievementSettings']);
+
+    // AÑADIDO: Panel de Excepciones del Coach (docs/Panel_Excepciones_
+    // Implementacion.md §4) -- feed unificado sobre datos que el Motor ya
+    // genera (dolor, estancamiento, sugerencia_carga, readiness_bajo,
+    // semana_adaptativa_pendiente, inactividad). Mismo criterio de
+    // autorización que el resto de rutas coach-owned de este bloque.
+    Route::get('coaches/{id}/exceptions', [API\CoachExceptionItemController::class, 'index']);
+    Route::post('exceptions/{id}/resolve', [API\CoachExceptionItemController::class, 'resolve']);
+    Route::post('exceptions/{id}/dismiss', [API\CoachExceptionItemController::class, 'dismiss']);
+
+    // AÑADIDO: Score de Riesgo de Abandono (docs/Score_Riesgo_Abandono_
+    // Implementacion.md §9) -- sustituye check:client-inactivity. Mismo
+    // criterio de autorización que el resto de rutas coach-owned de este
+    // bloque (coach_id = auth()->id(), sin prefijo /admin).
+    Route::get('coaches/{id}/retention-risk-summary', [API\RetentionRiskController::class, 'summary']);
+    Route::get('coaches/{id}/clients/{clientId}/retention-risk', [API\RetentionRiskController::class, 'detail']);
+    Route::get('coaches/{id}/retention-risk-config', [API\RetentionRiskController::class, 'getConfig']);
+    Route::put('coaches/{id}/retention-risk-weights', [API\RetentionRiskController::class, 'updateWeights']);
+    Route::put('coaches/{id}/retention-settings', [API\RetentionRiskController::class, 'updateSettings']);
 
 });
 
@@ -268,8 +421,6 @@ use App\Http\Controllers\API\Admin\ProductController as AdminProductController;
 use App\Http\Controllers\API\Admin\ProductCategoryController as AdminProductCategoryController;
 use App\Http\Controllers\API\Admin\PostController as AdminPostController;
 use App\Http\Controllers\API\Admin\BlogCategoryController as AdminBlogCategoryController;
-use App\Http\Controllers\API\Admin\PackageController as AdminPackageController;
-use App\Http\Controllers\API\Admin\SubscriptionController as AdminSubscriptionController;
 use App\Http\Controllers\API\Admin\PersonalClientInviteController;
 use App\Http\Controllers\API\Admin\QuotesController;
 use App\Http\Controllers\API\Admin\BannerSliderController;
@@ -289,11 +440,20 @@ use App\Http\Controllers\API\Admin\AssignController;
 use App\Http\Controllers\API\Admin\ClientMealPlanController;
 use App\Http\Controllers\API\Admin\MealPlanTemplateController;
 use App\Http\Controllers\API\Admin\DietMealItemController;
+use App\Http\Controllers\API\Admin\PlanController as AdminPlanController;
+use App\Http\Controllers\API\Admin\PlanFeatureController;
+use App\Http\Controllers\API\Admin\PlanSubscriptionController as AdminPlanSubscriptionController;
+use App\Http\Controllers\API\Admin\ReportController;
+use App\Http\Controllers\API\Admin\TwoFactorController;
+use App\Http\Controllers\API\Admin\AuditLogController;
 
 // Public admin routes (login)
 Route::prefix('admin')->group(function () {
-    Route::post('login', [AuthController::class, 'login']);
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 });
+
+// Estado de suscripción de un cliente (app Flutter / consulta puntual)
+Route::get('client/subscription', [ReportController::class, 'clientSubscription']);
 
 // Protected admin routes (auth:sanctum + admin role)
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(function () {
@@ -371,10 +531,75 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // Blog Categories
     Route::apiResource('blog-categories', AdminBlogCategoryController::class);
 
-    // Packages & Subscriptions
-    Route::apiResource('packages', AdminPackageController::class);
-    Route::apiResource('subscriptions', AdminSubscriptionController::class)->only(['index', 'show']);
-    Route::post('subscriptions-grant-package', [AdminSubscriptionController::class, 'grantPackage']);
+    // Plans & Subscriptions (sistema laravel-subscriptions)
+    Route::apiResource('plans', AdminPlanController::class);
+    Route::apiResource('plan-features', PlanFeatureController::class);
+    Route::apiResource('plan-subscriptions', AdminPlanSubscriptionController::class)->only(['index', 'show']);
+    Route::post('plan-subscriptions-grant', [AdminPlanSubscriptionController::class, 'grantPlan']);
+
+    // Comercio (panel React: usage, stats, reminder, revoke, transactions)
+    Route::get('subscription-usage', [AdminPlanSubscriptionController::class, 'usage']);
+    Route::get('subscriptions/stats', [AdminPlanSubscriptionController::class, 'stats']);
+    Route::post('subscription/reminder', [AdminPlanSubscriptionController::class, 'reminder']);
+    Route::post('users/{user}/revoke-access', [AdminPlanSubscriptionController::class, 'revokeAccess']);
+    Route::get('transactions', [AdminPlanSubscriptionController::class, 'transactions']);
+
+    // Reports (KPIs, informes, export)
+    Route::get('reports/dashboard-kpis', [ReportController::class, 'dashboardKpis']);
+    Route::get('reports/users-summary', [ReportController::class, 'usersSummary']);
+    Route::get('reports/sessions', [ReportController::class, 'sessions']);
+    Route::get('reports/checkins', [ReportController::class, 'checkins']);
+    Route::get('reports/subscriptions', [ReportController::class, 'subscriptions']);
+    Route::get('reports/payments', [ReportController::class, 'payments']);
+    Route::get('reports/coaching-metrics', [ReportController::class, 'coachingMetrics']);
+    Route::get('reports/export', [ReportController::class, 'export']);
+    Route::get('reports/revenue', [ReportController::class, 'revenue']);
+    Route::get('reports/transactions', [ReportController::class, 'transactions']);
+    Route::get('users/{user}/billing', [ReportController::class, 'clientBilling']);
+    Route::get('revenue-summary', [ReportController::class, 'revenueSummary']);
+
+    // AÑADIDO: Panel de Excepciones del Coach -- espejo admin del
+    // self-service de arriba (ver docblock de CoachExceptionItemController
+    // para por qué hace falta: esta es la única superficie real donde un
+    // coach ve datos de sus clientes hoy). Staff elige coach_id, mismo
+    // patrón que el selector de cliente en HabitsView.
+    Route::get('coach-exceptions', [API\CoachExceptionItemController::class, 'adminIndex']);
+    Route::get('coach-exceptions/coaches', [API\CoachExceptionItemController::class, 'adminCoachOptions']);
+    Route::get('coach-exceptions/unread-summary', [API\CoachExceptionItemController::class, 'adminUnreadSummary']);
+    Route::post('coach-exceptions/{id}/resolve', [API\CoachExceptionItemController::class, 'adminResolve']);
+    Route::post('coach-exceptions/{id}/dismiss', [API\CoachExceptionItemController::class, 'adminDismiss']);
+
+    // AÑADIDO 2026-08-12: espejo admin de RetentionRiskController -- petición
+    // explícita del usuario para poder configurar pesos/mensajes y ver el
+    // score de riesgo de abandono desde el panel, no pedido por el
+    // documento original. Mismo criterio que coach-exceptions* de arriba.
+    Route::get('retention-risk-summary', [API\RetentionRiskController::class, 'adminSummary']);
+    Route::get('retention-risk-history', [API\RetentionRiskController::class, 'adminHistory']);
+    Route::get('retention-risk-config', [API\RetentionRiskController::class, 'adminGetConfig']);
+    Route::put('retention-risk-weights', [API\RetentionRiskController::class, 'adminUpdateWeights']);
+    Route::put('retention-risk-settings', [API\RetentionRiskController::class, 'adminUpdateSettings']);
+
+    // AÑADIDO: espejo admin de las sugerencias del Motor de Auto-Regulación
+    // de Carga y de las semanas adaptativas (Plan_Cierre_Motor_UI.md, Fase
+    // 1) -- mismo criterio que coach-exceptions* arriba: sin comparar
+    // coach_id contra auth()->id(), staff actúa en nombre del coach.
+    Route::post('session-progression/suggestions/{id}/approve', [API\SessionProgressionRuleController::class, 'adminApprove']);
+    Route::post('session-progression/suggestions/{id}/edit', [API\SessionProgressionRuleController::class, 'adminEdit']);
+    Route::post('session-progression/suggestions/{id}/reject', [API\SessionProgressionRuleController::class, 'adminReject']);
+    Route::post('adaptive-week-plans/{id}/approve', [API\AdaptiveWeekPlanController::class, 'adminApprove']);
+    Route::post('adaptive-week-plans/{id}/reject', [API\AdaptiveWeekPlanController::class, 'adminReject']);
+
+    // AÑADIDO: CRUD de reglas de progresión desde el admin (todavía no
+    // existía ninguna pantalla para crear/editar reglas -- solo se podía
+    // actuar sobre sugerencias ya generadas por reglas creadas vía API
+    // directa). Mismo criterio que el resto de este bloque.
+    Route::get('session-progression/rules', [API\SessionProgressionRuleController::class, 'adminIndex']);
+    Route::post('session-progression/rules', [API\SessionProgressionRuleController::class, 'adminStore']);
+    Route::put('session-progression/rules/{id}', [API\SessionProgressionRuleController::class, 'adminUpdate']);
+    Route::delete('session-progression/rules/{id}', [API\SessionProgressionRuleController::class, 'adminDestroy']);
+    Route::post('session-progression/rules/{id}/simulate', [API\SessionProgressionRuleController::class, 'adminSimulate']);
+    Route::get('session-progression/rules/{id}/shadow-evaluations', [API\SessionProgressionRuleController::class, 'adminShadowEvaluations']);
+    Route::get('session-progression/rules/{id}/audit', [API\SessionProgressionRuleController::class, 'adminAudit']);
 
     // Códigos de invitación de cliente personal (Niveles de acceso, 2026-07-30)
     Route::get('personal-client-invites', [PersonalClientInviteController::class, 'index']);
@@ -411,6 +636,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('admin-login-history', [AdminLoginHistoryController::class, 'index']);
     Route::apiResource('admin-login-devices', AdminLoginDeviceController::class)->only(['index', 'destroy']);
 
+    // 2FA + Auditoría (panel React)
+    Route::get('2fa/status', [TwoFactorController::class, 'status']);
+    Route::post('2fa/setup', [TwoFactorController::class, 'setup']);
+    Route::post('2fa/verify', [TwoFactorController::class, 'verify']);
+    Route::post('2fa/disable', [TwoFactorController::class, 'disable']);
+    Route::get('audit-logs', [AuditLogController::class, 'index']);
+
     // Assignments
     Route::get('assign-diet', [AssignController::class, 'assignDietList']);
     Route::post('assign-diet', [AssignController::class, 'assignDietStore']);
@@ -440,6 +672,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('settings', [SettingController::class, 'updateSettings']);
     Route::get('app-settings', [SettingController::class, 'getAppSettings']);
     Route::post('app-settings', [SettingController::class, 'updateAppSettings']);
+    Route::post('backup-run-now', [SettingController::class, 'runBackupNow']);
 
     // ═══ V2: Sections (reusable exercise block library) ═══════════════
     Route::get('section-template-list', [API\SectionTemplateController::class, 'getList']);
@@ -502,8 +735,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('client-calendar-import-program', [API\ClientProfileCalendarController::class, 'importProgram']);
     Route::post('client-calendar-remove', [API\ClientProfileCalendarController::class, 'removeAssignment']);
     Route::get('client-session-feedback', [API\ClientProfileCalendarController::class, 'getSessionFeedback']);
+    Route::get('client-readiness-checks', [API\ClientProfileCalendarController::class, 'getReadinessChecks']);
+    Route::get('client-workout-adherence', [API\ClientProfileCalendarController::class, 'getAdherence']);
 
     // ═══ V2: Session Detail ═══════════════════════════════════════════
+    Route::get('client-completed-sessions', [API\SessionDetailController::class, 'listCompletedSessions']);
+    Route::get('client-exercise-history', [API\SessionDetailController::class, 'getClientExerciseHistory']);
+    Route::get('client-muscle-volume', [API\SessionDetailController::class, 'getMuscleVolume']);
     Route::get('session-detail', [API\SessionDetailController::class, 'getSessionDetail']);
     Route::post('session-detail-duplicate', [API\SessionDetailController::class, 'duplicateToDate']);
     Route::post('session-detail-update-override-field', [API\SessionDetailController::class, 'updatePrescribedOverride']);
@@ -522,18 +760,16 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('client-tag-remove', [API\ClientTagController::class, 'removeFromClient']);
     Route::get('clients-filter-by-tags', [API\ClientTagController::class, 'filterClientsByTags']);
 
-    // ═══ V2: Resources ════════════════════════════════════════════════
-    Route::get('resource-list', [API\ResourceController::class, 'getList']);
-    Route::get('resource-detail', [API\ResourceController::class, 'getDetail']);
-    Route::post('resource-store', [API\ResourceController::class, 'store']);
-    Route::post('resource-update', [API\ResourceController::class, 'update']);
-    Route::post('resource-delete', [API\ResourceController::class, 'destroy']);
-
     // ═══ V2: Habits ═══════════════════════════════════════════════════
-    Route::get('habit-list', [API\HabitController::class, 'getList']);
+    Route::get('habit-list', [API\HabitController::class, 'getList']); // ?templates=1 -> biblioteca global
     Route::post('habit-log', [API\HabitController::class, 'logHabit']);
     Route::post('habit-store', [API\HabitController::class, 'store']);
+    Route::post('habit-update', [API\HabitController::class, 'update']);
     Route::post('habit-delete', [API\HabitController::class, 'destroy']);
+    Route::post('habit-template-store', [API\HabitController::class, 'storeTemplate']);
+    Route::post('habit-template-update', [API\HabitController::class, 'updateTemplate']);
+    Route::post('habit-template-delete', [API\HabitController::class, 'destroyTemplate']);
+    Route::get('client-habit-progress', [API\HabitController::class, 'getClientProgress']);
 
     // ═══ V2: Forms (Check-ins) — Admin API ════════════════════════════
     Route::get('admin-form-list', [API\Admin\FormController::class, 'getList']);
@@ -552,10 +788,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('challenge-leaderboard', [API\ChallengeController::class, 'getLeaderboard']);
     Route::post('challenge-store', [API\ChallengeController::class, 'store']);
     Route::post('challenge-update-score', [API\ChallengeController::class, 'updateScore']);
-
-    // ═══ V2: Exercise History / PRs ═══════════════════════════════════
-    Route::get('exercise-history', [API\PersonalRecordController::class, 'getExerciseHistory']);
-    Route::get('exercise-last-performance', [API\PersonalRecordController::class, 'getLastPerformance']);
 
     // ═══ V2: Exercise History Metrics (drill-down) ════════════════════
     Route::get('exercise-available-metrics', [API\ExerciseHistoryController::class, 'getAvailableMetrics']);
@@ -610,10 +842,20 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('client-body-metric-update', [API\Admin\ClientBodyMetricController::class, 'update']);
     Route::post('client-body-metric-delete', [API\Admin\ClientBodyMetricController::class, 'destroy']);
 
+    // AÑADIDO: catalogo dinamico de tipos de medida corporal — el frontend
+    // admin (UserDetailView.tsx) ya llamaba a estas rutas exactas contra un
+    // mock MSW que nunca tuvo backend real.
+    Route::get('body-metric-type-list', [API\Admin\BodyMetricTypeController::class, 'getList']);
+    Route::post('body-metric-type-store', [API\Admin\BodyMetricTypeController::class, 'store']);
+    Route::post('body-metric-type-update', [API\Admin\BodyMetricTypeController::class, 'update']);
+    Route::post('body-metric-type-delete', [API\Admin\BodyMetricTypeController::class, 'destroy']);
+
     // ═══ V2: Admin Resources ══════════════════════════════════════════
     Route::get('admin-resource-list', [API\Admin\ResourceController::class, 'getList']);
     Route::get('admin-resource-detail', [API\Admin\ResourceController::class, 'getDetail']);
     Route::post('admin-resource-store', [API\Admin\ResourceController::class, 'store']);
     Route::post('admin-resource-update', [API\Admin\ResourceController::class, 'update']);
     Route::post('admin-resource-delete', [API\Admin\ResourceController::class, 'destroy']);
+    Route::post('resource-assign', [API\Admin\ResourceController::class, 'assign']);
+    Route::post('resource-unassign', [API\Admin\ResourceController::class, 'unassign']);
 });

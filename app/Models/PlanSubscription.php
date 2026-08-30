@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Models;
+
+use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class PlanSubscription extends Model
+{
+    use SoftDeletes;
+
+    protected $fillable = [
+        'subscriber_type', 'subscriber_id', 'plan_id', 'name', 'slug',
+        'description', 'timezone', 'trial_ends_at', 'starts_at', 'ends_at',
+        'canceled_at', 'total_amount', 'payment_status', 'payment_type',
+        'payment_method', 'payment_notes', 'amount_paid_cents',
+        'fulfilled_at', 'access_revoked_at', 'stripe_event_id',
+    ];
+
+    protected $casts = [
+        'trial_ends_at' => 'datetime',
+        'starts_at' => 'datetime',
+        'ends_at' => 'datetime',
+        'canceled_at' => 'datetime',
+        'fulfilled_at' => 'datetime',
+        'access_revoked_at' => 'datetime',
+        'total_amount' => 'float',
+    ];
+
+    public function subscriber(): MorphTo
+    {
+        return $this->morphTo('subscriber', 'subscriber_type', 'subscriber_id');
+    }
+
+    public function plan(): BelongsTo
+    {
+        return $this->belongsTo(Plan::class);
+    }
+
+    public function usage(): HasMany
+    {
+        return $this->hasMany(PlanSubscriptionUsage::class, 'subscription_id');
+    }
+
+    public function active(): bool
+    {
+        return !$this->ended() || $this->onTrial();
+    }
+
+    public function onTrial(): bool
+    {
+        return $this->trial_ends_at && Carbon::now()->lt($this->trial_ends_at);
+    }
+
+    public function canceled(): bool
+    {
+        return $this->canceled_at !== null;
+    }
+
+    public function ended(): bool
+    {
+        return $this->ends_at && Carbon::now()->gte($this->ends_at);
+    }
+
+    public function statusLabel(): string
+    {
+        if ($this->canceled()) return 'canceled';
+        if ($this->onTrial()) return 'trial';
+        if ($this->ended()) return 'ended';
+        return 'active';
+    }
+
+    public function scopeActive($query)
+    {
+        return $query->where(function ($q) {
+            $q->where('ends_at', '>', Carbon::now())
+              ->orWhereNull('ends_at');
+        });
+    }
+}

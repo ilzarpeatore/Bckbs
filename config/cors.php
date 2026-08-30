@@ -25,6 +25,8 @@ return [
         'http://localhost:5173',
         'http://127.0.0.1:5173',
         'http://localhost:5174',
+        'https://admin-testapp.bestronger.es',
+        'https://testapp.bestronger.es',
         'http://127.0.0.1:5174',
     ],
 

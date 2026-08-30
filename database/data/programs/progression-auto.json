@@ -1,0 +1,37 @@
+{
+  "tables": [
+    {
+      "min_weeks": 1,
+      "max_weeks": 3,
+      "deload_weeks": [],
+      "load_pct_per_2weeks": 5.0,
+      "deload_load_pct": 90.0,
+      "deload_sets_delta": -1,
+      "deload_reps_delta": 0,
+      "deload_rpe_delta": -1.0,
+      "deload_rir_delta": 1.0
+    },
+    {
+      "min_weeks": 4,
+      "max_weeks": 7,
+      "deload_weeks": [4],
+      "load_pct_per_2weeks": 5.0,
+      "deload_load_pct": 85.0,
+      "deload_sets_delta": -1,
+      "deload_reps_delta": 0,
+      "deload_rpe_delta": -1.0,
+      "deload_rir_delta": 1.0
+    },
+    {
+      "min_weeks": 8,
+      "max_weeks": null,
+      "deload_weeks": [4, 9],
+      "load_pct_per_2weeks": 5.0,
+      "deload_load_pct": 85.0,
+      "deload_sets_delta": -1,
+      "deload_reps_delta": 0,
+      "deload_rpe_delta": -1.0,
+      "deload_rir_delta": 1.0
+    }
+  ]
+}

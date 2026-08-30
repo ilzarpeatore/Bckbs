@@ -1,0 +1,53 @@
+{
+  "esquema": "Esquema canónico de importación de programas",
+  "version": 1,
+  "descripcion": "Cualquier adaptador (hevy/strong/jefit/openweight/wger) produce este JSON. El importer consume 'programs'. Cada programa puede traer una semana o N semanas; si trae menos de num_weeks, la última semana se repite y se aplica AutoProgression.",
+  "campos_programa": {
+    "source": "nombre de la fuente (hevy/strong/jefit/openweight/wger)",
+    "source_id": "identificador único en la fuente (para idempotencia)",
+    "title": "título del programa",
+    "description": "descripción opcional",
+    "num_weeks": "número de semanas objetivo",
+    "weeks": ["ver weeks[].days[].blocks[]"]
+  },
+  "weeks": [
+    {
+      "week_number": 1,
+      "title": "opcional: etiqueta de la semana (ej. 'Fase 1')",
+      "days": [
+        {
+          "day_of_week": 1,
+          "title": "Push A",
+          "description": null,
+          "is_rest": false,
+          "blocks": [
+            {
+              "title": "Parte principal",
+              "instructions": null,
+              "exercises": [
+                {
+                  "name": "Press de pecho con mancuernas",
+                  "source_exercise_id": null,
+                  "equipment": "Mancuernas",
+                  "muscles": ["pecho", "triceps"],
+                  "sets": 4,
+                  "reps_min": 6,
+                  "reps_max": 8,
+                  "rest_sec": 120,
+                  "rpe_min": null,
+                  "rpe_max": null,
+                  "rir_min": null,
+                  "rir_max": null,
+                  "tempo": null,
+                  "load_kg": null,
+                  "weight_percent": null,
+                  "notes": null
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

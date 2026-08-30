@@ -10,6 +10,7 @@ use App\Models\DailyPlan;
 use App\Models\DailyPlanRecipe;
 use App\Models\Recipe;
 use App\Models\User;
+use App\Notifications\CommonNotification;
 use App\Http\Resources\MealPlanTemplateResource;
 use App\Http\Resources\MealPlanTemplateItemResource;
 use Carbon\Carbon;
@@ -271,6 +272,15 @@ class MealPlanTemplateController extends Controller
                     $created++;
                 }
             }
+        }
+
+        if ($created > 0 && $user) {
+            $user->notify(new CommonNotification('new_nutrition_plan', [
+                'id'      => $template->id,
+                'type'    => 'new_nutrition_plan',
+                'subject' => 'Nuevo plan de nutrición',
+                'message' => "Tu coach te ha asignado el plan de comidas \"{$template->title}\".",
+            ]));
         }
 
         return json_custom_response(['message' => "Template imported ({$created} meals assigned)."]);

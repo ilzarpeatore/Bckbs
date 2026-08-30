@@ -1,0 +1,46 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class ExerciseSessionMetric extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'workout_session_review_id', 'exercise_id', 'client_id',
+        'rir_delta_sesion', 'completion_ratio', 'peor_serie_index', 'peor_serie_rir', 'carga_efectiva',
+        'is_outlier', 'sin_dato_suficiente', 'tendencia_rir',
+        'sesiones_consecutivas_sin_cambio', 'e1rm_estimado', 'racha_misma_direccion',
+        'blocked_by_pain',
+    ];
+
+    protected $casts = [
+        'rir_delta_sesion'   => 'float',
+        'completion_ratio'   => 'float',
+        'peor_serie_rir'     => 'float',
+        'carga_efectiva'     => 'float',
+        'is_outlier'          => 'boolean',
+        'sin_dato_suficiente' => 'boolean',
+        'tendencia_rir'       => 'float',
+        'e1rm_estimado'       => 'float',
+        'blocked_by_pain'     => 'boolean',
+    ];
+
+    public function client()
+    {
+        return $this->belongsTo(User::class, 'client_id', 'id');
+    }
+
+    public function exercise()
+    {
+        return $this->belongsTo(Exercise::class, 'exercise_id', 'id');
+    }
+
+    public function workoutSessionReview()
+    {
+        return $this->belongsTo(WorkoutSessionReview::class, 'workout_session_review_id', 'id');
+    }
+}

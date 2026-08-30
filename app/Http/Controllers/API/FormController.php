@@ -35,6 +35,72 @@ class FormController extends Controller
         })
         ->get();
 
+        $assignments->each(function ($assignment) {
+            $latest = $assignment->submissions->first();
+            $assignment->submitted = !is_null($latest);
+            $assignment->submitted_at = $latest?->submitted_at;
+            $assignment->latest_submission_id = $latest?->id;
+
+            // "Pendiente": nunca se envió, o (para check-ins recurrentes) el
+            // último envío es de un periodo anterior al actual. Un
+            // cuestionario (recurrence null) deja de pedirse en cuanto se
+            // envía una vez. Una asignación con scheduled_date (fecha fija
+            // puesta por el coach, ver getAssignedCalendar) solo se considera
+            // pendiente el día exacto para el que se programó -- antes o
+            // después de esa fecha no debe aparecer como tarea de "hoy".
+            if ($assignment->scheduled_date) {
+                $assignment->is_due = $assignment->scheduled_date->isToday() && is_null($latest);
+            } elseif (is_null($latest)) {
+                $assignment->is_due = true;
+            } elseif (is_null($assignment->form->recurrence)) {
+                $assignment->is_due = false;
+            } else {
+                $periodStart = match ($assignment->form->recurrence) {
+                    'daily'   => now()->startOfDay(),
+                    'weekly'  => now()->startOfWeek(),
+                    'monthly' => now()->startOfMonth(),
+                    default   => now()->startOfDay(),
+                };
+                $assignment->is_due = $latest->submitted_at->lt($periodStart);
+            }
+        });
+
+        return json_custom_response(['data' => $assignments]);
+    }
+
+    /**
+     * Asignaciones con fecha fija (scheduled_date) del cliente autenticado
+     * dentro de un mes/año concreto -- para proyectarlas en las celdas del
+     * calendario (my_program_calendar_screen.tsx). Las recurrentes (sin
+     * fecha fija) no tienen un día concreto que proyectar y se siguen
+     * resolviendo solo para "hoy" vía getAssignedList.
+     */
+    public function getAssignedCalendar(Request $request)
+    {
+        $request->validate([
+            'month' => 'required|integer|min:1|max:12',
+            'year'  => 'required|integer|min:2000|max:2100',
+        ]);
+
+        $user = auth('sanctum')->user();
+        $start = now()->setDate((int) $request->year, (int) $request->month, 1)->startOfMonth();
+        $end = $start->copy()->endOfMonth();
+
+        $assignments = FormAssignment::with('form')
+            ->where('client_id', $user->id)
+            ->where('active', true)
+            ->whereNotNull('scheduled_date')
+            ->whereBetween('scheduled_date', [$start->toDateString(), $end->toDateString()])
+            ->get();
+
+        $assignments->each(function ($assignment) {
+            $latest = $assignment->submissions()->orderByDesc('submitted_at')->first();
+            $assignment->submitted = !is_null($latest);
+            $assignment->submitted_at = $latest?->submitted_at;
+            $assignment->latest_submission_id = $latest?->id;
+            $assignment->is_due = is_null($latest);
+        });
+
         return json_custom_response(['data' => $assignments]);
     }
 

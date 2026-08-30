@@ -1,0 +1,487 @@
+<?php
+
+namespace App\Http\Controllers\API;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+use App\Models\WorkoutTemplate;
+use App\Models\WorkoutTemplateBlock;
+use App\Models\WorkoutTemplateExercise;
+use App\Models\SectionTemplate;
+use App\Models\UserFavouriteWorkoutTemplate;
+use App\Models\ClientExerciseLog;
+use App\Traits\HasYoutubeThumbnail;
+use App\Services\PackageAccessService;
+
+class WorkoutTemplateController extends Controller
+{
+    use HasYoutubeThumbnail;
+    public function getList(Request $request)
+    {
+        $workouts = WorkoutTemplate::where('coach_id', auth()->id())
+            ->with('blocks.exercises')
+            ->select('id', 'coach_id', 'title', 'description', 'is_exclusive', 'created_at')
+            ->orderByDesc('created_at')
+            ->limit($request->get('per_page', 100))
+            ->get()
+            ->map(function ($w) {
+                $media = $w->getFirstMedia('image');
+                return [
+                    'id'             => $w->id,
+                    'title'          => $w->title,
+                    'description'    => $w->description,
+                    'is_exclusive'   => (bool) $w->is_exclusive,
+                    'exercise_count' => $w->blocks->sum(fn ($b) => $b->exercises->count()),
+                    'thumbnail'      => $media ? $media->getUrl() : null,
+                    'created_at'     => $w->created_at,
+                ];
+            });
+
+        return json_custom_response(['data' => $workouts]);
+    }
+
+    public function getDetail(Request $request)
+    {
+        $workout = WorkoutTemplate::with([
+            'blocks' => fn ($q) => $q->orderBy('order'),
+            'blocks.exercises' => fn ($q) => $q->orderBy('sequence'),
+            'blocks.exercises.exercise',
+        ])->find($request->id);
+
+        if ($workout == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
+
+        $media = $workout->getFirstMedia('image');
+
+        // Cuando el admin edita el plan de UN cliente concreto (client_id
+        // opcional, viene del perfil del cliente en /users/:id) se incluye
+        // lo que ese cliente usó realmente la última vez en cada ejercicio
+        // - para poder ajustar la carga prescrita sin tener que ir a
+        // "Historial de ejercicios" o "Entrenamientos completados" aparte.
+        $logsByExercise = collect();
+        if ($request->client_id) {
+            $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+            $logsByExercise = \App\Models\ClientExerciseLog::where('client_id', $request->client_id)
+                ->whereIn('exercise_id', $allExerciseIds)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('exercise_id')
+                ->keyBy('exercise_id');
+        }
+
+        $blocks = $workout->blocks->map(function ($block) use ($logsByExercise) {
+            return [
+                'id'           => $block->id,
+                'title'        => $block->title,
+                'instructions' => $block->instructions,
+                'order'        => $block->order,
+                'exercises'    => $block->exercises->map(function ($e) use ($logsByExercise) {
+                    $exercise = $e->exercise;
+                    $thumb = $exercise && $exercise->video_url
+                        ? $this->youtubeThumbnail($exercise->video_url)
+                        : getSingleMedia($exercise, 'exercise_image', null);
+
+                    $last_log = $logsByExercise->get($e->exercise_id);
+
+                    return [
+                        'id'                => $e->id,
+                        'exercise_id'       => $e->exercise_id,
+                        'sequence'          => $e->sequence,
+                        'prescribed'        => $e->prescribed,
+                        'enabled_metrics'   => $e->enabled_metrics,
+                        'notes'             => $e->notes,
+                        'title'             => optional($exercise)->title,
+                        'exercise_image'    => $thumb,
+                        'video_url'         => optional($exercise)->video_url,
+                        'last_performance'  => $last_log ? ['sets' => $last_log->logged_sets] : null,
+                    ];
+                }),
+            ];
+        });
+
+        return json_custom_response([
+            'data' => [
+                'id'          => $workout->id,
+                'title'       => $workout->title,
+                'description' => $workout->description,
+                'coach_id'    => $workout->coach_id,
+                'thumbnail'   => $media ? $media->getUrl() : null,
+                'blocks'      => $blocks,
+            ],
+        ]);
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'title' => 'required|string|max:255',
+            'is_exclusive' => 'sometimes|boolean',
+        ]);
+
+        $workout = WorkoutTemplate::create([
+            'coach_id'     => auth()->id(),
+            'title'        => $request->title,
+            'description'  => $request->description,
+            'is_exclusive' => $request->boolean('is_exclusive'),
+        ]);
+
+        if ($request->hasFile('image')) {
+            $workout->addMediaFromRequest('image')->toMediaCollection('image');
+        }
+
+        return json_custom_response(['data' => $workout]);
+    }
+
+    public function update(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:workout_templates,id',
+            'is_exclusive' => 'sometimes|boolean',
+        ]);
+
+        $workout = WorkoutTemplate::findOrFail($request->id);
+
+        $workout->update($request->only(['title', 'description', 'is_exclusive']));
+
+        return json_message_response(__('message.save_form', ['form' => 'Workout']));
+    }
+
+    public function destroy(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:workout_templates,id',
+        ]);
+
+        WorkoutTemplate::findOrFail($request->id)->delete();
+
+        return json_message_response(__('message.delete_form', ['form' => 'Workout']));
+    }
+
+    /** Crear un bloque nuevo (vacío) dentro del workout. */
+    public function storeBlock(Request $request)
+    {
+        $request->validate([
+            'workout_template_id' => 'required|exists:workout_templates,id',
+            'title'                => 'required|string|max:255',
+        ]);
+
+        $order = WorkoutTemplateBlock::where('workout_template_id', $request->workout_template_id)->max('order') ?? 0;
+
+        $block = WorkoutTemplateBlock::create([
+            'workout_template_id' => $request->workout_template_id,
+            'title'                => $request->title,
+            'instructions'         => $request->instructions,
+            'order'                => $order + 1,
+        ]);
+
+        return json_custom_response(['data' => $block]);
+    }
+
+    /**
+     * "Importar sección" — el botón clave que pediste: clona un
+     * section_template completo (título + ejercicios) dentro de este
+     * workout, como bloque nuevo.
+     */
+    public function importSection(Request $request)
+    {
+        $request->validate([
+            'workout_template_id'  => 'required|exists:workout_templates,id',
+            'section_template_id'  => 'required|exists:section_templates,id',
+        ]);
+
+        $workout = WorkoutTemplate::find($request->workout_template_id);
+        $section = SectionTemplate::with('exercises')->find($request->section_template_id);
+
+        $order = WorkoutTemplateBlock::where('workout_template_id', $workout->id)->max('order') ?? 0;
+
+        $block = $section->cloneInto($workout, $order + 1);
+
+        return json_custom_response(['data' => $block->load('exercises.exercise')]);
+    }
+
+    public function updateBlock(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:workout_template_blocks,id',
+        ]);
+
+        $block = WorkoutTemplateBlock::findOrFail($request->id);
+        $block->update($request->only(['title', 'instructions', 'order']));
+
+        return json_message_response(__('message.save_form', ['form' => 'Block']));
+    }
+
+    public function destroyBlock(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:workout_template_blocks,id',
+        ]);
+
+        WorkoutTemplateBlock::findOrFail($request->id)->delete();
+
+        return json_message_response(__('message.delete_form', ['form' => 'Block']));
+    }
+
+    /** Añadir un ejercicio a un bloque, con su prescrito y métricas. */
+    public function saveExercise(Request $request)
+    {
+        $request->validate([
+            'workout_template_block_id' => 'required|exists:workout_template_blocks,id',
+            'exercise_id'                => 'required|exists:exercises,id',
+        ]);
+
+        $order = WorkoutTemplateExercise::where('workout_template_block_id', $request->workout_template_block_id)->max('sequence') ?? 0;
+
+        $updateData = [
+            'workout_template_block_id' => $request->workout_template_block_id,
+            'exercise_id'                 => $request->exercise_id,
+            'sequence'                    => $request->sequence ?? ($order + 1),
+        ];
+
+        if ($request->has('prescribed')) {
+            $updateData['prescribed'] = $request->prescribed;
+        }
+
+        if ($request->has('enabled_metrics')) {
+            $updateData['enabled_metrics'] = $request->enabled_metrics;
+        }
+
+        if ($request->has('notes')) {
+            $updateData['notes'] = $request->notes;
+        }
+
+        $exercise = WorkoutTemplateExercise::updateOrCreate(
+            ['id' => $request->id ?? null],
+            $updateData
+        );
+
+        return json_custom_response(['data' => $exercise]);
+    }
+
+    /**
+     * Guardado rápido de un solo campo del prescrito (para edición en
+     * línea tipo HubFit: cambias "Reps" en la tabla y se guarda solo,
+     * sin recargar página).
+     */
+    public function updatePrescribedField(Request $request)
+    {
+        $request->validate([
+            'id'    => 'required|exists:workout_template_exercises,id',
+            'field' => 'required|string',
+            'value' => 'nullable',
+        ]);
+
+        $exercise = WorkoutTemplateExercise::find($request->id);
+        $prescribed = $exercise->prescribed ?? [];
+        $prescribed[$request->field] = $request->value;
+        $exercise->update(['prescribed' => $prescribed]);
+
+        return json_custom_response(['data' => $exercise]);
+    }
+
+    public function deleteExercise(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:workout_template_exercises,id',
+        ]);
+
+        WorkoutTemplateExercise::findOrFail($request->id)->delete();
+
+        return json_message_response(__('message.delete_form', ['form' => 'Exercise']));
+    }
+
+    public function updateExerciseNotes(Request $request)
+    {
+        $request->validate([
+            'id'    => 'required|exists:workout_template_exercises,id',
+            'notes' => 'nullable|string',
+        ]);
+
+        $exercise = WorkoutTemplateExercise::find($request->id);
+        $exercise->update(['notes' => $request->notes]);
+
+        return json_custom_response(['data' => $exercise]);
+    }
+
+    public function updateBlockInstructions(Request $request)
+    {
+        $request->validate([
+            'id'           => 'required|exists:workout_template_blocks,id',
+            'instructions' => 'nullable|string',
+        ]);
+
+        $block = WorkoutTemplateBlock::find($request->id);
+        $block->update(['instructions' => $request->instructions]);
+
+        return json_custom_response(['data' => $block]);
+    }
+
+    public function getClientDetail(Request $request)
+    {
+        $workout = WorkoutTemplate::with([
+            'blocks.exercises.exercise',
+            'blocks' => fn ($q) => $q->orderBy('order'),
+            'blocks.exercises' => fn ($q) => $q->orderBy('sequence'),
+        ])->find($request->id);
+
+        if ($workout == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
+
+        $user = auth()->user();
+        $isAccessible = !$workout->is_exclusive || ($user && PackageAccessService::canAccessPremiumWorkouts($user));
+
+        $media = $workout->getFirstMedia('image');
+
+        $isFavourite = $user && UserFavouriteWorkoutTemplate::where('user_id', $user->id)
+            ->where('workout_template_id', $workout->id)
+            ->exists();
+
+        // "Última vez" tambien para workouts sueltos (antes solo lo tenia
+        // getDayDetail, del sistema de calendario) - mismo patron: ultimo
+        // log por exercise_id, sin importar de que dia/asignacion vino.
+        $logs = collect();
+        if ($isAccessible && $user) {
+            $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+            // orderByDesc('id'): 'created_at' es de precision de segundo y
+            // puede empatar entre varias series de la misma sesion - 'id'
+            // refleja el orden real de insercion sin empates.
+            $logs = ClientExerciseLog::where('client_id', $user->id)
+                ->whereIn('exercise_id', $allExerciseIds)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('exercise_id')
+                ->keyBy('exercise_id');
+        }
+
+        $blocks = !$isAccessible ? [] : $workout->blocks->map(function ($block) use ($logs) {
+            return [
+                'id'           => $block->id,
+                'title'        => $block->title,
+                'instructions' => $block->instructions,
+                'order'        => $block->order,
+                'exercises'    => $block->exercises->map(function ($e) use ($logs) {
+                    $exercise = $e->exercise;
+                    $thumb = $exercise && $exercise->video_url
+                        ? $this->youtubeThumbnail($exercise->video_url)
+                        : getSingleMedia($exercise, 'exercise_image', null);
+
+                    $last_log = $logs->get($e->exercise_id);
+
+                    return [
+                        'id'              => $e->id,
+                        'exercise_id'     => $e->exercise_id,
+                        'exercise'        => $e->exercise,
+                        'sequence'        => $e->sequence,
+                        'prescribed'      => $e->prescribed,
+                        'enabled_metrics' => $e->enabled_metrics,
+                        'notes'           => $e->notes,
+                        'title'           => optional($exercise)->title,
+                        'exercise_image'  => $thumb,
+                        'video_url'       => optional($exercise)->video_url,
+                        // Primer body_part de exercises.bodypart_ids — para el heatmap
+                        // de musculo aislado en ExerciseThumb (mismo criterio que
+                        // ClientCalendarController::getDayDetail).
+                        'body_part_id'    => $this->primaryBodyPartId($exercise),
+                        'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
+                    ];
+                }),
+            ];
+        });
+
+        return json_custom_response([
+            'data' => [
+                'id'            => $workout->id,
+                'title'         => $workout->title,
+                'description'   => $workout->description,
+                'thumbnail'     => $media ? $media->getUrl() : null,
+                'is_exclusive'  => (bool) $workout->is_exclusive,
+                'is_accessible' => $isAccessible,
+                'is_favourite'  => (bool) $isFavourite,
+                'blocks'        => $blocks,
+            ],
+        ]);
+    }
+
+    /**
+     * Guardar/quitar de favoritos un WorkoutTemplate desde la app cliente
+     * (boton bookmark en workout_preview_screen.tsx) - mismo patron
+     * toggle que WorkoutController::userFavouriteWorkout (v1).
+     */
+    public function toggleFavourite(Request $request)
+    {
+        $request->validate(['workout_template_id' => 'required|exists:workout_templates,id']);
+
+        $user_id = auth('sanctum')->id();
+        $existing = UserFavouriteWorkoutTemplate::where('user_id', $user_id)
+            ->where('workout_template_id', $request->workout_template_id)
+            ->first();
+
+        if ($existing) {
+            $existing->delete();
+            return json_custom_response(['data' => ['is_favourite' => false]]);
+        }
+
+        UserFavouriteWorkoutTemplate::create([
+            'user_id'             => $user_id,
+            'workout_template_id' => $request->workout_template_id,
+        ]);
+
+        return json_custom_response(['data' => ['is_favourite' => true]]);
+    }
+
+    // AÑADIDO 2026-07-30: navegación libre de "Workouts sueltos" para clientes
+    // free (antes solo existía getClientDetail por id, sin ningún listado).
+    public function getClientList(Request $request)
+    {
+        $user = auth()->user();
+
+        $query = WorkoutTemplate::select('id', 'title', 'description', 'is_exclusive')
+            ->orderByDesc('created_at');
+
+        $per_page = config('constant.PER_PAGE_LIMIT');
+        if ($request->filled('per_page')) {
+            if ($request->per_page == -1) {
+                $per_page = $query->count();
+            } elseif (is_numeric($request->per_page)) {
+                $per_page = $request->per_page;
+            }
+        }
+
+        $workouts = $query->paginate($per_page);
+
+        $items = collect($workouts->items())->map(function ($w) use ($user) {
+            $isAccessible = !$w->is_exclusive || ($user && PackageAccessService::canAccessPremiumWorkouts($user));
+            $media = $w->getFirstMedia('image');
+
+            return [
+                'id'            => $w->id,
+                'title'         => $w->title,
+                'description'   => $w->description,
+                'thumbnail'     => $media ? $media->getUrl() : null,
+                'is_exclusive'  => (bool) $w->is_exclusive,
+                'is_accessible' => $isAccessible,
+            ];
+        });
+
+        return json_custom_response([
+            'pagination' => json_pagination_response($workouts),
+            'data' => $items,
+        ]);
+    }
+
+    /**
+     * Primer body_part.id de exercises.bodypart_ids, tolerando filas legacy
+     * donde quedo guardado un escalar suelto (ej. `"2"`) en vez del array
+     * `[2]` esperado (mismo criterio que ClientCalendarController).
+     */
+    private function primaryBodyPartId($exercise): ?int
+    {
+        if (!$exercise) return null;
+        $ids = $exercise->bodypart_ids;
+        if (is_array($ids)) return isset($ids[0]) ? (int) $ids[0] : null;
+        if (is_numeric($ids)) return (int) $ids;
+        return null;
+    }
+}
