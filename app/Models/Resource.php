@@ -11,6 +11,7 @@ class Resource extends Model
 
     protected $fillable = [
         'coach_id', 'client_id', 'title', 'type', 'content', 'external_url', 'scope',
+        'image_url', 'category',
     ];
 
     public function coach()

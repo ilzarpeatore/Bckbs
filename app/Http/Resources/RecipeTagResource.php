@@ -19,6 +19,7 @@ class RecipeTagResource extends JsonResource
             'title'              => $this->title,
             'slug'               => $this->slug,
             'status'             => $this->status,
+            'group'              => $this->group,
             'recipe_tag_image'   => getSingleMedia($this, 'recipe_tag_image',null),
             'created_at'         => $this->created_at,
             'updated_at'         => $this->updated_at,

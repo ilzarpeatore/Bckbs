@@ -249,6 +249,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // 'delete-user-account'. Mismo método que esa ruta antigua (se deja
         // por compatibilidad), ver docs/BORRADO_CUENTA_BACKEND.md.
         Route::post('delete-account', [ API\UserController::class, 'deleteUserAccount' ]);
+
+        // AÑADIDO: feedback in-app (item 5 del backlog) -- feature_request/bug_report.
+        Route::post('app-feedback', [ API\AppFeedbackController::class, 'store' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);
@@ -455,6 +458,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
     Route::get('reported-postings', [PostingController::class, 'reportList']);
     Route::post('postings/{id}/status', [PostingController::class, 'updateStatus']);
+    // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
+    // no existía ninguna vía admin para borrar un post moderado.
+    Route::post('admin-posting-delete', [PostingController::class, 'destroyReported']);
 
     // Languages
     Route::apiResource('languages', LanguageController::class);
@@ -678,4 +684,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // ═══ V2: Onboarding ═══════════════════════════════════════════════
     Route::get('admin-onboarding-list', [API\Admin\OnboardingController::class, 'getList']);
     Route::get('admin-onboarding-detail', [API\Admin\OnboardingController::class, 'getDetail']);
+
+    // ═══ V2: App Feedback ═════════════════════════════════════════════
+    Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
+    Route::get('admin-app-feedback-detail', [API\Admin\AppFeedbackController::class, 'getDetail']);
+    Route::post('admin-app-feedback-update', [API\Admin\AppFeedbackController::class, 'update']);
 });

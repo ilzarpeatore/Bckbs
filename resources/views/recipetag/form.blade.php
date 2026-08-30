@@ -28,6 +28,20 @@
                                 {{ html()->select('status',[ 'active' => __('message.active'), 'inactive' => __('message.inactive') ], old('status'))->class('form-control select2js')->attribute('required', 'required') }}
                             </div>
                             <div class="form-group col-md-6">
+                                {{ html()->label('Group', 'group')->class('form-control-label') }}
+                                {{ html()->select('group',[
+                                    'duration'       => 'Duration',
+                                    'fat_loss'       => 'Fat loss',
+                                    'muscle_gain'    => 'Muscle gain',
+                                    'performance'    => 'Performance',
+                                    'spain_regional' => 'Spain regional',
+                                    'country'        => 'Country',
+                                    'diet'           => 'Diet',
+                                    'meal_type'      => 'Meal type',
+                                    'other'          => 'Other',
+                                ], old('group'))->class('form-control select2js') }}
+                            </div>
+                            <div class="form-group col-md-6">
                                 <label class="form-control-label" for="recipe_tag_image">{{ __('message.image') }} </label>
                                 <div class="">
                                     <input class="form-control file-input" type="file" name="recipe_tag_image" id="recipe_tag_image" accept="image/*">
