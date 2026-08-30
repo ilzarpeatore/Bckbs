@@ -11,3 +11,6 @@ Homestead.yaml
 npm-debug.log
 yarn-error.log
 /.claude/worktrees/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/
