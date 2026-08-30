@@ -17,16 +17,26 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // `category` ya existía en algunos entornos (añadida ad-hoc antes de
+        // que esta migración se formalizara) -- idempotente para no romper
+        // en entornos donde una, ninguna o ambas columnas ya están.
         Schema::table('resources', function (Blueprint $table) {
-            $table->string('image_url')->nullable()->after('external_url');
-            $table->string('category')->nullable()->after('scope');
+            if (!Schema::hasColumn('resources', 'image_url')) {
+                $table->string('image_url')->nullable()->after('external_url');
+            }
+            if (!Schema::hasColumn('resources', 'category')) {
+                $table->string('category')->nullable()->after('scope');
+            }
         });
     }
 
     public function down(): void
     {
         Schema::table('resources', function (Blueprint $table) {
-            $table->dropColumn(['image_url', 'category']);
+            $columns = array_filter(['image_url', 'category'], fn ($c) => Schema::hasColumn('resources', $c));
+            if ($columns) {
+                $table->dropColumn($columns);
+            }
         });
     }
 };
