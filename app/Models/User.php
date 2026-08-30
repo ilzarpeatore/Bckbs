@@ -49,6 +49,23 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         return $this->hasOne(UserProfile::class, 'user_id', 'id');
     }
 
+    // AÑADIDO: Onboarding v2, etapas 2-4 (ver docs/ONBOARDING_V2.md) -- una
+    // fila por usuario, igual que userProfile().
+    public function parQAnswer()
+    {
+        return $this->hasOne(ParQAnswer::class, 'user_id', 'id');
+    }
+
+    public function trainingQuestionnaireAnswer()
+    {
+        return $this->hasOne(TrainingQuestionnaireAnswer::class, 'user_id', 'id');
+    }
+
+    public function nutritionQuestionnaireAnswer()
+    {
+        return $this->hasOne(NutritionQuestionnaireAnswer::class, 'user_id', 'id');
+    }
+
     public function userGraph(){
         return $this->hasMany(UserGraph::class, 'user_id', 'id');
     }
@@ -105,7 +122,14 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
                     $row->clientNotes()->delete();
                     $row->authoredTasks()->delete();
                     $row->assignedTasks()->delete();
-                    
+                    // AÑADIDO: Onboarding v2 -- las 3 tablas de cuestionario
+                    // ya tienen FK con onDelete('cascade') a nivel de BD,
+                    // pero se borran también aquí explícitamente, igual que
+                    // el resto de esta lista manual.
+                    $row->parQAnswer()->delete();
+                    $row->trainingQuestionnaireAnswer()->delete();
+                    $row->nutritionQuestionnaireAnswer()->delete();
+
                 break;
                 default:
                     # code...
