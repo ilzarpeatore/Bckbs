@@ -19,12 +19,19 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::post('register',[ API\UserController::class, 'register']);
-Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
-Route::post('login',[ API\UserController::class, 'login']);
-Route::post('forget-password',[ API\UserController::class, 'forgetPassword']);
-Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
-Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
+// Auditoría de seguridad 2026-08-26: throttle explícito en rutas de auth
+// (antes solo dependían del throttle:api genérico del Kernel) — mitiga
+// fuerza bruta / credential stuffing en login, registro y recuperación.
+Route::middleware('throttle:6,1')->group(function () {
+    Route::post('login',[ API\UserController::class, 'login']);
+    Route::post('forget-password',[ API\UserController::class, 'forgetPassword']);
+    Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
+    Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
+});
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('register',[ API\UserController::class, 'register']);
+    Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
+});
 Route::get('user-detail',[ API\UserController::class, 'userDetail']);
 Route::get('get-appsetting', [ API\UserController::class, 'getAppSetting'] );
 Route::get('language-table-list',[API\LanguageTableController::class, 'getList']);
@@ -89,6 +96,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('update-user-status', [ API\UserController::class, 'updateUserStatus']);
     Route::post('delete-user-account', [ API\UserController::class, 'deleteUserAccount']);
     Route::get('logout',[ API\UserController::class, 'logout']);
+    Route::post('logout-all-devices', [ API\UserController::class, 'logoutAllDevices']);
 
     Route::get('payment-gateway-list', [ API\PaymentGatewayController::class, 'getList'] );
 

@@ -433,6 +433,7 @@ return [
     'reply_to' => 'الرد على',
     'delete' => 'حذف',
     'logout_success' => 'تم تسجيل الخروج بنجاح',
+    'server_error' => 'حدث خطأ غير متوقع. يرجى المحاولة مرة أخرى لاحقاً.',
     'user_commented_posting' => ':user علّق على منشورك.',
     'user_replied_comment' => ':user رد على تعليقك.',
     'already_reported_this_post' => 'لقد قمت بالإبلاغ عن هذا المنشور مسبقًا.',

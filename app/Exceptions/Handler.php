@@ -70,7 +70,21 @@ class Handler extends ExceptionHandler
 
             return response()->view('errors.route404', [], 404);
         }
-        
-        return parent::render($request, $exception);
+
+        $response = parent::render($request, $exception);
+
+        // Auditoría de seguridad 2026-08-26: nunca devolver el mensaje/stack
+        // trace crudo de un 5xx a un cliente API, independientemente de
+        // APP_DEBUG (que en producción puede quedar mal configurado a true
+        // por error). El detalle real sigue disponible en los logs del
+        // servidor vía $this->reportable().
+        if (($request->expectsJson() || $request->is('api*')) && $response->getStatusCode() >= 500) {
+            return response()->json([
+                'error' => 'server_error',
+                'message' => __('message.server_error'),
+            ], $response->getStatusCode());
+        }
+
+        return $response;
     }
 }

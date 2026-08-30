@@ -273,6 +273,22 @@ class UserController extends Controller
         }
     }
 
+    /**
+     * Auditoría de seguridad 2026-08-26: revoca todos los personal access
+     * tokens del usuario (todas las sesiones/dispositivos), no solo el
+     * actual — para "cerrar sesión en todos los dispositivos" o reaccionar
+     * a un token robado.
+     */
+    public function logoutAllDevices(Request $request)
+    {
+        $user = Auth::user();
+        $user->player_id = null;
+        $user->save();
+        $user->tokens()->delete();
+        $message = __('message.logout_success');
+        return json_message_response($message);
+    }
+
     public function forgetPassword(Request $request)
     {
         $request->validate([
