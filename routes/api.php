@@ -221,6 +221,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // cuando el frontend recibe la vuelta desde PayPal).
         Route::post('checkout/paypal/create-order', [ API\V1\CheckoutController::class, 'createPaypalOrder' ]);
         Route::post('checkout/paypal/capture-order', [ API\V1\CheckoutController::class, 'capturePaypalOrder' ]);
+
+        // AÑADIDO: feedback in-app (item 5 del backlog) -- feature_request/bug_report.
+        Route::post('app-feedback', [ API\AppFeedbackController::class, 'store' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);
@@ -427,6 +430,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
     Route::get('reported-postings', [PostingController::class, 'reportList']);
     Route::post('postings/{id}/status', [PostingController::class, 'updateStatus']);
+    // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
+    // no existía ninguna vía admin para borrar un post moderado.
+    Route::post('admin-posting-delete', [PostingController::class, 'destroyReported']);
 
     // Languages
     Route::apiResource('languages', LanguageController::class);
@@ -646,4 +652,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('admin-resource-store', [API\Admin\ResourceController::class, 'store']);
     Route::post('admin-resource-update', [API\Admin\ResourceController::class, 'update']);
     Route::post('admin-resource-delete', [API\Admin\ResourceController::class, 'destroy']);
+
+    // ═══ V2: App Feedback ═════════════════════════════════════════════
+    Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
+    Route::get('admin-app-feedback-detail', [API\Admin\AppFeedbackController::class, 'getDetail']);
+    Route::post('admin-app-feedback-update', [API\Admin\AppFeedbackController::class, 'update']);
 });

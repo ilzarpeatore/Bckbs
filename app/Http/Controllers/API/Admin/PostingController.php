@@ -82,4 +82,23 @@ class PostingController extends BaseController
             'data'    => $posting,
         ]);
     }
+
+    /**
+     * Borrado moderador: elimina un post reportado sin importar quién sea
+     * el dueño. Solo alcanzable vía admin (middleware admin.api en el grupo
+     * de rutas), a diferencia de PostingController::deletePostdata que es
+     * el borrado del propio usuario (o de un admin actuando como tal).
+     */
+    public function destroyReported(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:postings,id',
+        ]);
+
+        $posting = Posting::find($request->id);
+
+        $posting->delete();
+
+        return json_message_response('Posting deleted.');
+    }
 }

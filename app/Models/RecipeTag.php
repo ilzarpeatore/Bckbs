@@ -13,7 +13,7 @@ use Spatie\Sluggable\SlugOptions;
 class RecipeTag extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, HasSlug;
-    protected $fillable = [ 'title', 'slug', 'status' ];
+    protected $fillable = [ 'title', 'slug', 'status', 'group' ];
 
     public function getSlugOptions() : SlugOptions
     {

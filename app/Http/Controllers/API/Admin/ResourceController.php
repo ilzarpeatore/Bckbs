@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Resource;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class ResourceController extends Controller
 {
@@ -24,6 +25,9 @@ class ResourceController extends Controller
         }
         if ($request->filled('scope')) {
             $query->where('scope', $request->scope);
+        }
+        if ($request->filled('category')) {
+            $query->where('category', $request->category);
         }
         if ($request->filled('search')) {
             $search = $request->search;
@@ -60,12 +64,21 @@ class ResourceController extends Controller
             'client_id' => 'required_if:scope,personal|nullable|exists:users,id',
             'content' => 'nullable|string',
             'external_url' => 'nullable|string|max:2048',
+            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset',
+            // Portada: o bien una URL directa, o bien un archivo -- ver abajo.
+            'image_url' => 'nullable|string|max:2048',
+            'image' => 'nullable|image|mimes:jpg,jpeg,png,gif|max:5120',
         ]);
 
         $validated['coach_id'] = auth('sanctum')->id();
         if ($validated['scope'] === 'shared') {
             $validated['client_id'] = null;
         }
+
+        if ($request->hasFile('image')) {
+            $validated['image_url'] = $this->storeImage($request);
+        }
+        unset($validated['image']);
 
         $resource = Resource::create($validated);
 
@@ -82,18 +95,40 @@ class ResourceController extends Controller
             'client_id' => 'nullable|exists:users,id',
             'content' => 'nullable|string',
             'external_url' => 'nullable|string|max:2048',
+            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset',
+            'image_url' => 'nullable|string|max:2048',
+            'image' => 'nullable|image|mimes:jpg,jpeg,png,gif|max:5120',
         ]);
 
         $resource = Resource::findOrFail($validated['id']);
-        $data = collect($validated)->except('id')->filter()->toArray();
+        $data = collect($validated)->except(['id', 'image'])->filter()->toArray();
 
         if (isset($data['scope']) && $data['scope'] === 'shared') {
             $data['client_id'] = null;
         }
 
+        if ($request->hasFile('image')) {
+            $data['image_url'] = $this->storeImage($request);
+        }
+
         $resource->update($data);
 
         return $this->sendResponse($resource, 'Resource updated successfully');
+    }
+
+    /**
+     * Sube el archivo `image` al disco `public` (storage/app/public/resources,
+     * enlazado en public/storage vía `php artisan storage:link`) y devuelve
+     * su URL pública.
+     */
+    protected function storeImage(Request $request): string
+    {
+        $file = $request->file('image');
+        $filename = uniqid('resource_') . '.' . $file->getClientOriginalExtension();
+
+        Storage::disk('public')->put('resources/' . $filename, file_get_contents($file->getRealPath()));
+
+        return Storage::disk('public')->url('resources/' . $filename);
     }
 
     public function destroy(Request $request): JsonResponse
