@@ -439,6 +439,7 @@ return [
     'reply_to' => 'Reply to',
     'delete' => 'Delete',
     'logout_success' => 'Logout successfully',
+    'server_error' => 'An unexpected error occurred. Please try again later.',
     'user_commented_posting' => ':user commented on your post.',
     'user_replied_comment' => ':user replied on your comment.',
     'already_reported_this_post' => 'You have already reported this post.',

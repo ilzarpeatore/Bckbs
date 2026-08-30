@@ -63,4 +63,83 @@ class ReadinessController extends Controller
 
         return json_custom_response(['data' => $check]);
     }
+
+    /**
+     * NUEVO — stopgap de readiness (item 10 del backlog, alcance
+     * confirmado con producto): NO es el motor completo de "Fase 4"
+     * (ReadinessCalculationService, readiness_scores con combined_score/
+     * band/acwr/hrv_z_score, ingesta de wearable HRV/sueño) — esa pieza
+     * no existe todavía en este repo y queda explícitamente FUERA de
+     * alcance de este cambio, es una iniciativa aparte más grande. Esto
+     * es solo un envoltorio ligero sobre el cuestionario subjetivo que
+     * YA existe (DailyReadinessCheck), para que la app tenga algo que
+     * mostrar mientras tanto.
+     */
+    public function summary(Request $request)
+    {
+        $user = auth('sanctum')->user();
+        $today = now()->toDateString();
+
+        $check = DailyReadinessCheck::where('user_id', $user->id)
+            ->whereDate('date', $today)
+            ->first();
+
+        if (!$check) {
+            return json_custom_response([
+                'data' => [
+                    'has_data'       => false,
+                    'combined_score' => null,
+                    'band'           => null,
+                    'calculated_at'  => null,
+                ],
+            ]);
+        }
+
+        // Formula del stopgap (SOLO subjetivo, no HRV/ACWR real): cada
+        // campo del cuestionario (rangos según DailyReadinessCheck/su
+        // migración: sleep_quality y energy_level 1-5, soreness_level
+        // 1-10, stress_level 1-5) se normaliza a una escala 0-100
+        // comparable, invirtiendo los que son "cuanto más alto, peor"
+        // (soreness_level, stress_level) para que en las 4 escalas
+        // normalizadas 100 sea siempre "mejor". combined_score = media
+        // simple de las 4.
+        $sleepScore    = self::normalize((float) $check->sleep_quality, 1, 5, false);
+        $energyScore   = self::normalize((float) $check->energy_level, 1, 5, false);
+        $sorenessScore = self::normalize((float) $check->soreness_level, 1, 10, true);
+        $stressScore   = self::normalize((float) $check->stress_level, 1, 5, true);
+
+        $combined = round(($sleepScore + $energyScore + $sorenessScore + $stressScore) / 4);
+
+        if ($combined >= 75) {
+            $band = 'good';
+        } elseif ($combined >= 50) {
+            $band = 'ok';
+        } else {
+            $band = 'poor';
+        }
+
+        return json_custom_response([
+            'data' => [
+                'has_data'       => true,
+                'combined_score' => $combined,
+                'band'           => $band,
+                'calculated_at'  => now()->toIso8601String(),
+                'raw' => [
+                    'sleep_quality'  => $check->sleep_quality,
+                    'soreness_level' => $check->soreness_level,
+                    'energy_level'   => $check->energy_level,
+                    'stress_level'   => $check->stress_level,
+                ],
+            ],
+        ]);
+    }
+
+    /** Escala $value (rango [$min,$max]) a 0-100; $invert=true cuando un valor más alto es peor. */
+    private static function normalize(float $value, float $min, float $max, bool $invert): float
+    {
+        $value = max($min, min($max, $value));
+        $ratio = ($value - $min) / ($max - $min);
+
+        return ($invert ? (1 - $ratio) : $ratio) * 100;
+    }
 }

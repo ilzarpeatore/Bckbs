@@ -24,6 +24,13 @@ use App\Models\Form;
 use App\Models\FormAssignment;
 use App\Models\PersonalClientInvite;
 use App\Services\WelcomeMailService;
+use Illuminate\Support\Facades\Log;
+use App\Models\WorkoutTemplate;
+use App\Models\TrainingProgram;
+use App\Models\ProgramClientAssignment;
+use App\Models\ProgramDayAssignment;
+use App\Services\CalendarDateMapper;
+use Carbon\Carbon;
 
 class UserController extends Controller
 {
@@ -110,10 +117,15 @@ class UserController extends Controller
                     ['active' => true]
                 );
             });
+
+            // AÑADIDO: entrenamiento de bienvenida en el calendario del
+            // cliente nuevo desde el primer día — ver assignDemoWorkoutIfNeeded().
+            $this->assignDemoWorkoutIfNeeded($user);
         }
 
         $user->api_token = $user->createToken('auth_token')->plainTextToken;
         $user->profile_image = getSingleMedia($user, 'profile_image', null);
+        $user->onboarding_completed = $user->onboarding_completed_at !== null;
         unset($user->roles);
 
         $message = __('message.save_form',['form' => __('message.'.$input['user_type']) ]);
@@ -123,6 +135,80 @@ class UserController extends Controller
         ];
 
         return json_custom_response($response);
+    }
+
+    /**
+     * AÑADIDO: "Tu entrenamiento de hoy" desde el primer día — asigna la
+     * plantilla de bienvenida (DemoWorkoutTemplateSeeder, marcada
+     * is_demo=true) al calendario PERSONAL del cliente nuevo, en la fecha
+     * de hoy. Reutiliza exactamente el mismo mecanismo que ya usa el
+     * calendario real (TrainingProgram is_personal + ProgramClientAssignment
+     * + ProgramDayAssignment, ver ClientProfileCalendarController::
+     * getOrCreatePersonalProgram()) — no una tabla ni una relación nueva,
+     * así que si el coach asigna después algo más a este cliente desde el
+     * panel Admin, cae en el mismo programa personal en vez de crear uno
+     * duplicado.
+     *
+     * Defensivo: comprueba que el usuario no tenga ya ningún
+     * ProgramDayAssignment real (con workout asignado) antes de tocar
+     * nada — en un alta nueva esto siempre es cierto, pero por si el flujo
+     * de registro cambia en el futuro (p.ej. invite codes que ya traigan
+     * calendario) no queremos pisar nada.
+     */
+    private function assignDemoWorkoutIfNeeded(User $user): void
+    {
+        $hasRealAssignment = ProgramDayAssignment::whereIn(
+            'training_program_id',
+            ProgramClientAssignment::where('client_id', $user->id)->where('activo', true)->pluck('training_program_id')
+        )->whereNotNull('workout_template_id')->exists();
+
+        if ($hasRealAssignment) {
+            return;
+        }
+
+        $demoTemplate = WorkoutTemplate::where('is_demo', true)->first();
+        if (!$demoTemplate) {
+            // DemoWorkoutTemplateSeeder no se ha corrido todavía en este
+            // entorno — no hay nada que asignar, no rompemos el registro.
+            return;
+        }
+
+        // Misma fecha ancla que usa el panel Admin para el calendario
+        // personal (ClientProfileCalendarController::PERSONAL_ANCHOR_DATE),
+        // referenciada directamente para que week_number/day_of_week
+        // salgan siempre iguales sea cual sea el sitio que cree el día.
+        $anchor = ClientProfileCalendarController::PERSONAL_ANCHOR_DATE;
+
+        $program = TrainingProgram::firstOrCreate(
+            ['personal_client_id' => $user->id, 'is_personal' => true],
+            [
+                'title'        => 'Calendario personal',
+                'coach_id'     => $demoTemplate->coach_id,
+                'num_weeks'    => 1000,
+                'fecha_inicio' => $anchor,
+                'activo'       => true,
+            ]
+        );
+
+        ProgramClientAssignment::firstOrCreate(
+            ['training_program_id' => $program->id, 'client_id' => $user->id],
+            ['start_date' => $anchor, 'activo' => true]
+        );
+
+        $mapper = new CalendarDateMapper();
+        $wd = $mapper->toWeekAndDay(Carbon::parse($anchor), Carbon::now());
+
+        ProgramDayAssignment::firstOrCreate(
+            [
+                'training_program_id' => $program->id,
+                'week_number'         => $wd['week_number'],
+                'day_of_week'         => $wd['day_of_week'],
+            ],
+            [
+                'workout_template_id' => $demoTemplate->id,
+                'scheduled_date'      => now()->toDateString(),
+            ]
+        );
     }
 
     public function login(Request $request)
@@ -151,6 +237,7 @@ class UserController extends Controller
             $success = $user;
             $success['api_token'] = $user->createToken('auth_token')->plainTextToken;
             $success['profile_image'] = getSingleMedia($user, 'profile_image', null);
+            $success['onboarding_completed'] = $user->onboarding_completed_at !== null;
 
             unset($success['media']);
 
@@ -271,6 +358,22 @@ class UserController extends Controller
             $message = __('message.logout_success');
             return json_message_response($message);
         }
+    }
+
+    /**
+     * Auditoría de seguridad 2026-08-26: revoca todos los personal access
+     * tokens del usuario (todas las sesiones/dispositivos), no solo el
+     * actual — para "cerrar sesión en todos los dispositivos" o reaccionar
+     * a un token robado.
+     */
+    public function logoutAllDevices(Request $request)
+    {
+        $user = Auth::user();
+        $user->player_id = null;
+        $user->save();
+        $user->tokens()->delete();
+        $message = __('message.logout_success');
+        return json_message_response($message);
     }
 
     public function forgetPassword(Request $request)
@@ -509,18 +612,59 @@ class UserController extends Controller
         return json_custom_response($data);
     }
 
+    /**
+     * Borrado de cuenta desde la app (cliente) -- definitivo e inmediato,
+     * sin periodo de gracia ni recuperación (obligación de la política de
+     * privacidad ya publicada, ver docs/BORRADO_CUENTA_BACKEND.md §2).
+     * Registrado tanto en 'delete-user-account' (compat) como en
+     * 'v1/delete-account' (URL real que llama el cliente).
+     */
     public function deleteUserAccount(Request $request)
     {
         $id = auth()->id();
         $user = User::where('id', $id)->first();
-        $message = __('message.not_found_entry',['name' => __('message.account') ]);
 
-        if( $user != '' ) {
-            $user->delete();
-            $message = __('message.account_deleted');
+        if (!$user) {
+            $message = __('message.not_found_entry', ['name' => __('message.account') ]);
+            return json_message_response($message, 404);
         }
 
-        return json_custom_response(['message'=> $message, 'status' => true]);
+        // Guard: esta vía es solo para que un CLIENTE borre su propia cuenta.
+        // Un coach con clientes propios o un admin no puede auto-borrarse
+        // así -- borrar un coach implica decidir qué pasa con sus clientes
+        // activos, gestión que se hace a mano desde el admin panel (ver
+        // docs/BORRADO_CUENTA_BACKEND.md §4).
+        $isCoachWithClients = User::where('coach_id', $user->id)->exists();
+        if ($isCoachWithClients || $user->hasRole('admin')) {
+            return json_message_response('Contacta con soporte para dar de baja una cuenta de entrenador', 403);
+        }
+
+        // El 'reason' es opcional, solo para contexto del coach -- se
+        // registra en el log, no se persiste en ninguna tabla nueva.
+        if ($request->filled('reason')) {
+            Log::info('Account deletion requested', [
+                'user_id' => $user->id,
+                'reason'  => $request->input('reason'),
+            ]);
+        }
+
+        // Revocación explícita de todos los tokens -- cierra sesión en
+        // todos los dispositivos al instante, aunque el cascade delete de
+        // User::boot() también los borre indirectamente.
+        $user->tokens()->delete();
+
+        // Sale de la lista de clientes activos de su coach de inmediato
+        // (redundante con el borrado total que sigue justo después, pero
+        // explícito por si algo interrumpe el borrado a medias).
+        if ($user->coach_id !== null || $user->is_personal_client) {
+            $user->coach_id = null;
+            $user->is_personal_client = false;
+            $user->saveQuietly();
+        }
+
+        $user->delete();
+
+        return json_message_response('Cuenta eliminada correctamente.');
     }
 
     public function userProfileDetail(Request $request)

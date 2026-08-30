@@ -97,16 +97,31 @@ class PostingController extends Controller
 
     public function deletePostdata(Request $request)
     {
-        $posting = Posting::myPosting()->where('id', $request->id)->first();
+        $posting = Posting::where('id', $request->id)->first();
 
         $message = __('message.not_found_entry', ['name' => __('message.posting') ]);
         $status_code = 400;
 
         if( $posting != null )
         {
-            $posting->delete();
-            $status_code = 200;
-            $message = __('message.post_delete_form');
+            // Moderación (item 12 del backlog): solo el dueño del post o un
+            // admin pueden borrarlo. Antes esto se resolvía implícitamente
+            // vía Posting::scopeMyPosting(), que solo filtra por user_id
+            // cuando el caller tiene el rol 'user' -- para un admin no
+            // filtraba nada y "funcionaba" por accidente. Se deja explícito
+            // aquí (sin tocar el scope, que puede tener otros usos) para que
+            // la intención de moderación quede clara.
+            $isOwner = $posting->user_id === auth()->id();
+            $isAdmin = auth()->user() && auth()->user()->hasRole('admin');
+
+            if ( $isOwner || $isAdmin ) {
+                $posting->delete();
+                $status_code = 200;
+                $message = __('message.post_delete_form');
+            } else {
+                $message = __('message.permission_denied_for_account');
+                $status_code = 403;
+            }
         }
 
         return json_message_response( $message, $status_code);

@@ -19,12 +19,19 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
-Route::post('register',[ API\UserController::class, 'register']);
-Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
-Route::post('login',[ API\UserController::class, 'login']);
-Route::post('forget-password',[ API\UserController::class, 'forgetPassword']);
-Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
-Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
+// Auditoría de seguridad 2026-08-26: throttle explícito en rutas de auth
+// (antes solo dependían del throttle:api genérico del Kernel) — mitiga
+// fuerza bruta / credential stuffing en login, registro y recuperación.
+Route::middleware('throttle:6,1')->group(function () {
+    Route::post('login',[ API\UserController::class, 'login']);
+    Route::post('forget-password',[ API\UserController::class, 'forgetPassword']);
+    Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
+    Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
+});
+Route::middleware('throttle:10,1')->group(function () {
+    Route::post('register',[ API\UserController::class, 'register']);
+    Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
+});
 Route::get('user-detail',[ API\UserController::class, 'userDetail']);
 Route::get('get-appsetting', [ API\UserController::class, 'getAppSetting'] );
 Route::get('language-table-list',[API\LanguageTableController::class, 'getList']);
@@ -89,6 +96,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('update-user-status', [ API\UserController::class, 'updateUserStatus']);
     Route::post('delete-user-account', [ API\UserController::class, 'deleteUserAccount']);
     Route::get('logout',[ API\UserController::class, 'logout']);
+    Route::post('logout-all-devices', [ API\UserController::class, 'logoutAllDevices']);
 
     Route::get('payment-gateway-list', [ API\PaymentGatewayController::class, 'getList'] );
 
@@ -200,10 +208,14 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::get('my-calendar-day-detail', [ API\ClientCalendarController::class, 'getDayDetail' ]);
         Route::post('my-calendar-log-sets', [ API\ClientCalendarController::class, 'logSets' ]);
         Route::post('my-calendar-finish-session', [ API\ClientCalendarController::class, 'finishSession' ]);
+        // AÑADIDO: reorganizar el calendario semanal ("Guardar cambios" tras arrastrar entre días).
+        Route::post('my-calendar-move-assignments', [ API\ClientCalendarController::class, 'moveAssignments' ]);
 
         // AÑADIDO: readiness diario obligatorio antes de Workout Preview.
         Route::get('readiness-today', [ API\ReadinessController::class, 'today' ]);
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
+        // AÑADIDO: resumen ligero de readiness (stopgap subjetivo, ver ReadinessController::summary()).
+        Route::get('readiness-summary', [ API\ReadinessController::class, 'summary' ]);
 
         // AÑADIDO: checkout de Packages desde la web (webbs) -- ver
         // docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa. Autenticado a
@@ -221,6 +233,25 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // cuando el frontend recibe la vuelta desde PayPal).
         Route::post('checkout/paypal/create-order', [ API\V1\CheckoutController::class, 'createPaypalOrder' ]);
         Route::post('checkout/paypal/capture-order', [ API\V1\CheckoutController::class, 'capturePaypalOrder' ]);
+
+        // AÑADIDO: Onboarding v2, etapas 2-4 + marcado de completado -- la
+        // etapa 1 reutiliza update-profile y no vive aquí. Ver
+        // docs/ONBOARDING_V2.md para el contrato completo.
+        Route::prefix('onboarding')->group(function () {
+            Route::post('par-q', [ API\OnboardingController::class, 'parq' ]);
+            Route::post('training-questionnaire', [ API\OnboardingController::class, 'trainingQuestionnaire' ]);
+            Route::post('nutrition-questionnaire', [ API\OnboardingController::class, 'nutritionQuestionnaire' ]);
+            Route::post('complete', [ API\OnboardingController::class, 'complete' ]);
+        });
+
+        // AÑADIDO: borrado de cuenta -- el cliente (app) llama a esta URL
+        // exacta (authApi.deleteAccount() -> POST v1/delete-account), no a
+        // 'delete-user-account'. Mismo método que esa ruta antigua (se deja
+        // por compatibilidad), ver docs/BORRADO_CUENTA_BACKEND.md.
+        Route::post('delete-account', [ API\UserController::class, 'deleteUserAccount' ]);
+
+        // AÑADIDO: feedback in-app (item 5 del backlog) -- feature_request/bug_report.
+        Route::post('app-feedback', [ API\AppFeedbackController::class, 'store' ]);
     });
 
     Route::get('daily-plan-detail', [ API\DailyPlanController::class, 'getDailyPlanDetail' ]);
@@ -427,6 +458,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
     Route::get('reported-postings', [PostingController::class, 'reportList']);
     Route::post('postings/{id}/status', [PostingController::class, 'updateStatus']);
+    // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
+    // no existía ninguna vía admin para borrar un post moderado.
+    Route::post('admin-posting-delete', [PostingController::class, 'destroyReported']);
 
     // Languages
     Route::apiResource('languages', LanguageController::class);
@@ -646,4 +680,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('admin-resource-store', [API\Admin\ResourceController::class, 'store']);
     Route::post('admin-resource-update', [API\Admin\ResourceController::class, 'update']);
     Route::post('admin-resource-delete', [API\Admin\ResourceController::class, 'destroy']);
+
+    // ═══ V2: Onboarding ═══════════════════════════════════════════════
+    Route::get('admin-onboarding-list', [API\Admin\OnboardingController::class, 'getList']);
+    Route::get('admin-onboarding-detail', [API\Admin\OnboardingController::class, 'getDetail']);
+
+    // ═══ V2: App Feedback ═════════════════════════════════════════════
+    Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
+    Route::get('admin-app-feedback-detail', [API\Admin\AppFeedbackController::class, 'getDetail']);
+    Route::post('admin-app-feedback-update', [API\Admin\AppFeedbackController::class, 'update']);
 });

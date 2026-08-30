@@ -35,13 +35,15 @@ class RecipeTagRequest extends FormRequest
                 $rules = [
                     'title' => 'required',
                     'recipe_tag_image' => 'nullable|image|mimes:jpg,jpeg,png',
+                    'group' => 'nullable|in:duration,fat_loss,muscle_gain,performance,spain_regional,country,diet,meal_type,other',
                 ];
             break;
-            
+
             case 'patch':
                 $rules = [
                     'title' => 'required',
                     'recipe_tag_image' => 'nullable|image|mimes:jpg,jpeg,png',
+                    'group' => 'nullable|in:duration,fat_loss,muscle_gain,performance,spain_regional,country,diet,meal_type,other',
                 ];
             break;
         }

@@ -17,6 +17,11 @@ class RecipeTagController extends Controller
             return $q->where('title', 'LIKE', '%' . request('title') . '%');
         });
 
+        // AÑADIDO: permite agrupar/filtrar tags por `group` (item 11 del backlog).
+        $recipetag->when(request('group'), function ($q) {
+            return $q->where('group', request('group'));
+        });
+
         $per_page = config('constant.PER_PAGE_LIMIT');
         if( $request->has('per_page') && !empty($request->per_page)){
             if(is_numeric($request->per_page))

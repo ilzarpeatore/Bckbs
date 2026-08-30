@@ -22,6 +22,12 @@ class ResourceController extends Controller
             return $q->where('type', $request->type);
         });
 
+        // AÑADIDO: permite agrupar/filtrar las guías compartidas por
+        // categoría (entrenamiento|nutricion|habitos_mindset) desde la app.
+        $resource->when($request->category, function ($q) use ($request) {
+            return $q->where('category', $request->category);
+        });
+
         $per_page = config('constant.PER_PAGE_LIMIT');
         if ($request->has('per_page') && !empty($request->per_page)) {
             if (is_numeric($request->per_page)) {
