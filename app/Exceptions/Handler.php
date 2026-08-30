@@ -64,6 +64,19 @@ class Handler extends ExceptionHandler
     public function render($request, Throwable $exception)
     {
         if ($exception instanceof NotFoundHttpException || $exception instanceof ModelNotFoundException) {
+            // CORREGIDO: esta rama devolvía siempre la vista HTML de 404,
+            // incluso a clientes de la API (Accept: application/json) --
+            // cualquier abort(404)/modelo no encontrado en una ruta api/*
+            // (p.ej. ClientCalendarController::resolveOwnedAssignment())
+            // le llegaba una página HTML a la app en vez de JSON. Mismo
+            // criterio que unauthenticated() más arriba.
+            if ($request->expectsJson() || $request->is('api*')) {
+                return response()->json([
+                    'error' => 'not_found',
+                    'message' => $exception->getMessage() ?: __('message.not_found_entry', ['name' => '']),
+                ], 404);
+            }
+
             if (Module::has('Frontend') && Module::isEnabled('Frontend')) {
                 return redirect()->route('error.404');
             }
