@@ -12,12 +12,16 @@ class ResourceController extends Controller
 {
     public function getList(Request $request): JsonResponse
     {
-        $query = Resource::with(['coach' => fn($q) => $q->select('id', 'first_name', 'last_name')]);
+        $query = Resource::with([
+            'coach' => fn($q) => $q->select('id', 'first_name', 'last_name'),
+            'assignedClients:id,first_name,last_name,email',
+        ]);
 
         if ($request->filled('client_id')) {
-            $query->where(function ($q) use ($request) {
+            $clientId = $request->client_id;
+            $query->where(function ($q) use ($clientId) {
                 $q->where('scope', 'shared')
-                  ->orWhere('client_id', $request->client_id);
+                  ->orWhereHas('assignedClients', fn($q2) => $q2->where('users.id', $clientId));
             });
         }
         if ($request->filled('type')) {
@@ -49,8 +53,10 @@ class ResourceController extends Controller
             'id' => 'required|exists:resources,id',
         ]);
 
-        $resource = Resource::with(['coach' => fn($q) => $q->select('id', 'first_name', 'last_name')])
-            ->findOrFail($validated['id']);
+        $resource = Resource::with([
+            'coach' => fn($q) => $q->select('id', 'first_name', 'last_name'),
+            'assignedClients:id,first_name,last_name,email',
+        ])->findOrFail($validated['id']);
 
         return $this->sendResponse($resource, 'Resource retrieved successfully');
     }
@@ -60,20 +66,20 @@ class ResourceController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'type' => 'required|string|in:article,video,link,doc',
-            'scope' => 'required|in:shared,personal',
-            'client_id' => 'required_if:scope,personal|nullable|exists:users,id',
+            'scope' => 'required|in:shared,assigned',
+            'client_ids' => 'required_if:scope,assigned|array',
+            'client_ids.*' => 'exists:users,id',
             'content' => 'nullable|string',
             'external_url' => 'nullable|string|max:2048',
-            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset',
+            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset,onboarding,planes_actuales',
             // Portada: o bien una URL directa, o bien un archivo -- ver abajo.
             'image_url' => 'nullable|string|max:2048',
             'image' => 'nullable|image|mimes:jpg,jpeg,png,gif|max:5120',
         ]);
 
+        $clientIds = $validated['scope'] === 'assigned' ? ($validated['client_ids'] ?? []) : [];
+        unset($validated['client_ids']);
         $validated['coach_id'] = auth('sanctum')->id();
-        if ($validated['scope'] === 'shared') {
-            $validated['client_id'] = null;
-        }
 
         if ($request->hasFile('image')) {
             $validated['image_url'] = $this->storeImage($request);
@@ -81,8 +87,11 @@ class ResourceController extends Controller
         unset($validated['image']);
 
         $resource = Resource::create($validated);
+        if ($clientIds) {
+            $resource->assignedClients()->sync($clientIds);
+        }
 
-        return $this->sendResponse($resource, 'Resource created successfully');
+        return $this->sendResponse($resource->load('assignedClients:id,first_name,last_name,email'), 'Resource created successfully');
     }
 
     public function update(Request $request): JsonResponse
@@ -91,21 +100,20 @@ class ResourceController extends Controller
             'id' => 'required|exists:resources,id',
             'title' => 'sometimes|string|max:255',
             'type' => 'sometimes|string|in:article,video,link,doc',
-            'scope' => 'sometimes|in:shared,personal',
-            'client_id' => 'nullable|exists:users,id',
+            'scope' => 'sometimes|in:shared,assigned',
+            'client_ids' => 'nullable|array',
+            'client_ids.*' => 'exists:users,id',
             'content' => 'nullable|string',
             'external_url' => 'nullable|string|max:2048',
-            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset',
+            'category' => 'nullable|string|in:entrenamiento,nutricion,habitos_mindset,onboarding,planes_actuales',
             'image_url' => 'nullable|string|max:2048',
             'image' => 'nullable|image|mimes:jpg,jpeg,png,gif|max:5120',
         ]);
 
         $resource = Resource::findOrFail($validated['id']);
-        $data = collect($validated)->except(['id', 'image'])->filter()->toArray();
-
-        if (isset($data['scope']) && $data['scope'] === 'shared') {
-            $data['client_id'] = null;
-        }
+        $clientIdsProvided = array_key_exists('client_ids', $validated);
+        $clientIds = $validated['client_ids'] ?? [];
+        $data = collect($validated)->except(['id', 'image', 'client_ids'])->filter()->toArray();
 
         if ($request->hasFile('image')) {
             $data['image_url'] = $this->storeImage($request);
@@ -113,7 +121,13 @@ class ResourceController extends Controller
 
         $resource->update($data);
 
-        return $this->sendResponse($resource, 'Resource updated successfully');
+        if ($resource->scope === 'shared') {
+            $resource->assignedClients()->sync([]);
+        } elseif ($clientIdsProvided) {
+            $resource->assignedClients()->sync($clientIds);
+        }
+
+        return $this->sendResponse($resource->load('assignedClients:id,first_name,last_name,email'), 'Resource updated successfully');
     }
 
     /**

@@ -60,21 +60,22 @@ class ResourceController extends Controller
     }
 
     /**
-     * Crear un recurso desde el panel Admin. `scope=personal` exige `client_id`;
-     * `scope=shared` lo ignora (es visible para todo el roster del coach).
+     * Legacy: la creación/edición real de recursos vive en
+     * API\Admin\ResourceController (admin-resource-store/update), que ya
+     * soporta scope=assigned con varios clientes vía resource_assignments
+     * (ver Resource::assignedClients()). Este endpoint se deja funcional
+     * solo para scope=shared -- `client_id` ya no existe en la tabla.
      */
     public function store(Request $request)
     {
         $request->validate([
             'title' => 'required|string|max:255',
             'type'  => 'required|string',
-            'scope' => 'required|in:shared,personal',
-            'client_id' => 'required_if:scope,personal|exists:users,id',
+            'scope' => 'required|in:shared,assigned',
         ]);
 
         $resource = Resource::create([
             'coach_id'      => auth('sanctum')->id(),
-            'client_id'     => $request->scope == 'personal' ? $request->client_id : null,
             'title'         => $request->title,
             'type'          => $request->type,
             'content'       => $request->content,
@@ -93,7 +94,7 @@ class ResourceController extends Controller
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
         }
 
-        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope', 'client_id']));
+        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope']));
 
         return json_message_response(__('message.save_form', ['form' => 'Resource']));
     }
