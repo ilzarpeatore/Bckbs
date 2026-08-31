@@ -35,6 +35,7 @@ class UserDetailResource extends JsonResource
             'is_subscribe'      => $this->is_subscribe,
             'is_personal_client' => (bool) $this->is_personal_client,
             'onboarding_completed' => $this->onboarding_completed_at !== null,
+            'access_tier'       => $this->access_tier,
         ];
     }
 }

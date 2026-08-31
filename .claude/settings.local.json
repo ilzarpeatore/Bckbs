@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php -v)",
+      "Bash(php -m)",
+      "PowerShell(php -v)",
+      "PowerShell(composer --version)",
+      "PowerShell(docker --version)",
+      "PowerShell(docker compose version)",
+      "PowerShell(Start-Process \"C:\\\\Program Files\\\\Docker\\\\Docker\\\\Docker Desktop.exe\")",
+      "Bash(break)",
+      "Read(//c/Users/hamza/Documents/Default Project/**)",
+      "Read(//c/Users/hamza/Documents/Default Project/lib/theme/**)",
+      "Read(//c/Users/hamza/Documents/Default Project/assets/**)",
+      "Bash(python3 -c \"from PIL import Image; print\\('ok'\\)\")",
+      "Bash(python -c \"from PIL import Image; print\\('ok'\\)\")",
+      "Bash(magick -version)",
+      "PowerShell(Add-Type -AssemblyName System.Drawing; $img = [System.Drawing.Image]::FromFile\\(\"C:\\\\Users\\\\hamza\\\\Desktop\\\\home\\\\9.png\"\\); \"$\\($img.Width\\) x $\\($img.Height\\)\"; $img.Dispose\\(\\))",
+      "Bash(flutter --version)",
+      "Bash(flutter analyze *)",
+      "Bash(mkdir -p \"C:/Users/hamza/Documents/Default Project/.claude\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5050)",
+      "Bash(printf 'r\\\\n' > /tmp/hotreload_input 2>/dev/null; echo done)",
+      "Bash(flutter run *)",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(cat \"$HOME/.claude/settings.json\" 2>/dev/null || echo \"__NOT_FOUND__\")",
+      "Bash(python -c \"import json; print\\(json.load\\(open\\(r'C:/Users/hamza/.claude/settings.json'\\)\\)\\)\")",
+      "Bash(node -e \"console.log\\(JSON.parse\\(require\\('fs'\\).readFileSync\\(process.env.USERPROFILE+'/.claude/settings.json','utf8'\\)\\)\\)\")",
+      "mcp__mobai__list_devices",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}

@@ -15,7 +15,20 @@ class Exercise extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, HasSlug, SoftDeletes;
 
-    protected $fillable = [ 'title', 'slug', 'instruction', 'tips', 'video_type', 'video_url', 'bodypart_ids', 'duration', 'sets', 'equipment_id', 'level_id', 'status','is_premium', 'based', 'type', 'seconds_per_rep' ];
+    /**
+     * Categoría de entrenamiento del ejercicio (filtro nuevo) — no confundir
+     * con la columna `type` ya existente ('sets'/'duration', cómo se
+     * registra el ejercicio en una sesión).
+     */
+    const EXERCISE_TYPES = [
+        'fuerza'      => 'Fuerza',
+        'movilidad'   => 'Movilidad',
+        'pliometria'  => 'Pliometría',
+        'metabolico'  => 'Metabólico',
+        'cardio'      => 'Cardio',
+    ];
+
+    protected $fillable = [ 'title', 'slug', 'instruction', 'tips', 'video_type', 'video_url', 'bodypart_ids', 'duration', 'sets', 'equipment_id', 'level_id', 'status','is_premium', 'based', 'type', 'exercise_type', 'seconds_per_rep' ];
 
     protected $casts = [
         'equipment_id'      => 'integer',

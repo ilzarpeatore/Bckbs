@@ -15,6 +15,12 @@ class Resource extends Model
         'image_url', 'category',
     ];
 
+    /** Sub-secciones validas por pestaña (scope) en la app. */
+    public const CATEGORIES = [
+        'entrenamiento', 'nutricion', 'habitos_mindset', // scope=shared
+        'onboarding', 'planes_actuales',                 // scope=assigned
+    ];
+
     public function coach()
     {
         return $this->belongsTo(User::class, 'coach_id', 'id');
@@ -38,25 +44,21 @@ class Resource extends Model
         return $query->where('scope', 'shared');
     }
 
-    /** Recursos asignados a un cliente concreto. */
+    /** Recursos asignados a un cliente concreto (via resource_assignments). */
     public function scopeAssignedTo($query, $client_id)
     {
         return $query->where('scope', 'assigned')
-            ->whereHas('assignedClients', function ($q) use ($client_id) {
-                $q->where('users.id', $client_id);
-            });
+            ->whereHas('assignedClients', fn ($q) => $q->where('users.id', $client_id));
     }
 
-    /** Lo que un cliente concreto debe ver: sus compartidos + los suyos asignados. */
+    /** Lo que un cliente concreto debe ver: compartidos + los asignados a el. */
     public function scopeVisibleTo($query, $client_id)
     {
         return $query->where(function ($q) use ($client_id) {
             $q->where('scope', 'shared')
               ->orWhere(function ($q2) use ($client_id) {
                   $q2->where('scope', 'assigned')
-                     ->whereHas('assignedClients', function ($q3) use ($client_id) {
-                         $q3->where('users.id', $client_id);
-                     });
+                     ->whereHas('assignedClients', fn ($q3) => $q3->where('users.id', $client_id));
               });
         });
     }

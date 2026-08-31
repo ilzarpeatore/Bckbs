@@ -1,0 +1,202 @@
+{
+  "id": 42,
+  "name": "Fuerza 5x5 con progresión (wger)",
+  "comment": "Rutina de ejemplo con la estructura del endpoint routine/{id}/structure/: days → slots → entries con configs por iteración (iteración ≈ semana).",
+  "fit_in_week": true,
+  "days": [
+    {
+      "id": 1,
+      "order": 1,
+      "is_rest": false,
+      "comment": "Día A - Sentadilla",
+      "need_logs_to_advance": false,
+      "slots": [
+        {
+          "id": 1,
+          "order": 1,
+          "entries": [
+            {
+              "id": 11,
+              "exercise": 101,
+              "exercise_object": { "id": 101, "name": "Sentadilla trasera" },
+              "order": 1,
+              "sets": 5,
+              "repetitions": "5",
+              "weight": 60,
+              "rest": "03:00",
+              "weight_config": {
+                "records": [
+                  { "iteration": 1, "value": 60, "operation": "r", "step": "abs", "repeat": false },
+                  { "iteration": 2, "value": 2.5, "operation": "+", "step": "abs", "repeat": true }
+                ]
+              },
+              "sets_config": { "records": [ { "iteration": 1, "value": 5, "operation": "r", "step": "abs", "repeat": false } ] },
+              "repetitions_config": { "records": [ { "iteration": 1, "value": 5, "operation": "r", "step": "abs", "repeat": false } ] },
+              "rest_config": { "records": [ { "iteration": 1, "value": 180, "operation": "r", "step": "abs", "repeat": false } ] }
+            },
+            {
+              "id": 12,
+              "exercise": 102,
+              "exercise_object": { "id": 102, "name": "Press banca con barra" },
+              "order": 2,
+              "sets": 5,
+              "repetitions": "5",
+              "weight": 50,
+              "rest": "03:00",
+              "weight_config": {
+                "records": [
+                  { "iteration": 1, "value": 50, "operation": "r", "step": "abs", "repeat": false },
+                  { "iteration": 2, "value": 2.5, "operation": "+", "step": "abs", "repeat": true }
+                ]
+              }
+            },
+            {
+              "id": 13,
+              "exercise": 103,
+              "exercise_object": { "id": 103, "name": "Remo con barra" },
+              "order": 3,
+              "sets": 5,
+              "repetitions": "5",
+              "weight": 40,
+              "rest": "02:00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "order": 2,
+      "is_rest": true,
+      "comment": "Descanso",
+      "need_logs_to_advance": false,
+      "slots": []
+    },
+    {
+      "id": 3,
+      "order": 3,
+      "is_rest": false,
+      "comment": "Día B - Press militar",
+      "need_logs_to_advance": false,
+      "slots": [
+        {
+          "id": 2,
+          "order": 1,
+          "entries": [
+            {
+              "id": 21,
+              "exercise": 104,
+              "exercise_object": { "id": 104, "name": "Press militar con barra" },
+              "order": 1,
+              "sets": 5,
+              "repetitions": "5",
+              "weight": 35,
+              "rest": "03:00",
+              "weight_config": {
+                "records": [
+                  { "iteration": 1, "value": 35, "operation": "r", "step": "abs", "repeat": false },
+                  { "iteration": 2, "value": 2.5, "operation": "+", "step": "abs", "repeat": true }
+                ]
+              }
+            },
+            {
+              "id": 22,
+              "exercise": 105,
+              "exercise_object": { "id": 105, "name": "Dominadas" },
+              "order": 2,
+              "sets": 3,
+              "repetitions": "8-10",
+              "weight": null,
+              "rest": "02:00"
+            },
+            {
+              "id": 23,
+              "exercise": 106,
+              "exercise_object": { "id": 106, "name": "Fondos en paralelas" },
+              "order": 3,
+              "sets": 3,
+              "repetitions": "8-10",
+              "weight": null,
+              "rest": "02:00"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "order": 4,
+      "is_rest": true,
+      "comment": "Descanso",
+      "need_logs_to_advance": false,
+      "slots": []
+    },
+    {
+      "id": 5,
+      "order": 5,
+      "is_rest": false,
+      "comment": "Día C - Peso muerto",
+      "need_logs_to_advance": false,
+      "slots": [
+        {
+          "id": 3,
+          "order": 1,
+          "entries": [
+            {
+              "id": 31,
+              "exercise": 107,
+              "exercise_object": { "id": 107, "name": "Peso muerto" },
+              "order": 1,
+              "sets": 1,
+              "repetitions": "5",
+              "weight": 100,
+              "rest": "04:00",
+              "weight_config": {
+                "records": [
+                  { "iteration": 1, "value": 100, "operation": "r", "step": "abs", "repeat": false },
+                  { "iteration": 2, "value": 5, "operation": "+", "step": "abs", "repeat": true }
+                ]
+              }
+            },
+            {
+              "id": 32,
+              "exercise": 108,
+              "exercise_object": { "id": 108, "name": "Remo con mancuerna" },
+              "order": 2,
+              "sets": 4,
+              "repetitions": "8-10",
+              "weight": 26,
+              "rest": "02:00"
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "order": 2,
+          "entries": [
+            {
+              "id": 33,
+              "exercise": 109,
+              "exercise_object": { "id": 109, "name": "Curl de bíceps con barra" },
+              "order": 1,
+              "sets": 3,
+              "repetitions": "10",
+              "weight": 20,
+              "rest": "01:30"
+            },
+            {
+              "id": 34,
+              "exercise": 110,
+              "exercise_object": { "id": 110, "name": "Extensión de tríceps en polea" },
+              "order": 2,
+              "sets": 3,
+              "repetitions": "10",
+              "weight": 25,
+              "rest": "01:30"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

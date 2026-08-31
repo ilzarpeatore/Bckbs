@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\Challenge;
 use App\Models\ChallengeScore;
+use App\Models\User;
+use App\Notifications\CommonNotification;
 
 class ChallengeController extends Controller
 {
@@ -89,6 +91,24 @@ class ChallengeController extends Controller
         );
 
         $this->recalculateRanking($request->challenge_id);
+
+        // Solo se avisa al cliente que acaba de tomar el liderato (rank=1) —
+        // no a todo el reto en cada actualización, para no saturar de avisos.
+        $score = ChallengeScore::where('challenge_id', $request->challenge_id)
+            ->where('client_id', $request->client_id)
+            ->first();
+        if ($score && $score->rank === 1) {
+            $client = User::find($request->client_id);
+            $challenge = Challenge::find($request->challenge_id);
+            if ($client && $challenge) {
+                $client->notify(new CommonNotification('challenge_lead', [
+                    'id'      => $challenge->id,
+                    'type'    => 'challenge_lead',
+                    'subject' => '¡Vas primero!',
+                    'message' => "Te has puesto líder en el reto \"{$challenge->title}\".",
+                ]));
+            }
+        }
 
         return json_message_response(__('message.save_form', ['form' => 'Challenge Score']));
     }

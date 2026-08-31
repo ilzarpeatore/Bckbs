@@ -55,6 +55,12 @@ class PackageFulfillmentService
 
         $subscription->fulfilled_at = now();
         $subscription->saveQuietly();
+
+        // Motor de Auto-Regulación de Carga (2026-08-12): un cliente free
+        // que compra un Package pasa a paid-tier por esta vía (no por
+        // is_personal_client) -- mismo backfill que el observer de User,
+        // pero este es el punto de enganche real para suscripciones.
+        \App\Jobs\BackfillClientSessionHistory::dispatch($user);
     }
 
     /**
@@ -175,6 +181,8 @@ class PackageFulfillmentService
 
     private static function assignTrainingProgram(User $user, TrainingProgram $trainingProgram, Carbon $startDate, int $sourceSubscriptionId): void
     {
+        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $trainingProgram->num_weeks);
+
         $existing = ProgramClientAssignment::where('training_program_id', $trainingProgram->id)
             ->where('client_id', $user->id)
             ->first();
@@ -182,7 +190,9 @@ class PackageFulfillmentService
         if ($existing) {
             $existing->update([
                 'start_date'             => $startDate->toDateString(),
+                'fecha_fin'              => $fechaFin->toDateString(),
                 'activo'                 => true,
+                'cerrado_at'             => null, // renovación = nuevo ciclo del mesociclo, no continuación del cerrado
                 'source_subscription_id' => $sourceSubscriptionId,
             ]);
             return;
@@ -192,6 +202,7 @@ class PackageFulfillmentService
             'training_program_id'    => $trainingProgram->id,
             'client_id'              => $user->id,
             'start_date'             => $startDate->toDateString(),
+            'fecha_fin'              => $fechaFin->toDateString(),
             'activo'                 => true,
             'source_subscription_id' => $sourceSubscriptionId,
         ]);

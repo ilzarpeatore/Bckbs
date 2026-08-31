@@ -6,6 +6,9 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\PersonalRecord;
 use App\Models\UserExercise;
+use App\Models\Exercise;
+use App\Models\ClientExerciseLog;
+use App\Services\MuscleVolumeService;
 
 class PersonalRecordController extends Controller
 {
@@ -53,6 +56,100 @@ class PersonalRecordController extends Controller
         ];
 
         return json_custom_response($response);
+    }
+
+    /**
+     * Ranking de marcas personales de TODOS los ejercicios del cliente
+     * autenticado — pantalla "Marcas personales" de Estadísticas. A
+     * diferencia de getExerciseHistory (una fila nueva por cada vez que se
+     * bate un récord, para poder ver progresión), aquí solo interesa la
+     * marca ACTUAL de cada ejercicio: como storeIfRecord() en
+     * ClientExerciseLogObserver solo inserta cuando se supera el récord
+     * anterior, el valor mas alto por (ejercicio, record_type) es siempre
+     * el vigente.
+     */
+    public function getMyPersonalRecords(Request $request)
+    {
+        $userId = auth('sanctum')->id();
+        $bodyPartId = $request->input('body_part_id') !== null ? (int) $request->input('body_part_id') : null;
+
+        $weightRecords = PersonalRecord::where('user_id', $userId)
+            ->where('record_type', 'max_weight')
+            ->get(['exercise_id', 'value', 'achieved_at'])
+            ->groupBy('exercise_id')
+            ->map(fn ($rows) => $rows->sortByDesc('value')->first());
+
+        $oneRmRecords = PersonalRecord::where('user_id', $userId)
+            ->where('record_type', 'max_1rm')
+            ->get(['exercise_id', 'value'])
+            ->groupBy('exercise_id')
+            ->map(fn ($rows) => $rows->sortByDesc('value')->first());
+
+        $exercises = Exercise::whereIn('id', $weightRecords->keys())
+            ->get(['id', 'title', 'bodypart_ids'])
+            ->keyBy('id');
+
+        $data = [];
+        foreach ($weightRecords as $exerciseId => $row) {
+            $exercise = $exercises->get($exerciseId);
+            if (!$exercise) {
+                continue;
+            }
+            if ($bodyPartId !== null && MuscleVolumeService::firstBodyPartId($exercise->bodypart_ids) !== $bodyPartId) {
+                continue;
+            }
+            $data[] = [
+                'exercise_id' => $exerciseId,
+                'title'       => $exercise->title,
+                'image'       => getSingleMedia($exercise, 'exercise_image', null),
+                'max_weight'  => (float) $row->value,
+                'max_1rm'     => (float) ($oneRmRecords[$exerciseId]->value ?? 0),
+                'achieved_at' => optional($row->achieved_at)->toDateString(),
+                'max_reps'    => $this->findRepsForRecord($userId, $exerciseId, (float) $row->value, $row->achieved_at),
+            ];
+        }
+        // Orden por fecha de logro mas reciente primero (no por peso): la
+        // pantalla "Marcas personales" recorta al cliente a los ultimos 15
+        // EJERCICIOS REALIZADOS cuando no hay filtro de musculo activo, asi
+        // que el orden de recencia es el que importa para ese recorte.
+        usort($data, function ($a, $b) {
+            $dateCmp = strcmp((string) $b['achieved_at'], (string) $a['achieved_at']);
+            return $dateCmp !== 0 ? $dateCmp : ($b['max_weight'] <=> $a['max_weight']);
+        });
+
+        return json_custom_response(['data' => array_values($data)]);
+    }
+
+    /**
+     * Reps de la serie que logro la marca de max_weight -- no hay columna
+     * propia para esto en personal_records (solo guarda el valor), pero el
+     * dato ya existe en logged_sets del log que disparo el record (mismo
+     * client_id/exercise_id/fecha). Es solo lectura sobre datos existentes,
+     * no altera la tabla ni el observer que crea los records.
+     */
+    private function findRepsForRecord(int $userId, int $exerciseId, float $maxWeight, $achievedAt): ?int
+    {
+        if (!$achievedAt) {
+            return null;
+        }
+        $logs = ClientExerciseLog::where('client_id', $userId)
+            ->where('exercise_id', $exerciseId)
+            ->whereDate('performed_date', $achievedAt->toDateString())
+            ->get(['logged_sets']);
+
+        $bestReps = null;
+        foreach ($logs as $log) {
+            foreach (($log->logged_sets ?? []) as $set) {
+                $carga = (float) ($set['carga'] ?? 0);
+                if (abs($carga - $maxWeight) < 0.01) {
+                    $reps = (int) ($set['reps'] ?? 0);
+                    if ($reps > 0 && ($bestReps === null || $reps > $bestReps)) {
+                        $bestReps = $reps;
+                    }
+                }
+            }
+        }
+        return $bestReps;
     }
 
     /**

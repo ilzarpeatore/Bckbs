@@ -9,7 +9,7 @@ class Subscription extends Model
 {
     use HasFactory;
    
-   protected $fillable = [ 'user_id', 'package_id', 'total_amount', 'payment_type', 'txn_id', 'transaction_detail', 'payment_status', 'subscription_start_date', 'subscription_end_date', 'package_data', 'status', 'callback', 'fulfilled_at', 'access_revoked_at' ];
+   protected $fillable = [ 'user_id', 'package_id', 'total_amount', 'payment_type', 'txn_id', 'transaction_detail', 'payment_status', 'subscription_start_date', 'subscription_end_date', 'package_data', 'status', 'callback', 'fulfilled_at', 'access_revoked_at', 'expiring_notified_at' ];
 
     protected $casts = [
         'user_id'  => 'integer',
@@ -17,6 +17,7 @@ class Subscription extends Model
         'total_amount' => 'double',
         'fulfilled_at' => 'datetime',
         'access_revoked_at' => 'datetime',
+        'expiring_notified_at' => 'datetime',
     ];
 
     // AÑADIDO 2026-07-30: al quedar activa+pagada (creación o edición posterior),

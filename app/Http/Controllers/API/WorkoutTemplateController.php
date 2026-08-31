@@ -54,17 +54,35 @@ class WorkoutTemplateController extends Controller
 
         $media = $workout->getFirstMedia('image');
 
-        $blocks = $workout->blocks->map(function ($block) {
+        // Cuando el admin edita el plan de UN cliente concreto (client_id
+        // opcional, viene del perfil del cliente en /users/:id) se incluye
+        // lo que ese cliente usó realmente la última vez en cada ejercicio
+        // - para poder ajustar la carga prescrita sin tener que ir a
+        // "Historial de ejercicios" o "Entrenamientos completados" aparte.
+        $logsByExercise = collect();
+        if ($request->client_id) {
+            $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+            $logsByExercise = \App\Models\ClientExerciseLog::where('client_id', $request->client_id)
+                ->whereIn('exercise_id', $allExerciseIds)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('exercise_id')
+                ->keyBy('exercise_id');
+        }
+
+        $blocks = $workout->blocks->map(function ($block) use ($logsByExercise) {
             return [
                 'id'           => $block->id,
                 'title'        => $block->title,
                 'instructions' => $block->instructions,
                 'order'        => $block->order,
-                'exercises'    => $block->exercises->map(function ($e) {
+                'exercises'    => $block->exercises->map(function ($e) use ($logsByExercise) {
                     $exercise = $e->exercise;
                     $thumb = $exercise && $exercise->video_url
                         ? $this->youtubeThumbnail($exercise->video_url)
                         : getSingleMedia($exercise, 'exercise_image', null);
+
+                    $last_log = $logsByExercise->get($e->exercise_id);
 
                     return [
                         'id'                => $e->id,
@@ -76,6 +94,7 @@ class WorkoutTemplateController extends Controller
                         'title'             => optional($exercise)->title,
                         'exercise_image'    => $thumb,
                         'video_url'         => optional($exercise)->video_url,
+                        'last_performance'  => $last_log ? ['sets' => $last_log->logged_sets] : null,
                     ];
                 }),
             ];
@@ -325,9 +344,12 @@ class WorkoutTemplateController extends Controller
         $logs = collect();
         if ($isAccessible && $user) {
             $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+            // orderByDesc('id'): 'created_at' es de precision de segundo y
+            // puede empatar entre varias series de la misma sesion - 'id'
+            // refleja el orden real de insercion sin empates.
             $logs = ClientExerciseLog::where('client_id', $user->id)
                 ->whereIn('exercise_id', $allExerciseIds)
-                ->orderByDesc('created_at')
+                ->orderByDesc('id')
                 ->get()
                 ->unique('exercise_id')
                 ->keyBy('exercise_id');
@@ -358,6 +380,10 @@ class WorkoutTemplateController extends Controller
                         'title'           => optional($exercise)->title,
                         'exercise_image'  => $thumb,
                         'video_url'       => optional($exercise)->video_url,
+                        // Primer body_part de exercises.bodypart_ids — para el heatmap
+                        // de musculo aislado en ExerciseThumb (mismo criterio que
+                        // ClientCalendarController::getDayDetail).
+                        'body_part_id'    => $this->primaryBodyPartId($exercise),
                         'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
                     ];
                 }),
@@ -414,6 +440,16 @@ class WorkoutTemplateController extends Controller
         $query = WorkoutTemplate::select('id', 'title', 'description', 'is_exclusive')
             ->orderByDesc('created_at');
 
+        // AÑADIDO: filtro para MigratedFavourite (favourite_screen.tsx) - antes esta
+        // pantalla leia workoutsApi.getFavourite() (Workout v1 legacy), pero el
+        // cliente favorita templates v2 desde workout_preview_screen.tsx via
+        // toggleFavourite() - no habia forma de listar esos favoritos hasta ahora.
+        if ($request->boolean('only_favourites')) {
+            $favouriteIds = UserFavouriteWorkoutTemplate::where('user_id', $user->id)
+                ->pluck('workout_template_id');
+            $query->whereIn('id', $favouriteIds);
+        }
+
         $per_page = config('constant.PER_PAGE_LIMIT');
         if ($request->filled('per_page')) {
             if ($request->per_page == -1) {
@@ -443,5 +479,19 @@ class WorkoutTemplateController extends Controller
             'pagination' => json_pagination_response($workouts),
             'data' => $items,
         ]);
+    }
+
+    /**
+     * Primer body_part.id de exercises.bodypart_ids, tolerando filas legacy
+     * donde quedo guardado un escalar suelto (ej. `"2"`) en vez del array
+     * `[2]` esperado (mismo criterio que ClientCalendarController).
+     */
+    private function primaryBodyPartId($exercise): ?int
+    {
+        if (!$exercise) return null;
+        $ids = $exercise->bodypart_ids;
+        if (is_array($ids)) return isset($ids[0]) ? (int) $ids[0] : null;
+        if (is_numeric($ids)) return (int) $ids;
+        return null;
     }
 }

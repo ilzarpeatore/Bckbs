@@ -9,7 +9,7 @@ use App\Models\Resource;
 class ResourceController extends Controller
 {
     /**
-     * Lo que un cliente ve: sus recursos compartidos + los suyos personales.
+     * Lo que un cliente ve: sus recursos compartidos + los suyos asignados.
      * Usa el scope visibleTo() definido en el Model.
      */
     public function getList(Request $request)
@@ -20,6 +20,10 @@ class ResourceController extends Controller
 
         $resource->when($request->type, function ($q) use ($request) {
             return $q->where('type', $request->type);
+        });
+
+        $resource->when($request->scope, function ($q) use ($request) {
+            return $q->where('scope', $request->scope);
         });
 
         // AÑADIDO: permite agrupar/filtrar las guías compartidas por
@@ -60,11 +64,11 @@ class ResourceController extends Controller
     }
 
     /**
-     * Legacy: la creación/edición real de recursos vive en
-     * API\Admin\ResourceController (admin-resource-store/update), que ya
-     * soporta scope=assigned con varios clientes vía resource_assignments
-     * (ver Resource::assignedClients()). Este endpoint se deja funcional
-     * solo para scope=shared -- `client_id` ya no existe en la tabla.
+     * Uso secundario - la via real de creacion es el panel Admin
+     * (Admin\ResourceController, que ademas gestiona la asignacion a
+     * clientes via resource_assignments, ver Resource::assignedClients()).
+     * Se deja disponible por si un coach crea contenido desde la propia
+     * app cliente en el futuro.
      */
     public function store(Request $request)
     {
@@ -81,6 +85,7 @@ class ResourceController extends Controller
             'content'       => $request->content,
             'external_url'  => $request->external_url,
             'scope'         => $request->scope,
+            'category'      => $request->category,
         ]);
 
         return json_message_response(__('message.save_form', ['form' => 'Resource']));
@@ -94,7 +99,7 @@ class ResourceController extends Controller
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
         }
 
-        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope']));
+        $resource->update($request->only(['title', 'type', 'content', 'external_url', 'scope', 'category']));
 
         return json_message_response(__('message.save_form', ['form' => 'Resource']));
     }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\BodyMetricType;
 use App\Models\ClientBodyMetric;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,7 +43,7 @@ class ClientBodyMetricController extends Controller
         $clientId = $request->client_id;
         $types = $request->input('types')
             ? explode(',', $request->input('types'))
-            : ['weight', 'body_fat', 'muscle_mass', 'chest', 'waist', 'hips'];
+            : BodyMetricType::visibleTo($clientId)->pluck('value')->all();
 
         $days = (int) $request->input('days', 90);
         $fromDate = now()->subDays($days);
@@ -73,14 +74,25 @@ class ClientBodyMetricController extends Controller
     {
         $validated = $request->validate([
             'client_id' => 'required|exists:users,id',
-            'metric_type' => 'required|string|in:weight,body_fat,muscle_mass,chest,waist,hips,neck,thigh,calf,bicep',
+            'metric_type' => 'required|string|max:60',
             'value' => 'required|numeric',
             'unit' => 'nullable|string|max:50',
             'recorded_at' => 'required|date',
             'notes' => 'nullable|string',
         ]);
 
-        $metric = ClientBodyMetric::create($validated);
+        if (!BodyMetricType::visibleTo($validated['client_id'])->where('value', $validated['metric_type'])->exists()) {
+            return response()->json(['message' => 'Tipo de métrica no válido'], 422);
+        }
+
+        // Lo que registra el coach desde el panel admin siempre queda marcado
+        // como 'coach' (distinto de lo que el propio cliente añade desde la
+        // app, ver API\BodyMetricController) para que el historial distinga
+        // medida oficial del entrenador vs auto-reportada.
+        $metric = ClientBodyMetric::create($validated + [
+            'source' => 'coach',
+            'recorded_by_user_id' => auth('sanctum')->id(),
+        ]);
 
         return $this->sendResponse($metric, 'Body metric logged successfully');
     }
@@ -89,7 +101,7 @@ class ClientBodyMetricController extends Controller
     {
         $validated = $request->validate([
             'id' => 'required|exists:client_body_metrics,id',
-            'metric_type' => 'sometimes|string|in:weight,body_fat,muscle_mass,chest,waist,hips,neck,thigh,calf,bicep',
+            'metric_type' => 'sometimes|string|max:60',
             'value' => 'sometimes|numeric',
             'unit' => 'nullable|string|max:50',
             'recorded_at' => 'sometimes|date',
@@ -97,6 +109,11 @@ class ClientBodyMetricController extends Controller
         ]);
 
         $metric = ClientBodyMetric::findOrFail($validated['id']);
+
+        if (isset($validated['metric_type']) && !BodyMetricType::visibleTo($metric->client_id)->where('value', $validated['metric_type'])->exists()) {
+            return response()->json(['message' => 'Tipo de métrica no válido'], 422);
+        }
+
         $metric->update(collect($validated)->except('id')->filter()->toArray());
 
         return $this->sendResponse($metric, 'Body metric updated successfully');

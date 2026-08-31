@@ -9,9 +9,9 @@ class FormAssignment extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['form_id', 'client_id', 'active'];
+    protected $fillable = ['form_id', 'client_id', 'active', 'scheduled_date'];
 
-    protected $casts = ['active' => 'boolean'];
+    protected $casts = ['active' => 'boolean', 'scheduled_date' => 'date'];
 
     public function form()
     {

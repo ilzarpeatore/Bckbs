@@ -42,6 +42,15 @@ class ExerciseController extends Controller
         $exercise->when(request('bodypart_id'), function ($q) {
             return $q->whereJsonContains('bodypart_ids', request('bodypart_id'));
         });
+
+        $exercise->when(request('exercise_type'), function ($q) {
+            return $q->where('exercise_type', request('exercise_type'));
+        });
+
+        $exercise->when(request('exercise_types'), function ($q) {
+            $exercise_types = explode(',', request('exercise_types'));
+            return $q->whereIn('exercise_type', $exercise_types);
+        });
         
         if( $request->has('is_premium') && isset($request->is_premium) ) {
             $exercise = $exercise->where('is_premium', request('is_premium'));

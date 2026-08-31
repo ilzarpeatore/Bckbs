@@ -57,6 +57,17 @@ class WorkoutSessionStatsService
         $weightUp = [];
         $repsUp = [];
         $betterRpe = [];
+        // Fase 3 (Motor de Auto-Regulación de Carga, documento §3.2, tarea
+        // #20): detalle por ejercicio (id + valores), AÑADIDO de forma
+        // aditiva junto a los arrays de títulos ya existentes (sin quitar
+        // ni cambiar 'weight_up_exercises'/etc., que otras pantallas ya
+        // consumen tal cual) — lo necesita
+        // ClientCalendarController::finishSession() para persistir estos
+        // logros en achievement_events (antes solo vivían en esta response
+        // transitoria).
+        $weightUpDetails = [];
+        $repsUpDetails = [];
+        $betterRpeDetails = [];
 
         foreach ($exerciseIds as $exerciseId) {
             $todayLog = ClientExerciseLog::where('client_id', $userId)
@@ -86,8 +97,10 @@ class WorkoutSessionStatsService
 
             if ($todayBest['carga'] > $prevBest['carga']) {
                 $weightUp[] = $title;
+                $weightUpDetails[] = ['exercise_id' => $exerciseId, 'title' => $title, 'value' => $todayBest['carga'], 'previous_best' => $prevBest['carga']];
             } elseif ($todayBest['carga'] == $prevBest['carga'] && $todayBest['reps'] > $prevBest['reps']) {
                 $repsUp[] = $title;
+                $repsUpDetails[] = ['exercise_id' => $exerciseId, 'title' => $title, 'value' => $todayBest['reps'], 'previous_best' => $prevBest['reps']];
             }
 
             if ($todayBest['rpe'] !== null && $prevBest['rpe'] !== null
@@ -95,25 +108,29 @@ class WorkoutSessionStatsService
                 && $todayBest['rpe'] < $prevBest['rpe']
             ) {
                 $betterRpe[] = $title;
+                $betterRpeDetails[] = ['exercise_id' => $exerciseId, 'title' => $title, 'value' => $todayBest['rpe'], 'previous_best' => $prevBest['rpe']];
             }
         }
 
         return [
             'weight_up_count'   => count($weightUp),
             'weight_up_exercises' => $weightUp,
+            'weight_up_details' => $weightUpDetails,
             'reps_up_count'     => count($repsUp),
             'reps_up_exercises' => $repsUp,
+            'reps_up_details' => $repsUpDetails,
             'better_rpe_count'  => count($betterRpe),
             'better_rpe_exercises' => $betterRpe,
+            'better_rpe_details' => $betterRpeDetails,
         ];
     }
 
     private static function emptyAchievements(): array
     {
         return [
-            'weight_up_count' => 0, 'weight_up_exercises' => [],
-            'reps_up_count' => 0, 'reps_up_exercises' => [],
-            'better_rpe_count' => 0, 'better_rpe_exercises' => [],
+            'weight_up_count' => 0, 'weight_up_exercises' => [], 'weight_up_details' => [],
+            'reps_up_count' => 0, 'reps_up_exercises' => [], 'reps_up_details' => [],
+            'better_rpe_count' => 0, 'better_rpe_exercises' => [], 'better_rpe_details' => [],
         ];
     }
 

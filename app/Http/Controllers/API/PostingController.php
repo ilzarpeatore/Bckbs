@@ -21,7 +21,7 @@ class PostingController extends Controller
     public function getPostList(Request $request)
     {
         $posting = Posting::published()->excludeReportedPost()->withCount(['comment', 'postingLike'])
-            ->with(['user:id,first_name,last_name,display_name,email,username,phone_number,profile_image',
+            ->with(['user:id,first_name,last_name,display_name,email,username,phone_number',
                 'postingLike' => fn ($q) => $q->where('user_id', auth()->id()),
                 'postingBookmark' => fn ($q) => $q->where('user_id', auth()->id()),
             ]);
@@ -266,7 +266,7 @@ class PostingController extends Controller
         $id = $request->id;
 
         $posting = Posting::where('id', $id )->withCount(['comment', 'postingLike'])
-            ->with(['user:id,first_name,last_name,display_name,email,username,phone_number,profile_image',
+            ->with(['user:id,first_name,last_name,display_name,email,username,phone_number',
                 'postingLike' => fn ($q) => $q->where('user_id', auth()->id()),
                 'postingBookmark' => fn ($q) => $q->where('user_id', auth()->id()),
             ])->first();

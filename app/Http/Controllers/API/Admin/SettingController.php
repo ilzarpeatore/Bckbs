@@ -5,39 +5,54 @@ namespace App\Http\Controllers\API\Admin;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
 use App\Models\AppSetting;
+use App\Models\PaymentGateway;
 use App\Models\Setting;
 use Illuminate\Support\Facades\DB;
 
 class SettingController extends Controller
 {
+    /**
+     * Tipos (columna `type`) que agrupa cada pestaña del panel.
+     * La tabla real es `settings(id, key, type, value)`.
+     */
+    private const TAB_TYPES = [
+        'general'    => ['site'],
+        'mail'       => ['MAIL'],
+        'firebase'   => ['FIREBASE'],
+        'mobile'     => [
+            'CURRENCY', 'ONESIGNAL', 'ADMOB', 'AdsBannerDetail', 'CHATGPT',
+            'QUOTE', 'APPVERSION', 'CRISP_CHAT_CONFIGURATION', 'MOBILE_GAME_ENABLE',
+        ],
+        'payment'    => ['PAYMENT'],
+        'subscription' => ['subscription'],
+        'mail_alerts'  => ['mail_alert'],
+        'login_enable' => ['login_enable'],
+        'terms'        => ['terms_condition'],
+        'privacy'      => ['privacy_policy'],
+    ];
+
     public function getSettings(Request $request)
     {
         $page = $request->get('page', 'general');
 
-        switch ($page) {
-            case 'general':
-                return $this->getGeneralSettings();
-            case 'mail':
-                return $this->getMailSettings();
-            case 'firebase':
-                return $this->getFirebaseSettings();
-            case 'mobile':
-                return $this->getMobileConfigSettings();
-            case 'payment':
-                return $this->getPaymentSettings();
-            case 'subscription':
-                return $this->getSubscriptionSettings();
-            case 'mail_alerts':
-                return $this->getMailAlertSettings();
-            case 'login_enable':
-                return $this->getLoginEnableSettings();
-            case 'terms':
-                return $this->getTermsSettings();
-            case 'privacy':
-                return $this->getPrivacySettings();
-            default:
-                return $this->getGeneralSettings();
+        if ($page === 'payment') {
+            return $this->getPaymentSettings();
         }
+
+        $types = self::TAB_TYPES[$page] ?? self::TAB_TYPES['general'];
+
+        $items = Setting::whereIn('type', $types)
+            ->orderBy('key')
+            ->get()
+            ->map(fn (Setting $setting) => [
+                'id'             => $setting->id,
+                'setting_group'  => $setting->type,
+                'setting_key'    => $setting->key,
+                'setting_value'  => $setting->value,
+            ])
+            ->values();
+
+        return json_custom_response(['data' => $items]);
     }
 
     public function updateSettings(Request $request)
@@ -48,13 +63,22 @@ class SettingController extends Controller
 
         DB::transaction(function () use ($request) {
             foreach ($request->settings as $group => $values) {
-                if (is_array($values)) {
-                    foreach ($values as $key => $value) {
-                        Setting::updateOrCreate(
-                            ['setting_group' => $group, 'setting_key' => $key],
-                            ['setting_value' => $value]
-                        );
+                if (!is_array($values)) {
+                    continue;
+                }
+
+                foreach ($values as $key => $value) {
+                    if ($group === 'payment' && is_string($key) && str_contains($key, '.')) {
+                        $this->updatePaymentGatewayField($key, $value);
+                        continue;
                     }
+
+                    $type = $this->typeForGroup($group, $key);
+
+                    Setting::updateOrCreate(
+                        ['type' => $type, 'key' => $key],
+                        ['value' => $value !== null ? (string) $value : null]
+                    );
                 }
             }
         });
@@ -81,7 +105,7 @@ class SettingController extends Controller
             $settings = AppSetting::create([]);
         }
 
-        $settings->fill($request->all())->update();
+        $settings->fill($request->only((new AppSetting)->getFillable()))->update();
 
         return json_custom_response([
             'message' => 'App settings updated successfully.',
@@ -89,79 +113,85 @@ class SettingController extends Controller
         ]);
     }
 
-    private function getGeneralSettings()
+    /**
+     * Boton "Backup ahora" - dispara backup:run sincrono (mismo patron ya
+     * usado en el proyecto para comandos disparados manualmente desde el
+     * admin, QUEUE_CONNECTION=sync). --force ignora backup_enabled/frequency:
+     * un backup manual pedido explicitamente debe correr aunque este
+     * desactivado el automatico.
+     */
+    public function runBackupNow(Request $request)
     {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'general')->get(),
-        ]);
-    }
+        \Illuminate\Support\Facades\Artisan::call('backup:run', ['--force' => true]);
+        $output = \Illuminate\Support\Facades\Artisan::output();
 
-    private function getMailSettings()
-    {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'MAIL')->get(),
-        ]);
-    }
+        $settings = AppSetting::first();
 
-    private function getFirebaseSettings()
-    {
         return json_custom_response([
-            'data' => Setting::where('setting_group', 'FIREBASE')->get(),
-        ]);
-    }
-
-    private function getMobileConfigSettings()
-    {
-        return json_custom_response([
-            'data' => Setting::whereIn('setting_group', [
-                'APPVERSION', 'ONESIGNAL', 'ADMOB', 'CRISP_CHAT_CONFIGURATION',
-                'MOBILE_GAME_ENABLE', 'QUOTE', 'CURRENCY',
-            ])->get(),
+            'message' => trim($output),
+            'data'    => $settings,
         ]);
     }
 
     private function getPaymentSettings()
     {
-        return json_custom_response([
-            'data' => Setting::whereIn('setting_group', [
-                'STRIPE', 'RAZORPAY', 'PAYSTACK', 'FLUTTERWAVE',
-                'PAYPAL', 'PAYTABS', 'PAYTM', 'ORANGEMONEY',
-            ])->get(),
-        ]);
+        $items = collect();
+
+        PaymentGateway::orderBy('type')->get()->each(function (PaymentGateway $gateway) use ($items) {
+            foreach (['status', 'is_test', 'test_value', 'live_value'] as $field) {
+                if ($gateway->{$field} === null) {
+                    continue;
+                }
+
+                $items->push([
+                    'id'            => $gateway->id,
+                    'setting_group' => 'payment',
+                    'setting_key'   => $gateway->type . '.' . $field,
+                    'setting_value' => (string) $gateway->{$field},
+                ]);
+            }
+        });
+
+        $settingsItems = Setting::where('type', 'PAYMENT')
+            ->get()
+            ->map(fn (Setting $setting) => [
+                'id'            => $setting->id,
+                'setting_group' => 'payment',
+                'setting_key'   => $setting->key,
+                'setting_value' => $setting->value,
+            ]);
+
+        return json_custom_response(['data' => $items->merge($settingsItems)->values()]);
     }
 
-    private function getSubscriptionSettings()
+    private function updatePaymentGatewayField(string $key, $value): void
     {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'subscription')->get(),
-        ]);
+        [$type, $field] = explode('.', $key, 2);
+
+        if (!in_array($field, ['status', 'is_test', 'test_value', 'live_value'], true)) {
+            return;
+        }
+
+        PaymentGateway::updateOrCreate(
+            ['type' => $type],
+            [$field => $value]
+        );
     }
 
-    private function getMailAlertSettings()
+    private function typeForGroup(string $group, string $key): string
     {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'mail_alert')->get(),
-        ]);
-    }
+        if ($group === 'mobile') {
+            $prefix = strtoupper(explode('_', $key, 2)[0]);
 
-    private function getLoginEnableSettings()
-    {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'login_enable')->get(),
-        ]);
-    }
+            foreach (self::TAB_TYPES['mobile'] as $type) {
+                if (strtoupper($type) === $prefix) {
+                    return $type;
+                }
+            }
+        }
 
-    private function getTermsSettings()
-    {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'terms')->get(),
-        ]);
-    }
+        $types = self::TAB_TYPES[$group] ?? null;
 
-    private function getPrivacySettings()
-    {
-        return json_custom_response([
-            'data' => Setting::where('setting_group', 'privacy')->get(),
-        ]);
+        return $types[0] ?? $group;
     }
 }

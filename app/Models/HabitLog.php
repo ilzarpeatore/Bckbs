@@ -14,6 +14,7 @@ class HabitLog extends Model
     protected $casts = [
         'date'         => 'date',
         'is_completed' => 'boolean',
+        'value_logged' => 'float',
     ];
 
     public function habit()

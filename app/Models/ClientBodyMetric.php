@@ -13,6 +13,8 @@ class ClientBodyMetric extends Model
 
     protected $fillable = [
         'client_id',
+        'source',
+        'recorded_by_user_id',
         'metric_type',
         'value',
         'unit',
@@ -25,9 +27,18 @@ class ClientBodyMetric extends Model
         'recorded_at' => 'datetime',
     ];
 
+    // 10 tipos soportados hoy — antropometría clásica + composición corporal.
+    // Compartido con la validación del controller cliente y del admin.
+    public const METRIC_TYPES = ['weight', 'body_fat', 'muscle_mass', 'chest', 'waist', 'hips', 'neck', 'thigh', 'calf', 'bicep'];
+
     public function client(): BelongsTo
     {
         return $this->belongsTo(User::class, 'client_id');
+    }
+
+    public function recordedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'recorded_by_user_id');
     }
 
     public function scopeByType(Builder $query, string $type): Builder

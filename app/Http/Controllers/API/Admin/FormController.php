@@ -8,6 +8,7 @@ use App\Models\FormAssignment;
 use App\Models\FormQuestion;
 use App\Models\FormSubmission;
 use App\Models\User;
+use App\Notifications\CommonNotification;
 use Illuminate\Http\Request;
 
 class FormController extends Controller
@@ -210,23 +211,62 @@ class FormController extends Controller
             'coach_feedback' => 'required|string',
         ]);
 
-        $submission = FormSubmission::findOrFail($request->submission_id);
+        $submission = FormSubmission::with('formAssignment.client')->findOrFail($request->submission_id);
         $submission->update(['coach_feedback' => $request->coach_feedback]);
+
+        $client = $submission->formAssignment?->client;
+        if ($client) {
+            $client->notify(new CommonNotification('coach_feedback', [
+                'id'      => $submission->id,
+                'type'    => 'coach_feedback',
+                'subject' => 'Feedback de tu coach',
+                'message' => 'Tu coach ha dejado feedback en uno de tus check-ins.',
+            ]));
+        }
 
         return json_message_response('Feedback saved.');
     }
 
+    /**
+     * Sin `scheduled_dates`: comportamiento previo, una asignación recurrente
+     * gobernada por Form::recurrence (idempotente por form+cliente). Con
+     * `scheduled_dates`: crea una asignación de una sola vez por cada fecha
+     * concreta pedida (independiente de la recurrencia del formulario) -- así
+     * el coach puede fijar un check-in a un día exacto del calendario del
+     * cliente, ademas de (o en vez de) la recurrencia normal.
+     */
     public function assign(Request $request)
     {
         $request->validate([
-            'form_id'   => 'required|exists:forms,id',
-            'client_id' => 'required|exists:users,id',
+            'form_id'          => 'required|exists:forms,id',
+            'client_id'        => 'required|exists:users,id',
+            'scheduled_dates'  => 'nullable|array',
+            'scheduled_dates.*' => 'date_format:Y-m-d',
         ]);
 
-        FormAssignment::firstOrCreate(
-            ['form_id' => $request->form_id, 'client_id' => $request->client_id],
-            ['active' => true]
-        );
+        $dates = $request->scheduled_dates ?: [null];
+        $createdAny = false;
+
+        foreach ($dates as $date) {
+            $assignment = FormAssignment::firstOrCreate(
+                ['form_id' => $request->form_id, 'client_id' => $request->client_id, 'scheduled_date' => $date],
+                ['active' => true]
+            );
+            $createdAny = $createdAny || $assignment->wasRecentlyCreated;
+        }
+
+        if ($createdAny) {
+            $client = User::find($request->client_id);
+            $form = Form::find($request->form_id);
+            if ($client && $form) {
+                $client->notify(new CommonNotification('new_checkin', [
+                    'id'      => $form->id,
+                    'type'    => 'new_checkin',
+                    'subject' => 'Nuevo check-in asignado',
+                    'message' => "Tu coach te ha asignado \"{$form->title}\".",
+                ]));
+            }
+        }
 
         return json_message_response('Form assigned to client.');
     }

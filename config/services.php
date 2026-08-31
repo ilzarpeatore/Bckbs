@@ -44,6 +44,9 @@ return [
     'stripe' => [
         'secret' => env('STRIPE_SECRET_KEY'),
         'key' => env('STRIPE_PUBLIC_KEY'),
+        // Firma del webhook (Dashboard de Stripe -> Developers -> Webhooks
+        // -> el endpoint POST webhooks/stripe -> "Signing secret"). Sin esto
+        // configurado, StripeWebhookController rechaza cualquier evento.
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
     ],
 

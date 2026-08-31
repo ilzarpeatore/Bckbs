@@ -27,8 +27,14 @@ class PostingResource extends JsonResource
             'posting_comment_count' => $this->comment_count ?? 0,
             'can_edit'              => $this->can_edit,
             'created_at'            => timeAgoFormate($this->created_at),
-            'is_liked'              => $this->whenLoaded('postingLike', fn() => true, false),
-            'is_bookmark'           => $this->whenLoaded('postingBookmark', fn() => true, false),
+            // FIX 2026-08-13: whenLoaded() solo comprueba si la relacion fue
+            // cargada (siempre lo esta, el controller la eager-carga filtrada
+            // por auth()->id()), no si tiene filas - por eso like/bookmark
+            // salian marcados por defecto para cualquier usuario. Hay que
+            // comprobar si la coleccion cargada (ya filtrada por user_id) tiene
+            // elementos.
+            'is_liked'              => $this->whenLoaded('postingLike', fn() => $this->postingLike->isNotEmpty(), false),
+            'is_bookmark'           => $this->whenLoaded('postingBookmark', fn() => $this->postingBookmark->isNotEmpty(), false),
         ];
     }
 }

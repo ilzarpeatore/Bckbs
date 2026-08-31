@@ -27,13 +27,20 @@ class ClientProfileCalendarController extends Controller
             ->where('is_personal', true)
             ->first();
 
+        // num_weeks=1000 -> fecha_fin cae ~19 años después del ancla: el
+        // calendario personal, por diseño, nunca dispara el cierre
+        // automático de mesociclo (check:mesocycle-closures) — es correcto,
+        // no es un mesociclo real con fin.
+        $anchorDate = Carbon::parse(self::PERSONAL_ANCHOR_DATE);
+        $personalFechaFin = ProgramClientAssignment::computeFechaFin($anchorDate, 1000);
+
         if ($program) {
             // Asegura que el programa personal tenga su fila en
             // program_client_assignments (programas creados antes de esa
             // lógica no la tienen), o getMergedMonth nunca lo recorrería.
             ProgramClientAssignment::firstOrCreate(
                 ['training_program_id' => $program->id, 'client_id' => $client_id],
-                ['start_date' => self::PERSONAL_ANCHOR_DATE, 'activo' => true]
+                ['start_date' => self::PERSONAL_ANCHOR_DATE, 'fecha_fin' => $personalFechaFin->toDateString(), 'activo' => true]
             );
 
             return $program;
@@ -53,6 +60,7 @@ class ClientProfileCalendarController extends Controller
             'training_program_id' => $program->id,
             'client_id'            => $client_id,
             'start_date'           => self::PERSONAL_ANCHOR_DATE,
+            'fecha_fin'            => $personalFechaFin->toDateString(),
             'activo'               => true,
         ]);
 
@@ -76,7 +84,7 @@ class ClientProfileCalendarController extends Controller
 
         $client_assignments = ProgramClientAssignment::where('client_id', $request->client_id)
             ->where('activo', true)
-            ->with('trainingProgram.progressionRules')
+            ->with('trainingProgram')
             ->get();
 
         $mapper = new CalendarDateMapper();
@@ -192,12 +200,47 @@ class ClientProfileCalendarController extends Controller
             'start_date'           => 'required|date',
         ]);
 
-        $assignment = ProgramClientAssignment::create([
-            'training_program_id' => $request->training_program_id,
-            'client_id'            => $request->client_id,
-            'start_date'           => $request->start_date,
-            'activo'               => true,
-        ]);
+        $program = TrainingProgram::findOrFail($request->training_program_id);
+        $startDate = Carbon::parse($request->start_date);
+        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
+
+        // BUG REAL (2026-08-13, reportado por cliente): esto antes era un
+        // create() sin comprobar duplicados. Si el coach reimportaba el
+        // mismo programa a un cliente que ya lo tenía activo (doble clic,
+        // "reiniciar programa" pulsado dos veces, etc.) se creaban DOS filas
+        // program_client_assignments activas para el mismo
+        // client_id+training_program_id, cada una con su propio start_date.
+        // getMyMonth/getMergedMonth recorren TODAS las asignaciones activas
+        // y proyectan cada ProgramDayAssignment (compartido por el programa)
+        // sobre las fechas de CADA asignación — el mismo assignment_id
+        // terminaba apareciendo en dos fechas reales distintas del
+        // calendario. Como la finalización de sesión se guarda por
+        // program_day_assignment_id sin fecha, completar la ocurrencia de
+        // una fecha marcaba también como "hecha" la ocurrencia de la otra
+        // fecha (verificado con datos reales: cliente 8, programa 21,
+        // assignment_id 1040 proyectado a la vez en 2026-08-03 y
+        // 2026-08-31). Ahora: si ya existe una asignación activa para este
+        // client_id+training_program_id, se actualiza en vez de duplicarse
+        // (mismo criterio que reiniciar/mover la fecha de inicio).
+        $assignment = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
+            ->where('client_id', $request->client_id)
+            ->where('activo', true)
+            ->first();
+
+        if ($assignment) {
+            $assignment->update([
+                'start_date' => $request->start_date,
+                'fecha_fin'  => $fechaFin->toDateString(),
+            ]);
+        } else {
+            $assignment = ProgramClientAssignment::create([
+                'training_program_id' => $request->training_program_id,
+                'client_id'            => $request->client_id,
+                'start_date'           => $request->start_date,
+                'fecha_fin'            => $fechaFin->toDateString(),
+                'activo'               => true,
+            ]);
+        }
 
         return json_custom_response(['data' => $assignment]);
     }
@@ -257,5 +300,42 @@ class ClientProfileCalendarController extends Controller
                 'exercise_notes' => $notes,
             ],
         ]);
+    }
+
+    /**
+     * Visibilidad admin del chequeo diario de preparación (sueño/agujetas/
+     * energía/estrés, ReadinessController::store()) que el cliente rellena
+     * antes de Workout Preview - se guarda desde siempre, pero no existía
+     * ningún endpoint admin para consultarlo.
+     */
+    public function getReadinessChecks(Request $request)
+    {
+        $request->validate(['client_id' => 'required|exists:users,id']);
+
+        $checks = \App\Models\DailyReadinessCheck::where('user_id', $request->client_id)
+            ->orderByDesc('date')
+            ->limit(60)
+            ->get()
+            ->map(fn ($c) => [
+                'id'             => $c->id,
+                'date'           => optional($c->date)->toDateString(),
+                'sleep_quality'  => $c->sleep_quality,
+                'soreness_level' => $c->soreness_level,
+                'energy_level'   => $c->energy_level,
+                'stress_level'   => $c->stress_level,
+            ]);
+
+        return json_custom_response(['data' => $checks]);
+    }
+
+    // Reusa el mismo cálculo que v1/my-workout-adherence (ClientCalendarController::
+    // computeAdherence) para que el coach vea exactamente la misma racha/ratio
+    // que ve el cliente en la app, sin duplicar la lógica.
+    public function getAdherence(Request $request)
+    {
+        $request->validate(['client_id' => 'required|exists:users,id']);
+        $days = min((int) $request->input('days', 30), 90);
+
+        return json_custom_response(['data' => ClientCalendarController::computeAdherence((int) $request->client_id, $days)]);
     }
 }
