@@ -54,7 +54,17 @@ class ResourceController extends Controller
 
     public function getDetail(Request $request)
     {
-        $resource = Resource::find($request->id);
+        // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): sin scope, cualquier
+        // usuario autenticado podia leer CUALQUIER resource por id, incluidos los
+        // no compartidos/no asignados a el. Mismo criterio que getList(): visible
+        // si es del propio coach, o si visibleTo() lo permite (shared/asignado).
+        $user = auth('sanctum')->user();
+
+        $resource = Resource::where('id', $request->id)
+            ->where(function ($q) use ($user) {
+                $q->visibleTo($user->id)->orWhere('coach_id', $user->id);
+            })
+            ->first();
 
         if ($resource == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
@@ -93,7 +103,13 @@ class ResourceController extends Controller
 
     public function update(Request $request)
     {
-        $resource = Resource::find($request->id);
+        // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): sin scope, cualquier
+        // usuario autenticado podia editar el resource de OTRO coach. store()
+        // ya establece coach_id = auth()->id() al crear -- se aplica el mismo
+        // criterio de propiedad aqui.
+        $resource = Resource::where('id', $request->id)
+            ->where('coach_id', auth('sanctum')->id())
+            ->first();
 
         if ($resource == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
@@ -106,7 +122,12 @@ class ResourceController extends Controller
 
     public function destroy(Request $request)
     {
-        $resource = Resource::find($request->id);
+        // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): mismo problema que
+        // update() -- sin scope, cualquier usuario autenticado podia borrar el
+        // resource de OTRO coach.
+        $resource = Resource::where('id', $request->id)
+            ->where('coach_id', auth('sanctum')->id())
+            ->first();
 
         if ($resource == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Resource']));
