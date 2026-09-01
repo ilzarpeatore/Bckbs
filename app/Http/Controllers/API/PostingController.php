@@ -74,13 +74,27 @@ class PostingController extends Controller
     {
         $data = $request->all();
 
-        $posting = Posting::myPosting()->where('id', $data['id'])->first();
+        $posting = Posting::where('id', $data['id'])->first();
 
         $message = __('message.not_found_entry', ['name' => __('message.posting') ]);
         $status_code = 400;
 
         if( $posting != null )
         {
+            // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): scopeMyPosting()
+            // dejaba que el cliente pasara `user_id` y sobreescribiera el scope,
+            // permitiendo editar el post de OTRO usuario -- mismo patron ya
+            // corregido explicitamente en deletePostdata() (ver comentario ahi),
+            // replicado aqui.
+            $isOwner = $posting->user_id === auth()->id();
+            $isAdmin = auth()->user() && auth()->user()->hasRole('admin');
+
+            if (!$isOwner && !$isAdmin) {
+                return json_message_response(__('message.permission_denied_for_account'), 403);
+            }
+
+            unset($data['user_id'], $data['id']);
+
             $posting->fill($data)->update();
 
             if ($request->hasFile('posting_media')) {
@@ -129,15 +143,29 @@ class PostingController extends Controller
 
     public function removePostMedia(Request $request)
     {
-        $posting = Posting::myPosting()->where('id', request('posting_id'))->first();
+        $posting = Posting::where('id', request('posting_id'))->first();
 
         $message = __('message.not_found_entry', ['name' => __('message.posting') ]);
         $status_code = 400;
 
         if( $posting != null ) {
+            // SEGURIDAD (barrido sistematico 2026-09-01, CRIT+ALTO): mismo bypass
+            // de scopeMyPosting() que en updatePostData(), mas la eliminacion de
+            // Media no comprobaba que los `ids` pertenecieran a ESTE posting --
+            // un atacante con su propio posting_id podia borrar media de OTRO
+            // posting pasando IDs de media ajena.
+            $isOwner = $posting->user_id === auth()->id();
+            $isAdmin = auth()->user() && auth()->user()->hasRole('admin');
+
+            if (!$isOwner && !$isAdmin) {
+                return json_message_response(__('message.permission_denied_for_account'), 403);
+            }
+
             $message = __('message.not_found_entry', ['name' => __('message.post_media') ]);
             if( !is_null(request('ids')) && !empty(request('ids')) ) {
-                Media::whereIn('id', request('ids'))->delete();
+                $posting->getMedia('posting_media')
+                    ->whereIn('id', request('ids'))
+                    ->each(fn ($media) => $media->delete());
                 $message = __('message.msg_removed', ['name' => __('message.post_media')]);
                 $status_code = 200;
             }

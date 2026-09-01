@@ -60,7 +60,18 @@ class CommunityController extends Controller
 
     public function deletePosting($id)
     {
-        $posting = Posting::myPosting()->where('id', $id)->first();
+        // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): esta ruta
+        // (routes/web.php, name 'postdelete') no tiene NINGUN middleware de
+        // auth -- cualquiera, sin sesion, podia borrar cualquier post por ID.
+        // Ademas scopeMyPosting() dejaba pasar `user_id` del cliente. Se
+        // corrige aqui mismo (sin depender de mover la ruta de grupo) con un
+        // chequeo explicito de sesion + propiedad, mismo patron que
+        // PostingController::deletePostdata().
+        if (!auth()->check()) {
+            abort(403, __('message.access_denied'));
+        }
+
+        $posting = Posting::where('id', $id)->first();
 
         $status = true;
         $message = null;
@@ -68,9 +79,16 @@ class CommunityController extends Controller
             $message = __('message.not_found_entry', ['name' => __('message.posting') ]);
             $status = false;
         } else {
+            $isOwner = $posting->user_id === auth()->id();
+            $isAdmin = auth()->user()->hasRole('admin');
+
+            if (!$isOwner && !$isAdmin) {
+                abort(403, __('message.permission_denied_for_account'));
+            }
+
             $posting->delete();
         }
-        
+
         return response()->json(['status' => $status, 'event' => 'posting', 'id' => $id, 'message' => $message]);
     }
 
