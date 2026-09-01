@@ -106,6 +106,13 @@ Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrie
 // realmente antes de unificarlos.
 Route::post('webhooks/stripe-packages', [ API\V1\CheckoutController::class, 'stripeWebhook' ]);
 
+// SEGURIDAD (auditoria 2026-09-01, HIGH-1): ruta publica a proposito -- la
+// firma de la URL (generada solo desde progress-photo-list/store, ambas
+// detras de auth:sanctum+admin.api) es el unico credencial necesario, igual
+// que una URL firmada de S3. Ver SECURITY_AUDIT_BACKEND.md.
+Route::get('progress-photo-signed/{media}', [ API\Admin\ProgressPhotoController::class, 'showSigned'])
+    ->middleware('signed')->name('progress-photo.signed');
+
 Route::group(['middleware' => ['auth:sanctum']], function () {
 
     Route::post('update-profile', [ API\UserController::class, 'updateProfile']);

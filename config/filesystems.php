@@ -42,6 +42,16 @@ return [
             'visibility' => 'public',
         ],
 
+        // SEGURIDAD (auditoria 2026-09-01, HIGH-1): disco NO servido por
+        // Caddy (fuera de public/), para media sensible (progress photos)
+        // que debe pasar por una URL firmada de Laravel en vez de ser
+        // estatica y enumerable por ID. Ver SECURITY_AUDIT_BACKEND.md.
+        'private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'visibility' => 'private',
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

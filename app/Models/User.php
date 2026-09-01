@@ -48,6 +48,15 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         'two_factor_confirmed_at' => 'datetime',
     ];
 
+    // SEGURIDAD (auditoria 2026-09-01, HIGH-1): progress_photos son fotos
+    // corporales/de salud -- deben vivir en el disco 'private' (fuera del
+    // document root servido por Caddy), nunca en 'public'. Ver
+    // ProgressPhotoController y SECURITY_AUDIT_BACKEND.md.
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('progress_photos')->useDisk('private');
+    }
+
     public function userProfile() {
         return $this->hasOne(UserProfile::class, 'user_id', 'id');
     }
