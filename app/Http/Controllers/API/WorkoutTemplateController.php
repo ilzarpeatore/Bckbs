@@ -40,13 +40,20 @@ class WorkoutTemplateController extends Controller
         return json_custom_response(['data' => $workouts]);
     }
 
+    // SEGURIDAD (barrido sistematico 2026-09-01, PLAUSIBLE/MEDIO-ALTO): estos
+    // metodos de gestion (no los *Client*, que son deliberadamente publicos
+    // para clientes navegando el catalogo) hacian find()/findOrFail() sin
+    // comprobar coach_id -- cualquier coach con cuenta de panel podia leer/
+    // editar/borrar el workout template de OTRO coach. getList()/store() ya
+    // escopaban correctamente; se aplica el mismo criterio en cascada hasta
+    // el nivel de bloque/ejercicio.
     public function getDetail(Request $request)
     {
         $workout = WorkoutTemplate::with([
             'blocks' => fn ($q) => $q->orderBy('order'),
             'blocks.exercises' => fn ($q) => $q->orderBy('sequence'),
             'blocks.exercises.exercise',
-        ])->find($request->id);
+        ])->where('coach_id', auth()->id())->find($request->id);
 
         if ($workout == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
@@ -140,7 +147,7 @@ class WorkoutTemplateController extends Controller
             'is_exclusive' => 'sometimes|boolean',
         ]);
 
-        $workout = WorkoutTemplate::findOrFail($request->id);
+        $workout = WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id);
 
         $workout->update($request->only(['title', 'description', 'is_exclusive']));
 
@@ -153,7 +160,7 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_templates,id',
         ]);
 
-        WorkoutTemplate::findOrFail($request->id)->delete();
+        WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id)->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Workout']));
     }
@@ -165,6 +172,11 @@ class WorkoutTemplateController extends Controller
             'workout_template_id' => 'required|exists:workout_templates,id',
             'title'                => 'required|string|max:255',
         ]);
+
+        $workout = WorkoutTemplate::where('coach_id', auth()->id())->find($request->workout_template_id);
+        if ($workout == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
 
         $order = WorkoutTemplateBlock::where('workout_template_id', $request->workout_template_id)->max('order') ?? 0;
 
@@ -190,8 +202,12 @@ class WorkoutTemplateController extends Controller
             'section_template_id'  => 'required|exists:section_templates,id',
         ]);
 
-        $workout = WorkoutTemplate::find($request->workout_template_id);
-        $section = SectionTemplate::with('exercises')->find($request->section_template_id);
+        $workout = WorkoutTemplate::where('coach_id', auth()->id())->find($request->workout_template_id);
+        $section = SectionTemplate::with('exercises')->where('coach_id', auth()->id())->find($request->section_template_id);
+
+        if ($workout == null || $section == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
 
         $order = WorkoutTemplateBlock::where('workout_template_id', $workout->id)->max('order') ?? 0;
 
@@ -206,7 +222,9 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_template_blocks,id',
         ]);
 
-        $block = WorkoutTemplateBlock::findOrFail($request->id);
+        $block = WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->findOrFail($request->id);
         $block->update($request->only(['title', 'instructions', 'order']));
 
         return json_message_response(__('message.save_form', ['form' => 'Block']));
@@ -218,7 +236,9 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_template_blocks,id',
         ]);
 
-        WorkoutTemplateBlock::findOrFail($request->id)->delete();
+        WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->findOrFail($request->id)->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Block']));
     }
@@ -230,6 +250,22 @@ class WorkoutTemplateController extends Controller
             'workout_template_block_id' => 'required|exists:workout_template_blocks,id',
             'exercise_id'                => 'required|exists:exercises,id',
         ]);
+
+        $block = WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->workout_template_block_id);
+        if ($block == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Block']));
+        }
+
+        if ($request->filled('id')) {
+            $ownsExercise = WorkoutTemplateExercise::where('id', $request->id)
+                ->where('workout_template_block_id', $block->id)
+                ->exists();
+            if (!$ownsExercise) {
+                return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+            }
+        }
 
         $order = WorkoutTemplateExercise::where('workout_template_block_id', $request->workout_template_block_id)->max('sequence') ?? 0;
 
@@ -272,7 +308,14 @@ class WorkoutTemplateController extends Controller
             'value' => 'nullable',
         ]);
 
-        $exercise = WorkoutTemplateExercise::find($request->id);
+        $exercise = WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->id);
+
+        if ($exercise == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+        }
+
         $prescribed = $exercise->prescribed ?? [];
         $prescribed[$request->field] = $request->value;
         $exercise->update(['prescribed' => $prescribed]);
@@ -286,7 +329,9 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_template_exercises,id',
         ]);
 
-        WorkoutTemplateExercise::findOrFail($request->id)->delete();
+        WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->findOrFail($request->id)->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Exercise']));
     }
@@ -298,7 +343,14 @@ class WorkoutTemplateController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $exercise = WorkoutTemplateExercise::find($request->id);
+        $exercise = WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->id);
+
+        if ($exercise == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+        }
+
         $exercise->update(['notes' => $request->notes]);
 
         return json_custom_response(['data' => $exercise]);
@@ -311,7 +363,14 @@ class WorkoutTemplateController extends Controller
             'instructions' => 'nullable|string',
         ]);
 
-        $block = WorkoutTemplateBlock::find($request->id);
+        $block = WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->id);
+
+        if ($block == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Block']));
+        }
+
         $block->update(['instructions' => $request->instructions]);
 
         return json_custom_response(['data' => $block]);

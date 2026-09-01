@@ -20,9 +20,16 @@ class SectionTemplateController extends Controller
         return json_custom_response(['data' => $sections]);
     }
 
+    // SEGURIDAD (barrido sistematico 2026-09-01, PLAUSIBLE/MEDIO-ALTO): getDetail/
+    // update/destroy/saveExercise/updatePrescribedField/deleteExercise hacian
+    // find()/where('id',...) sin comprobar coach_id -- cualquier coach con cuenta
+    // de panel podia leer/editar/borrar el contenido de OTRO coach. getList() y
+    // store() ya escopaban correctamente; se aplica el mismo criterio aqui.
     public function getDetail(Request $request)
     {
-        $section = SectionTemplate::with('exercises.exercise')->find($request->id);
+        $section = SectionTemplate::with('exercises.exercise')
+            ->where('coach_id', auth()->id())
+            ->find($request->id);
 
         if ($section == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Section']));
@@ -46,7 +53,7 @@ class SectionTemplateController extends Controller
 
     public function update(Request $request)
     {
-        $section = SectionTemplate::find($request->id);
+        $section = SectionTemplate::where('coach_id', auth()->id())->find($request->id);
 
         if ($section == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Section']));
@@ -59,7 +66,7 @@ class SectionTemplateController extends Controller
 
     public function destroy(Request $request)
     {
-        $section = SectionTemplate::find($request->id);
+        $section = SectionTemplate::where('coach_id', auth()->id())->find($request->id);
 
         if ($section == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Section']));
@@ -77,6 +84,20 @@ class SectionTemplateController extends Controller
             'section_template_id' => 'required|exists:section_templates,id',
             'exercise_id'          => 'required|exists:exercises,id',
         ]);
+
+        $section = SectionTemplate::where('coach_id', auth()->id())->find($request->section_template_id);
+        if ($section == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Section']));
+        }
+
+        if ($request->filled('id')) {
+            $ownsExercise = SectionTemplateExercise::where('id', $request->id)
+                ->where('section_template_id', $section->id)
+                ->exists();
+            if (!$ownsExercise) {
+                return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+            }
+        }
 
         $order = SectionTemplateExercise::where('section_template_id', $request->section_template_id)->max('sequence') ?? 0;
 
@@ -109,7 +130,14 @@ class SectionTemplateController extends Controller
             'value' => 'nullable',
         ]);
 
-        $exercise = SectionTemplateExercise::find($request->id);
+        $exercise = SectionTemplateExercise::whereHas('section', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->id);
+
+        if ($exercise == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+        }
+
         $prescribed = $exercise->prescribed ?? [];
         $prescribed[$request->field] = $request->value;
         $exercise->update(['prescribed' => $prescribed]);
@@ -119,7 +147,9 @@ class SectionTemplateController extends Controller
 
     public function deleteExercise(Request $request)
     {
-        SectionTemplateExercise::where('id', $request->id)->delete();
+        SectionTemplateExercise::whereHas('section', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->where('id', $request->id)->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Exercise']));
     }
