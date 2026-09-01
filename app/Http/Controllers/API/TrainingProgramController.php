@@ -64,8 +64,15 @@ class TrainingProgramController extends Controller
      */
     public function getDetail(Request $request)
     {
+        // SEGURIDAD (barrido sistematico 2026-09-01, PLAUSIBLE/MEDIO-ALTO):
+        // getDetail/generateWeeks/update/destroy/assignClient/removeAssignment/
+        // getAssignments hacian find()/where('id',...) sin comprobar coach_id --
+        // cualquier coach con cuenta de panel podia leer/editar/borrar el
+        // programa de OTRO coach. store()/assignClient() ademas no comprobaban
+        // que client_id perteneciera al roster de este coach (users.coach_id).
         $program = TrainingProgram::with(['workout.workoutDay.workoutDayExercise'])
             ->where('id', $request->id)
+            ->where('coach_id', auth('sanctum')->id())
             ->first();
 
         if ($program == null) {
@@ -105,6 +112,13 @@ class TrainingProgramController extends Controller
 
         $coach_id = auth('sanctum')->id();
 
+        if ($request->filled('client_id')) {
+            $ownsClient = User::where('id', $request->client_id)->where('coach_id', $coach_id)->exists();
+            if (!$ownsClient) {
+                return json_message_response('Client not found or not assigned to this coach.', 404);
+            }
+        }
+
         DB::beginTransaction();
         try {
             $program = TrainingProgram::create([
@@ -139,7 +153,7 @@ class TrainingProgramController extends Controller
      */
     public function generateWeeks(Request $request)
     {
-        $program = TrainingProgram::find($request->id);
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->id);
 
         if ($program == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
@@ -156,7 +170,7 @@ class TrainingProgramController extends Controller
 
     public function update(Request $request)
     {
-        $program = TrainingProgram::find($request->id);
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->id);
 
         if ($program == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
@@ -177,7 +191,7 @@ class TrainingProgramController extends Controller
 
     public function destroy(Request $request)
     {
-        $program = TrainingProgram::find($request->id);
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->id);
 
         if ($program == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
@@ -196,7 +210,16 @@ class TrainingProgramController extends Controller
             'start_date'          => 'required|date',
         ]);
 
-        $program = TrainingProgram::find($request->training_program_id);
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->training_program_id);
+        if ($program == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
+        }
+
+        $ownsClient = User::where('id', $request->client_id)->where('coach_id', auth('sanctum')->id())->exists();
+        if (!$ownsClient) {
+            return json_message_response('Client not found or not assigned to this coach.', 404);
+        }
+
         $startDate = Carbon::parse($request->start_date);
         $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
 
@@ -248,7 +271,15 @@ class TrainingProgramController extends Controller
             'id' => 'required|exists:program_client_assignments,id',
         ]);
 
-        ProgramClientAssignment::where('id', $request->id)->delete();
+        $deleted = ProgramClientAssignment::where('id', $request->id)
+            ->whereHas('trainingProgram', function ($q) {
+                $q->where('coach_id', auth('sanctum')->id());
+            })
+            ->delete();
+
+        if ($deleted === 0) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Assignment']));
+        }
 
         return json_message_response('Client unassigned');
     }
@@ -258,6 +289,11 @@ class TrainingProgramController extends Controller
         $request->validate([
             'training_program_id' => 'required|exists:training_programs,id',
         ]);
+
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->training_program_id);
+        if ($program == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
+        }
 
         $assignments = ProgramClientAssignment::with('client')
             ->where('training_program_id', $request->training_program_id)
