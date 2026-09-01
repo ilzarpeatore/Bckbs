@@ -47,11 +47,26 @@ class NotificationController extends Controller
     public function getNotificationDetail(Request $request)
     {
         $id = request('id');
-        $notification = Notification::where('id', $id)->first();
+        $user = auth()->user();
+
+        // SEGURIDAD (barrido sistematico 2026-09-01, MEDIO): sin scope, cualquier
+        // usuario autenticado podia leer el contenido de la notificacion de OTRO
+        // usuario enumerando id. Se escopa igual que el resto del metodo (que ya
+        // usa $user->notifications() para el update mas abajo).
+        $notification = $user->notifications()->where('id', $id)->first();
+
+        // Antes del fix de arriba esto nunca podia ser null en la practica (la
+        // query no escopaba y encontraba cualquier notificacion real) -- ahora
+        // que si escopa, un id ajeno o inexistente produce null, y
+        // NotificationResource no tolera un modelo null (accede a ->data
+        // directamente). Se corta aqui explicitamente en vez de dejar que
+        // rompa con un 500.
+        if ($notification === null) {
+            return json_message_response(__('message.not_found_entry', ['name' => __('message.data')]), 400);
+        }
 
         $notification_detail = new NotificationResource($notification);
 
-        $user = auth()->user();
         $all_unread_count = $user->unreadNotifications()->count();
 
         $user->notifications()->where('id', $id)->update(['read_at' => now()]);
