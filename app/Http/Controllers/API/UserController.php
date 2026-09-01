@@ -73,10 +73,14 @@ class UserController extends Controller
         $input = $request->all();
 
         $password = $input['password'];
-        $input['user_type'] = isset($input['user_type']) ? $input['user_type'] : 'user';
+        // SEGURIDAD (auditoria 2026-09-01): user_type y status NUNCA deben
+        // venir del cliente -- antes se podia registrar una cuenta admin
+        // enviando {"user_type":"admin"} en el body. Ver
+        // SECURITY_AUDIT_BACKEND.md CRIT-2.
+        $input['user_type'] = 'user';
         $input['password'] = Hash::make($password);
 
-        $input['status'] = isset($input['status']) ? $input['status']: 'active';
+        $input['status'] = 'active';
         if( request('player_id') == "nil"){
             $input['player_id'] = NULL;
         }
@@ -312,16 +316,25 @@ class UserController extends Controller
 
     public function updateProfile(UserRequest $request)
     {
+        // SEGURIDAD (auditoria 2026-09-01): antes se podia pasar un `id`
+        // ajeno para editar el perfil de OTRO usuario (IDOR), y
+        // $request->all() permitia sobreescribir cualquier campo $fillable
+        // del modelo (user_type, status, is_personal_client, password...)
+        // via mass assignment. Ver SECURITY_AUDIT_BACKEND.md CRIT-1. Este
+        // endpoint es exclusivamente para que un usuario edite SU PROPIO
+        // perfil -- ningun consumidor real (app movil) envia `id`.
         $user = auth()->user();
 
-        if($request->has('id') && !empty($request->id)){
-            $user = User::where('id',$request->id)->first();
-        }
         if($user == null){
             return json_message_response(__('message.no_record_found'),400);
         }
 
-        $user->fill($request->all())->update();
+        $safeProfileFields = $request->only([
+            'username', 'first_name', 'last_name', 'email', 'phone_number',
+            'gender', 'display_name', 'timezone',
+        ]);
+
+        $user->fill($safeProfileFields)->update();
 
         if(isset($request->profile_image) && $request->profile_image != null ) {
             $user->clearMediaCollection('profile_image');
