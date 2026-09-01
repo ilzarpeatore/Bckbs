@@ -17,10 +17,28 @@ class UserGraphController extends Controller
         $user_id = auth()->id();
         $date   = $request->date ?? now()->toDateString();
 
-        $data = $request->all();             
+        $data = $request->all();
         $data['user_id'] = $user_id;
 
-        $result = UserGraph::updateOrCreate(['id' => request('id')], $data);
+        // SEGURIDAD (barrido sistematico 2026-09-01, CRIT): updateOrCreate(['id'
+        // => request('id')], ...) emparejaba solo por id, sin comprobar user_id
+        // -- un atacante podia pasar el id de OTRO usuario y su registro de
+        // datos de salud (peso, agua, pasos...) se reasignaba al atacante,
+        // perdiendo/corrompiendo el valor original de la victima.
+        if ($request->filled('id')) {
+            $result = UserGraph::where('id', $request->id)->where('user_id', $user_id)->first();
+
+            if ($result === null) {
+                return json_message_response(__('message.not_found_entry', ['name' => __('message.data')]), 400);
+            }
+
+            unset($data['id']);
+            $result->fill($data)->save();
+        } else {
+            unset($data['id']);
+            $result = UserGraph::create($data);
+        }
+
         $dailyGoal = null;
         if ($result->type === 'water_track') {
             $dailyGoal = DailyWaterGoal::lastRecordByDate($user_id, $date)->first();
