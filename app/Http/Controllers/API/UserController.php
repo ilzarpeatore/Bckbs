@@ -133,6 +133,12 @@ class UserController extends Controller
         $user->profile_image = getSingleMedia($user, 'profile_image', null);
         $user->onboarding_completed = $user->onboarding_completed_at !== null;
         unset($user->roles);
+        // SEGURIDAD (re-auditoria 2026-09-01, hallazgo LOW post-HIGH-1):
+        // getSingleMedia() carga la relacion `media` como efecto colateral,
+        // que de lo contrario se serializaria entera (todas las colecciones,
+        // incluida progress_photos) en esta respuesta. login() ya hacia este
+        // unset(); register() no. Ver SECURITY_AUDIT_BACKEND.md.
+        unset($user->media);
 
         $message = __('message.save_form',['form' => __('message.'.$input['user_type']) ]);
         $response = [
