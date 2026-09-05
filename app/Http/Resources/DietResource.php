@@ -15,6 +15,8 @@ class DietResource extends JsonResource
     public function toArray($request)
     {
         $user_id = auth('sanctum')->id() ?? null;
+        $hideDescription = config('health-claims.hide_recipe_diet_descriptions') && !optional($request->user())->hasRole('admin');
+
         return [
             'id'               => $this->id,
             'title'            => $this->title,
@@ -27,7 +29,7 @@ class DietResource extends JsonResource
             'is_featured'      => $this->is_featured,
             'status'           => $this->status,
             'ingredients'      => $this->ingredients,
-            'description'      => $this->description,
+            'description'      => $hideDescription ? null : $this->description,
             'diet_image'       => getSingleMedia($this, 'diet_image',null),
             'is_premium'       => $this->is_premium,
             'categorydiet_id'  => $this->categorydiet_id,

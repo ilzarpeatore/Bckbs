@@ -12,6 +12,7 @@ class RecipeDetailResource extends JsonResource
         $user = auth('sanctum')->user();
         $user_id = $user->id ?? null;
         $isAccessible = !$this->is_premium || ($user && PackageAccessService::canAccessPremiumRecipes($user));
+        $hideDescription = config('health-claims.hide_recipe_diet_descriptions') && !optional($user)->hasRole('admin');
 
         return [
             'id'               => $this->id,
@@ -19,7 +20,7 @@ class RecipeDetailResource extends JsonResource
             'slug'             => $this->slug,
             'type'             => $this->type,
             'meal_type'        => $this->meal_type,
-            'description'      => $this->description,
+            'description'      => $hideDescription ? null : $this->description,
             'preparation_time' => $this->preparation_time,
             'calories'         => round($this->calories),
             'protein'          => round($this->protein),
