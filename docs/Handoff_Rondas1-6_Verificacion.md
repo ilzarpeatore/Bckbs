@@ -1,5 +1,39 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
+## ESTADO ACTUAL — 2026-09-07, fin de la segunda sesión (consola local, BD real)
+
+**Cerrado y en producción.** Las Rondas 1-6 (22 ítems) están verificadas
+contra la BD real de la VPS, con un bug real encontrado y corregido (ítem
+4), las 4 decisiones abiertas confirmadas, y todo fusionado a `main` y
+desplegado:
+
+- Rama `claude/motor-autorregulacion-46dke6` fusionada a `main` (fast-forward,
+  sin conflictos) y empujada a `github.com/ilzarpeatore/Bckbs`.
+- VPS (`/var/www/testapp`, `testapp.bestronger.es`) actualizada: `git pull`
+  a `main`, `composer dump-autoload -o` (9062 clases, para que
+  `progression:check-recalibration`/`progression:apply-fallbacks` queden
+  registrados), sin necesidad de `migrate` (la migración `no_recortable` ya
+  estaba aplicada desde la verificación) ni de reiniciar PHP-FPM
+  (`opcache.validate_timestamps=On`, recoge el código nuevo solo).
+  Confirmado que el sitio responde tras el deploy (sin 500).
+- Commits relevantes en `main`: `d39bbda` (código Rondas 1-6), `82e3cba`
+  (análisis+plan), `49d8d6e` (fix ítem 4), `cb4081e` (handoff con
+  resultados y decisiones cerradas).
+- Detalle completo de la verificación (metodología, resultados por ítem,
+  el bug de ítem 4, las 4 decisiones) en las secciones 4b y 5 más abajo —
+  se conservan tal cual se escribieron durante la verificación, como
+  registro del proceso.
+- Pendiente para retomar: Rondas 7-16 del plan (23 ítems, ver última
+  sección de este documento) y, cuando se aborde la Ronda 3, consolidar la
+  tercera copia de `linearRegression()`/`linearSlope()` (decisión abierta
+  #3, ver sección 5).
+
+---
+
+*A partir de aquí, el documento original de la primera sesión (sandbox sin
+BD) y las adiciones de la segunda (verificación con BD real), sin editar
+retroactivamente — para ver la evolución completa del proceso.*
+
 Este documento es para continuar desde una consola de Claude Code con acceso
 a una base de datos real (este sandbox no tenía ninguna: `migrate:status`
 devuelve `SQLSTATE[HY000] [2002] Connection refused`, así que nada de lo de
