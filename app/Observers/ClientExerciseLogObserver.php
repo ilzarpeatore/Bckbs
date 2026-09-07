@@ -364,17 +364,20 @@ class ClientExerciseLogObserver
      * (subconsulta con el mismo orderByDesc('id')->limit(...) de antes),
      * solo cambia CUÁLES de esos 200 se traen completos a PHP.
      *
-     * Riesgo documentado (a revisar): JSON_CONTAINS compara por tipo --
-     * si algún set histórico tiene `carga` guardado como STRING JSON en
-     * vez de número (el endpoint de logSets en ClientCalendarController
-     * no valida `logged_sets.*.carga` como numeric, solo filtra claves
-     * permitidas), ese log no matcheará en el filtro de MySQL aunque
-     * `is_numeric()` en PHP sí lo habría aceptado antes. Caso extremo no
-     * esperado en el flujo real de la app (el frontend siempre envía
-     * números), pero queda anotado para que se revise antes de dar esto
-     * por definitivo. Asume MySQL (JSON_CONTAINS/JSON_OBJECT disponibles
-     * desde 5.7.9) -- confirmar que el motor real en producción es MySQL
-     * y no una variante donde este comportamiento difiera.
+     * Verificado contra producción (2026-09-07, MySQL 8.0.46): `carga` está
+     * guardado unas veces como número JSON y otras como STRING JSON (el
+     * endpoint de logSets en ClientCalendarController no valida
+     * `logged_sets.*.carga` como numeric, solo filtra claves permitidas;
+     * en una muestra de 500 logs reales, 582 valores eran string y 146
+     * numéricos). JSON_CONTAINS compara por tipo -- y el bind de PDO para
+     * un `float` de PHP se envía como JSON STRING (comprobado: `JSON_TYPE`
+     * de `JSON_OBJECT('carga', ?)` con un float bindeado da STRING, no
+     * DOUBLE/INTEGER). Eso significa que un solo bind de `$weight` (float)
+     * YA matcheaba el caso string, pero NUNCA matcheaba `carga` guardado
+     * como número puro (comprobado contra un log real con carga entera:
+     * 0 matches). Por eso el filtro de abajo prueba dos representaciones:
+     * `CAST(? AS DECIMAL(10,2))` para forzar tipo numérico JSON real, y el
+     * bind tal cual para el caso string.
      */
     private function maybeRecordPrReps(ClientExerciseLog $log, float $weight, int $reps): void
     {
@@ -391,7 +394,10 @@ class ClientExerciseLogObserver
                     ->orderByDesc('id')
                     ->limit(self::PR_REPS_HISTORY_LIMIT);
             })
-            ->whereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', ?))", [$weight])
+            ->where(function ($query) use ($weight) {
+                $query->whereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', CAST(? AS DECIMAL(10,2))))", [$weight])
+                    ->orWhereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', ?))", [(string) $weight]);
+            })
             ->get(['logged_sets']);
 
         $historicalMaxReps = null;
