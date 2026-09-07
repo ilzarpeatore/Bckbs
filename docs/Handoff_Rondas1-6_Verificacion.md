@@ -134,35 +134,94 @@ suficiente variación.
 `day_of_week`, y confirma que se crea el `CoachExceptionItem` de categoría
 `patron_recorte_recurrente` en el tercero, no antes.
 
-### 5. Decisiones abiertas de los agentes (revisar y decidir)
+### 4b. Resultados de la verificación — 2026-09-07, consola local con BD real (VPS)
 
-1. **Ítem 22** — el chequeo de "readiness sostenido" está anclado al día
-   más reciente disponible, no a la fecha de `generated_at` del target.
-   Cambiarlo es una línea si prefieres esto último.
-2. **Ítem 19** — el aviso de recalibración a nivel de regla se añade
-   ADEMÁS de los individuales por cliente, no los sustituye.
-3. **`MesocycleClosureService`** tiene una tercera copia local de la
-   regresión lineal (`linearRegression()`, privado) porque se implementó en
-   paralelo a la extracción del trait `ComputesLinearSlope` — pendiente de
-   consolidar: sustituir esa copia local por el trait compartido (usar
-   `computeRawLinearSlope()` + calcular el intercepto ahí mismo, ya que el
-   trait solo expone la pendiente, no el intercepto — habría que decidir si
-   se amplía el trait o se deja el intercepto como cálculo propio de
-   `MesocycleClosureService` sobre la pendiente ya compartida).
-4. **Umbrales elegidos por los agentes** (documentados en el código, no
-   vienen del plan original) — revisar si tienen sentido para el negocio
-   real:
+Metodología: git worktree en la propia VPS junto al despliegue real
+(`/tmp/motor-verify`, ya eliminado), enlazando `.env`/`vendor` del
+despliegue real sin copiarlos ni mostrar credenciales, con un autoloader
+antepuesto para forzar que las clases `App\` se resuelvan desde el
+worktree (el autoloader optimizado de Composer, al symlinkear `vendor/`,
+resolvía `App\` a `/var/www/testapp/app` por defecto — cuidado si se repite
+esta técnica). Todas las pruebas que escriben datos (OverrideLog, PainReport,
+AdaptiveWeekPlan, SessionProgressionRule...) corrieron dentro de
+`DB::beginTransaction()`/`rollBack()`; nada quedó persistido salvo la
+migración en sí.
+
+- **Migración `no_recortable`**: aplicada y confirmada (columna `tinyint`,
+  default 0). `down()` revisado por código (dropColumn simple) — no se
+  probó el rollback en vivo (bloqueado por el classifier de auto-mode,
+  razonable tratándose de la única BD real).
+- **Ítem 4 (JSON_CONTAINS) — BUG REAL ENCONTRADO Y CORREGIDO**: el riesgo
+  documentado por el agente estaba invertido. En datos reales, `carga` se
+  guarda mezclado (string/número). El bind original de `$weight` (float) ya
+  cubría el caso string (por cómo PDO serializa floats), pero **nunca
+  matcheaba cuando `carga` era un número JSON puro** (~20% de una muestra
+  de 500 logs reales) — `maybeRecordPrReps()` perdía silenciosamente el
+  historial de PRs para esos casos. Corregido en
+  `ClientExerciseLogObserver.php` probando también
+  `CAST(? AS DECIMAL(10,2))`. Verificado contra 3 logs reales. MySQL real
+  confirmado: 8.0.46. Commit `49d8d6e`, ya empujado a esta rama.
+- **Ítems 5-6 (readiness)**: ACWR idéntico entre versión vieja y nueva
+  (0.4158028... vs 0.4158, redondeo de columna). El componente hrv/sueño no
+  se pudo ejercitar más allá del caso trivial porque `health_data_points`
+  está vacío en este entorno (sin integración de wearables activa aún).
+- **Ítem 21 (readiness sostenido 2 días)**: correcto en los 3 casos
+  (sostenido, aislado con suavizado a `scoreOnlyBand`, sin dato del día
+  anterior).
+- **Ítem 22 (fallback re-verifica contexto)**: correcto en los 4 casos
+  (sin dolor, dolor bloqueante posterior, molestia leve no bloqueante,
+  dolor anterior a `generated_at`).
+- **Ítems 17-19 (recalibración)**: con 4 clientes reales y datos sintéticos
+  en transacción, el comando dio exactamente "3 avisos individuales, 1 a
+  nivel de regla" — excluyó correctamente el caso errático (item 18). Sin
+  riesgo de push real: el único coach de este entorno no tiene `player_id`
+  (OneSignal) registrado.
+- **Ítem 20 (mesociclo)**: regresión lineal verificada con patrón
+  sube-baja-sube (100,110,95,120 → previous_best 99.5 en vez de 100) y el
+  fallback de pendiente plana (<0.1%) mantiene el comportamiento antiguo.
+  No se montó un mesociclo real end-to-end (requiere bastante fixture
+  relacional: `TrainingProgram`+`ProgramClientAssignment`+ejercicio
+  principal) — se verificó la función de regresión y el umbral de
+  decisión directamente por reflexión.
+- **Ítem 15 (memoria 3 semanas AdaptiveWeekPlanner)**: correcto en los 3
+  casos (3ª semana consecutiva crea el `CoachExceptionItem`, con solo 2
+  semanas no lo crea, racha rota por `seleccion_manual_cliente` no lo crea).
+
+### 5. Decisiones abiertas de los agentes — RESUELTAS 2026-09-07
+
+Las 4 se confirman tal cual estaban documentadas/implementadas, sin cambios
+de código. Verificado contra BD real primero (ver sección 4 más abajo).
+
+1. **Ítem 22** — el chequeo de "readiness sostenido" se queda anclado al día
+   más reciente disponible (no a `generated_at` del target). Confirmado,
+   sin cambios.
+2. **Ítem 19** — el aviso de recalibración a nivel de regla se mantiene
+   ADEMÁS de los individuales por cliente (no los sustituye). Confirmado,
+   sin cambios.
+3. **`MesocycleClosureService`** se queda con su tercera copia local de la
+   regresión lineal (`linearRegression()`, privado) por ahora. La
+   consolidación con el trait `ComputesLinearSlope` (ampliarlo para exponer
+   también el intercepto, o calcularlo en `MesocycleClosureService` a
+   partir de `computeRawLinearSlope()`) se deja para cuando se aborde la
+   Ronda 3 del plan, que ya señala esta duplicación entre
+   `SessionInterpretationService`/`SessionProgressionRuleEngine` como
+   pendiente de extraer — momento natural para consolidar también esta
+   tercera copia.
+4. **Umbrales elegidos por los agentes** — confirmados tal cual, sin
+   cambios de negocio:
    - `CheckProgressionRecalibration`: rango de magnitud ≤50% de la media, ventana de 60 días entre ediciones, mínimo 3 clientes para aviso a nivel de regla.
    - `MesocycleClosureService`: mínimo 3 sesiones para regresión, pendiente relativa <0.1% se considera "plana" (cae al comportamiento antiguo).
    - `AdaptiveWeekPlanner`: `PROGRESS_STREAK_CAP=3` (tope del factor de progreso), `RECURRING_DROP_STREAK_WEEKS=3` (semanas para el aviso de patrón recurrente).
 
-### 6. Una vez verificado — commit
+### 6. Commit — HECHO 2026-09-07
 
-Sigue pendiente tu confirmación explícita para commitear (no lo he hecho en
-ningún momento de esta sesión). Cuando decidas hacerlo, probablemente tenga
-sentido más de un commit (p. ej. uno por agente/ronda, o uno para
-`docs/Motor_Autorregulacion_Analisis.md` separado del código) — decide el
-grano que prefieras.
+El trabajo de las Rondas 1-6 se commiteó (2 commits: análisis+plan, y
+código) y se empujó a `origin/claude/motor-autorregulacion-46dke6` desde la
+sesión cloud original. Tras la verificación contra BD real en esta
+consola local, se añadió un tercer commit (`49d8d6e`) con el fix del bug
+real del ítem 4 (JSON_CONTAINS), también empujado a la misma rama. La
+rama sigue sin fusionar a `main` — esa decisión (cuándo y cómo mergear)
+sigue pendiente.
 
 ## Lo que queda del plan completo (fuera de alcance de esta tanda)
 
