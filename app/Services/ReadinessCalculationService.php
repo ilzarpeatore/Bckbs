@@ -10,6 +10,7 @@ use App\Models\HealthDataPoint;
 use App\Models\ReadinessScore;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -85,9 +86,10 @@ class ReadinessCalculationService
     {
         $date = ($date ?? now())->copy()->startOfDay();
 
-        $hrvZ = $this->zScoreForMetric($client->id, 'hrv', $date);
-        $suenoZ = $this->zScoreForMetric($client->id, 'sleep_hours', $date);
-        $restingHrZ = $this->zScoreForMetric($client->id, 'resting_hr', $date);
+        $metricPoints = $this->loadMetricPoints($client->id, $date);
+        $hrvZ = $this->zScoreForMetric($metricPoints, 'hrv', $date);
+        $suenoZ = $this->zScoreForMetric($metricPoints, 'sleep_hours', $date);
+        $restingHrZ = $this->zScoreForMetric($metricPoints, 'resting_hr', $date);
         $subjetivo = $this->subjetivoScore($client->id, $date);
         $acwr = $this->acwr($client->id, $date);
 
@@ -173,6 +175,26 @@ class ReadinessCalculationService
     }
 
     /**
+     * Trae en UNA sola query los puntos de las 3 métricas que
+     * calculateForClient necesita (hrv, sleep_hours, resting_hr) dentro de
+     * la ventana de WINDOW_DAYS, agrupados por metric_type. Sustituye las 3
+     * queries casi idénticas que zScoreForMetric() hacía antes (una por
+     * métrica, mismo rango de fechas) por una sola con whereIn — la media y
+     * desviación de cada métrica se siguen calculando por separado en PHP a
+     * partir de esta única colección, sin cambiar la fórmula.
+     */
+    private function loadMetricPoints(int $clientId, Carbon $date): Collection
+    {
+        $windowStart = $date->copy()->subDays(self::WINDOW_DAYS - 1);
+
+        return HealthDataPoint::where('client_id', $clientId)
+            ->whereIn('metric_type', ['hrv', 'sleep_hours', 'resting_hr'])
+            ->whereBetween('recorded_date', [$windowStart->toDateString(), $date->toDateString()])
+            ->get(['metric_type', 'value', 'recorded_date'])
+            ->groupBy('metric_type');
+    }
+
+    /**
      * Media móvil + desviación estándar de los últimos 14 días (ventana que
      * incluye la fecha de cálculo) para una métrica de health_data_points.
      * Cold start (documento §4.1 punto 2): si hay <7 días distintos con
@@ -180,15 +202,15 @@ class ReadinessCalculationService
      * valor neutro. Si no hay lectura para la propia fecha de cálculo
      * dentro de esa ventana, tampoco hay nada que puntuar hoy -> null
      * (aunque haya histórico suficiente).
+     *
+     * $pointsByMetric viene de loadMetricPoints() -- ya trae las 3 métricas
+     * de los últimos WINDOW_DAYS días en una sola consulta; aquí solo se
+     * filtra la porción de $metricType y se calcula el z-score igual que
+     * antes.
      */
-    private function zScoreForMetric(int $clientId, string $metricType, Carbon $date): ?float
+    private function zScoreForMetric(Collection $pointsByMetric, string $metricType, Carbon $date): ?float
     {
-        $windowStart = $date->copy()->subDays(self::WINDOW_DAYS - 1);
-
-        $points = HealthDataPoint::where('client_id', $clientId)
-            ->where('metric_type', $metricType)
-            ->whereBetween('recorded_date', [$windowStart->toDateString(), $date->toDateString()])
-            ->get(['value', 'recorded_date']);
+        $points = $pointsByMetric->get($metricType, collect());
 
         $distinctDays = $points->pluck('recorded_date')->map(fn ($d) => $d instanceof Carbon ? $d->toDateString() : (string) $d)->unique()->count();
 
@@ -258,6 +280,12 @@ class ReadinessCalculationService
      * exercise_session_metrics no tiene columna de fecha propia (es un
      * output derivado, con created_at = momento de cómputo, no de la
      * sesión).
+     *
+     * Antes: 2 queries con el mismo JOIN, una por ventana (aguda 7d,
+     * crónica 28d). Como ACUTE_DAYS < CHRONIC_DAYS, la ventana aguda
+     * siempre está contenida en la crónica -- una sola pasada por
+     * [chronicStart, end] con una suma condicional (CASE WHEN) por fecha
+     * basta para obtener los dos acumulados sin cambiar el resultado.
      */
     private function acwr(int $clientId, Carbon $date): ?float
     {
@@ -265,15 +293,18 @@ class ReadinessCalculationService
         $chronicStart = $date->copy()->subDays(self::CHRONIC_DAYS - 1)->startOfDay();
         $end = $date->copy()->endOfDay();
 
-        $acute = (float) ExerciseSessionMetric::where('exercise_session_metrics.client_id', $clientId)
-            ->join('workout_session_reviews', 'workout_session_reviews.id', '=', 'exercise_session_metrics.workout_session_review_id')
-            ->whereBetween('workout_session_reviews.completed_at', [$acuteStart, $end])
-            ->sum('exercise_session_metrics.carga_efectiva');
-
-        $chronicSum = (float) ExerciseSessionMetric::where('exercise_session_metrics.client_id', $clientId)
+        $sums = ExerciseSessionMetric::where('exercise_session_metrics.client_id', $clientId)
             ->join('workout_session_reviews', 'workout_session_reviews.id', '=', 'exercise_session_metrics.workout_session_review_id')
             ->whereBetween('workout_session_reviews.completed_at', [$chronicStart, $end])
-            ->sum('exercise_session_metrics.carga_efectiva');
+            ->selectRaw(
+                'SUM(CASE WHEN workout_session_reviews.completed_at >= ? THEN exercise_session_metrics.carga_efectiva ELSE 0 END) as acute_sum,'
+                .' SUM(exercise_session_metrics.carga_efectiva) as chronic_sum',
+                [$acuteStart]
+            )
+            ->first();
+
+        $acute = (float) ($sums->acute_sum ?? 0);
+        $chronicSum = (float) ($sums->chronic_sum ?? 0);
 
         $chronic = $chronicSum / (self::CHRONIC_DAYS / 7);
 

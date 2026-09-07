@@ -23,6 +23,7 @@ use App\Models\ShadowEvaluation;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
+use App\Services\Concerns\ComputesLinearSlope;
 use App\Services\CoachExceptionFeedService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
@@ -41,8 +42,47 @@ use Illuminate\Support\Facades\Log;
  */
 class SessionProgressionRuleEngine
 {
+    use ComputesLinearSlope;
+
     // documento §2.4: mínimo global por defecto si una regla no lo sobreescribe.
     private const DEFAULT_MIN_CALIBRATION_SESSIONS = ClientExerciseCalibration::DEFAULT_MIN_SESSIONS;
+
+    /**
+     * Plan de Optimización, Ronda 1 ítems 1-2 (docs/Motor_Autorregulacion_Analisis.md):
+     * cachés de instancia, vigentes durante la vida de ESTE objeto engine.
+     * El engine no está registrado como singleton en el contenedor (sin
+     * binding explícito, confirmado) -- se resuelve una vez por
+     * job/request y esa misma instancia se reutiliza en el loop de
+     * EvaluateSessionProgressionRules::handle() (una llamada a
+     * evaluateForExercise() por ejercicio de la sesión), que es
+     * exactamente el caso que se quiere optimizar. Si en el futuro el
+     * engine pasara a ser singleton (p. ej. bajo Octane) estas cachés
+     * necesitarían invalidación explícita entre ejecuciones -- fuera de
+     * alcance de esta tarea.
+     *
+     * $applicableRulesCache: ítem 1, keyed por "{client_id}:{exercise_id}:{training_program_id}".
+     * Se incluye client_id además de coach_id/exercise_id/training_program_id
+     * (más específico que lo pedido literalmente) porque el propio
+     * resultado de applicableRules() depende del cliente vía el scope
+     * `cliente_especifico` (scope_id = client->id) -- cachear solo por
+     * coach_id mezclaría resultados de reglas cliente-específicas entre
+     * clientes distintos del mismo coach si esta instancia llegara a
+     * evaluar más de un cliente. coach_id es además derivable de
+     * client_id (client->coach_id), así que no se pierde granularidad.
+     */
+    private array $applicableRulesCache = [];
+
+    /**
+     * $evaluationCache: ítem 2, memoiza readiness_score (por
+     * client_id+fecha) y e1rm_delta (por exercise_session_metric->id)
+     * dentro del scope de una sola evaluación. Se resetea explícitamente
+     * al empezar cada evaluateForExercise()/simulateRule() -- ver
+     * resetEvaluationCache() -- para no arrastrar valores de una
+     * evaluación a la siguiente dentro de la misma instancia (a
+     * diferencia de $applicableRulesCache, que sí conviene mantener
+     * entre ejercicios de la misma sesión/job).
+     */
+    private array $evaluationCache = [];
 
     // Fase 3 (documento §3.1): ventana de sesiones recientes usada para
     // validar la lógica de estancamiento antes de disparar una sustitución
@@ -62,6 +102,10 @@ class SessionProgressionRuleEngine
      */
     public function evaluateForExercise(int $clientId, int $exerciseId, int $sessionId, bool $simulate = false): array
     {
+        // Ítem 2: memoización de readiness_score/e1rm_delta acotada a ESTA
+        // evaluación -- ver $evaluationCache arriba.
+        $this->resetEvaluationCache();
+
         $client = User::find($clientId);
         if (!$client) {
             return $this->result('sin_cliente', null, null, null, null, null);
@@ -147,6 +191,10 @@ class SessionProgressionRuleEngine
      */
     public function simulateRule(SessionProgressionRule $rule, ExerciseSessionMetric $metrics): array
     {
+        // Ítem 2: mismo reset que evaluateForExercise() -- este método es
+        // otro punto de entrada que también pasa por evaluateCondition().
+        $this->resetEvaluationCache();
+
         $clientId = (int) $metrics->client_id;
         $exerciseId = (int) $metrics->exercise_id;
         $sessionId = (int) $metrics->workout_session_review_id;
@@ -173,19 +221,33 @@ class SessionProgressionRuleEngine
 
     // ═══ Selección de reglas ═══════════════════════════════════════════
 
+    private function resetEvaluationCache(): void
+    {
+        $this->evaluationCache = [];
+    }
+
     /**
      * Reglas activas del coach del cliente, filtradas por scope
      * (documento §2.2 paso 3, ampliado 2026-08-11 con `programa_especifico`)
      * y devueltas ya ordenadas por jerarquía fija de scope > priority desc >
      * created_at desc (paso 4), con empate logueado.
+     *
+     * Ítem 1 (Plan de Optimización, Ronda 1): cacheada en
+     * $applicableRulesCache dentro de la vida de esta instancia -- ver
+     * comentario junto a la propiedad para el criterio de la clave.
      */
     public function applicableRules(User $client, int $exerciseId, ?int $trainingProgramId = null): Collection
     {
+        $cacheKey = $client->id . ':' . $exerciseId . ':' . ($trainingProgramId ?? 'null');
+        if (array_key_exists($cacheKey, $this->applicableRulesCache)) {
+            return $this->applicableRulesCache[$cacheKey];
+        }
+
         $coachId = $client->coach_id;
         if (!$coachId) {
             // Sin coach asignado no hay reglas que aplicar (todas las
             // progression_rules del esquema real cuelgan de un coach_id).
-            return collect();
+            return $this->applicableRulesCache[$cacheKey] = collect();
         }
 
         $exercise = Exercise::find($exerciseId);
@@ -245,7 +307,7 @@ class SessionProgressionRuleEngine
             }
         }
 
-        return $sorted;
+        return $this->applicableRulesCache[$cacheKey] = $sorted;
     }
 
     /**
@@ -360,11 +422,17 @@ class SessionProgressionRuleEngine
      * ausencia de dato -- ninguna condición debería considerarla "peor que
      * bajo" ni "mejor que optimo", se trata como sin dato).
      */
+    /**
+     * Ítem 2 (Plan de Optimización, Ronda 1): antes se ejecutaba esta
+     * misma query una vez POR CONDICIÓN evaluada (si dos condiciones de la
+     * misma regla, o de dos reglas candidatas distintas, leen
+     * hrv_z_score/sueno_z_score/readiness_band del mismo cliente+fecha,
+     * eran N queries idénticas) -- ahora se memoiza en $evaluationCache,
+     * reseteada al empezar cada evaluateForExercise()/simulateRule().
+     */
     private function resolveReadinessValue(ConditionVariable $variable, int $clientId, ExerciseSessionMetric $metrics): ?float
     {
-        $score = ReadinessScore::where('client_id', $clientId)
-            ->where('date', $metrics->created_at->toDateString())
-            ->first();
+        $score = $this->readinessScoreForDate($clientId, $metrics->created_at->toDateString());
 
         if (!$score) {
             return null;
@@ -373,19 +441,113 @@ class SessionProgressionRuleEngine
         return match ($variable) {
             ConditionVariable::HRV_Z_SCORE => $score->hrv_z_score,
             ConditionVariable::SUENO_Z_SCORE => $score->sueno_z_score,
-            ConditionVariable::READINESS_BAND => match ($score->band) {
-                'bajo' => 0.0,
-                'reducido' => 1.0,
-                'optimo' => 2.0,
-                default => null, // 'dato_insuficiente'
-            },
+            ConditionVariable::READINESS_BAND => $this->resolveSustainedReadinessBand($clientId, $score),
         };
     }
 
+    private function readinessScoreForDate(int $clientId, string $date): ?ReadinessScore
+    {
+        $cacheKey = "readiness_score:{$clientId}:{$date}";
+
+        if (!array_key_exists($cacheKey, $this->evaluationCache)) {
+            $this->evaluationCache[$cacheKey] = ReadinessScore::where('client_id', $clientId)
+                ->where('date', $date)
+                ->first();
+        }
+
+        return $this->evaluationCache[$cacheKey];
+    }
+
+    /**
+     * Ítem 21 (Plan de Optimización, Ronda 6 -- "hallazgo más urgente" del
+     * análisis de Fase 4): ReadinessCalculationService::mapBand() puede
+     * marcar la banda del día como 'bajo' por una ÚNICA métrica objetiva o
+     * subjetiva en zona baja (regla de conflicto, ver mapBand()), algo
+     * estadísticamente normal (~16% de probabilidad por azar con datos que
+     * siguen aprox. una normal) -- ese 'bajo' de un solo día alimentaba
+     * directamente esta condición del motor, pudiendo disparar una bajada
+     * de carga real por ruido de una sola métrica.
+     *
+     * Mismo criterio de sostenimiento que ya usa
+     * ReadinessCalculationService::syncReadinessExceptionItem() para el
+     * panel del coach (2+ días consecutivos en 'bajo' antes de avisar),
+     * replicado aquí SOLO para esta lectura -- sin tocar
+     * ReadinessCalculationService (fuera de alcance, otro agente trabaja
+     * en ese fichero en paralelo).
+     *
+     * Si 'bajo' de hoy NO está sostenido por el día anterior, no se deja
+     * pasar igualmente como 'bajo': se usa el valor real de la banda de
+     * ESE día sin la regla de conflicto de una sola métrica mala, es
+     * decir, la banda que habría salido solo por combined_score (mismos
+     * umbrales que mapBand(): >=70 óptimo, >=45 reducido, si no bajo).
+     * band === 'bajo' garantiza combined_score no nulo (mapBand() solo
+     * devuelve 'bajo' por conflicto después de comprobar que combined ya
+     * se pudo calcular; 'dato_insuficiente' es el único caso con combined
+     * null y no entra en esta rama), así que no hace falta contemplar aquí
+     * un tercer caso de dato insuficiente.
+     */
+    private function resolveSustainedReadinessBand(int $clientId, ReadinessScore $score): ?float
+    {
+        if ($score->band !== 'bajo') {
+            return $this->readinessBandOrdinal($score->band);
+        }
+
+        $yesterday = $this->readinessScoreForDate($clientId, $score->date->copy()->subDay()->toDateString());
+
+        if ($yesterday && $yesterday->band === 'bajo') {
+            return 0.0; // 2+ días consecutivos en 'bajo' -> señal real, sí dispara.
+        }
+
+        return $this->readinessBandOrdinal($this->scoreOnlyBand((float) $score->combined_score));
+    }
+
+    /**
+     * Réplica local (solo lectura) del umbral final de
+     * ReadinessCalculationService::mapBand() DESPUÉS de la regla de
+     * conflicto -- es decir, a qué banda habría llegado el día únicamente
+     * por su combined_score, ignorando que una sola métrica mala pudo
+     * forzarlo a 'bajo'. No se reutiliza mapBand() directamente porque es
+     * privado de un servicio fuera de mi alcance en esta tarea; esto es
+     * matemática pura sobre un valor ya persistido (combined_score),
+     * ningún hueco de "no tocar ReadinessCalculationService".
+     */
+    private function scoreOnlyBand(float $combinedScore): string
+    {
+        if ($combinedScore >= 70.0) {
+            return 'optimo';
+        }
+        if ($combinedScore >= 45.0) {
+            return 'reducido';
+        }
+
+        return 'bajo';
+    }
+
+    private function readinessBandOrdinal(?string $band): ?float
+    {
+        return match ($band) {
+            'bajo' => 0.0,
+            'reducido' => 1.0,
+            'optimo' => 2.0,
+            default => null, // 'dato_insuficiente'
+        };
+    }
+
+    /**
+     * Ítem 2 (Plan de Optimización, Ronda 1): memoizada en
+     * $evaluationCache por exercise_session_metric->id (identifica de
+     * forma única cliente+ejercicio+sesión ya evaluados), mismo criterio
+     * que resolveReadinessValue().
+     */
     private function resolveE1rmDelta(int $clientId, int $exerciseId, ExerciseSessionMetric $current): ?float
     {
+        $cacheKey = "e1rm_delta:{$current->id}";
+        if (array_key_exists($cacheKey, $this->evaluationCache)) {
+            return $this->evaluationCache[$cacheKey];
+        }
+
         if ($current->e1rm_estimado === null) {
-            return null;
+            return $this->evaluationCache[$cacheKey] = null;
         }
 
         $previous = ExerciseSessionMetric::where('client_id', $clientId)
@@ -398,10 +560,10 @@ class SessionProgressionRuleEngine
             ->first();
 
         if (!$previous) {
-            return null;
+            return $this->evaluationCache[$cacheKey] = null;
         }
 
-        return round($current->e1rm_estimado - $previous->e1rm_estimado, 2);
+        return $this->evaluationCache[$cacheKey] = round($current->e1rm_estimado - $previous->e1rm_estimado, 2);
     }
 
     // ═══ Ejecución de la acción ganadora ═══════════════════════════════
@@ -553,26 +715,21 @@ class SessionProgressionRuleEngine
     }
 
     /**
-     * Pendiente lineal simple — mismo patrón algorítmico que
-     * SessionInterpretationService::linearSlope() (privado en ese
-     * servicio), reimplementado aquí porque esta comprobación pertenece al
-     * motor de reglas, no a la interpretación de sesión.
+     * Pendiente lineal simple — antes reimplementada aquí de forma
+     * IDÉNTICA a SessionInterpretationService::linearSlope() (comentario
+     * previo reconociéndolo explícitamente); el núcleo matemático ahora
+     * vive en el trait compartido ComputesLinearSlope (Plan de
+     * Optimización, Ronda 3 ítem 9). Este método se mantiene como wrapper
+     * fino porque esta comprobación pertenece al motor de reglas, no a la
+     * interpretación de sesión, y porque aquí NUNCA se llama con n<2 (el
+     * único llamador, isCompletionRatioDeclining(), ya lo garantiza) ni se
+     * redondea el resultado -- a diferencia del wrapper de
+     * SessionInterpretationService, que sí hace ambas cosas. Cero cambio
+     * de comportamiento respecto a antes de esta extracción.
      */
     private function linearSlope(array $values): float
     {
-        $n = count($values);
-        $xs = range(0, $n - 1);
-        $meanX = array_sum($xs) / $n;
-        $meanY = array_sum($values) / $n;
-
-        $numerator = 0.0;
-        $denominator = 0.0;
-        foreach ($xs as $i => $x) {
-            $numerator += ($x - $meanX) * ($values[$i] - $meanY);
-            $denominator += ($x - $meanX) ** 2;
-        }
-
-        return $denominator == 0.0 ? 0.0 : $numerator / $denominator;
+        return $this->computeRawLinearSlope($values);
     }
 
     /**
@@ -992,10 +1149,33 @@ class SessionProgressionRuleEngine
      * evaluación actual como para next_session_targets ya guardados
      * (basta con mirar su rule_id -> action), sin tener que reconstruir
      * ninguna "base" histórica que no se persiste en ningún sitio.
+     *
+     * Ítem 3 (Plan de Optimización, Ronda 1): esta racha mide rachas de
+     * subida/bajada REAL de carga -- 'hold' agrupa tanto mantener/
+     * bloquear_progresion como "sin regla ganadora" (bloqueo por dolor,
+     * calibración incompleta, sin_regla_aplicable; ver directionOfRule()),
+     * ninguno de los cuales es un cambio de carga real. Se salta la query
+     * completa de 20 NextSessionTarget con `rule.action` eager-cargado (y
+     * el guardado) cuando la dirección es 'hold' -- deja
+     * racha_misma_direccion en el valor que Fase 1 ya le puso (0 en una
+     * fila recién creada, ver comentario de updateTrendMetrics() en
+     * SessionInterpretationService). Confirmado (grep en todo el repo)
+     * que ningún otro punto del código LEE hoy racha_misma_direccion, así
+     * que este skip no cambia ningún comportamiento observable.
+     *
+     * `marcar_para_coach`/`sustituir_ejercicio` (direction === null, ver
+     * directionOfRule()) NO se incluyen en este skip a propósito -- se
+     * mantienen exactamente igual que antes (siguen ejecutando la query y
+     * guardando 0), para no arriesgar ningún comportamiento que dependa
+     * de ellos en otro sitio.
      */
     private function updateRachaMismaDireccion(ExerciseSessionMetric $metrics, int $clientId, int $exerciseId, ?SessionProgressionRule $rule): void
     {
         $direction = $this->directionOfRule($rule);
+
+        if ($direction === 'hold') {
+            return;
+        }
 
         $previousTargets = NextSessionTarget::where('client_id', $clientId)
             ->where('exercise_id', $exerciseId)

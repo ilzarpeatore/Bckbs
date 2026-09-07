@@ -342,6 +342,39 @@ class ClientExerciseLogObserver
      * historial. Solo cuenta como logro si existe histórico previo a ese
      * peso exacto (si es la primera vez que se usa ese peso, no hay
      * "mejora" real que mostrar todavía).
+     *
+     * OPTIMIZACIÓN (Plan de Optimización, Ronda 1 ítem 4, ver
+     * docs/Motor_Autorregulacion_Analisis.md): esto corre en el hilo
+     * síncrono de CADA guardado de series (logSets(), más frecuente que
+     * finishSession()). Antes se traían los `logged_sets` COMPLETOS de
+     * hasta 200 ClientExerciseLog y se recorría cada set de cada log en
+     * PHP para encontrar coincidencias exactas de `carga`. `logged_sets`
+     * es JSON (ver migración client_exercise_logs) -- se empuja el
+     * filtro "¿algún set de este log tiene carga == peso exacto?" a MySQL
+     * con JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', ?)): para un
+     * array JSON de objetos, JSON_CONTAINS(array, candidato) es true si
+     * ALGÚN elemento del array contiene ese candidato como subconjunto de
+     * claves -- exactamente "¿hay algún set con ese peso?" sin tener que
+     * decodificar/recorrer el JSON en PHP para los logs que no lo tienen
+     * (la inmensa mayoría de los 200, en la práctica: el cliente progresa
+     * de peso con el tiempo). Solo se decodifica logged_sets en PHP para
+     * los logs que ya pasaron ese filtro, y el cálculo fino (tolerancia
+     * ±0.01, exigir reps>0, máximo de reps) se mantiene IDÉNTICO en PHP.
+     * Ventana idéntica a la anterior: los mismos 200 logs más recientes
+     * (subconsulta con el mismo orderByDesc('id')->limit(...) de antes),
+     * solo cambia CUÁLES de esos 200 se traen completos a PHP.
+     *
+     * Riesgo documentado (a revisar): JSON_CONTAINS compara por tipo --
+     * si algún set histórico tiene `carga` guardado como STRING JSON en
+     * vez de número (el endpoint de logSets en ClientCalendarController
+     * no valida `logged_sets.*.carga` como numeric, solo filtra claves
+     * permitidas), ese log no matcheará en el filtro de MySQL aunque
+     * `is_numeric()` en PHP sí lo habría aceptado antes. Caso extremo no
+     * esperado en el flujo real de la app (el frontend siempre envía
+     * números), pero queda anotado para que se revise antes de dar esto
+     * por definitivo. Asume MySQL (JSON_CONTAINS/JSON_OBJECT disponibles
+     * desde 5.7.9) -- confirmar que el motor real en producción es MySQL
+     * y no una variante donde este comportamiento difiera.
      */
     private function maybeRecordPrReps(ClientExerciseLog $log, float $weight, int $reps): void
     {
@@ -349,26 +382,32 @@ class ClientExerciseLogObserver
             return;
         }
 
+        $candidateLogs = ClientExerciseLog::whereIn('id', function ($query) use ($log) {
+                $query->select('id')
+                    ->from('client_exercise_logs')
+                    ->where('client_id', $log->client_id)
+                    ->where('exercise_id', $log->exercise_id)
+                    ->where('id', '!=', $log->id)
+                    ->orderByDesc('id')
+                    ->limit(self::PR_REPS_HISTORY_LIMIT);
+            })
+            ->whereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', ?))", [$weight])
+            ->get(['logged_sets']);
+
         $historicalMaxReps = null;
 
-        ClientExerciseLog::where('client_id', $log->client_id)
-            ->where('exercise_id', $log->exercise_id)
-            ->where('id', '!=', $log->id)
-            ->orderByDesc('id')
-            ->limit(self::PR_REPS_HISTORY_LIMIT)
-            ->get(['logged_sets'])
-            ->each(function (ClientExerciseLog $previousLog) use ($weight, &$historicalMaxReps) {
-                foreach (($previousLog->logged_sets ?? []) as $set) {
-                    $setWeight = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : null;
-                    $setReps = isset($set['reps']) && is_numeric($set['reps']) ? (int) $set['reps'] : null;
-                    if ($setWeight === null || $setReps === null || $setReps <= 0) {
-                        continue;
-                    }
-                    if (abs($setWeight - $weight) < 0.01) {
-                        $historicalMaxReps = $historicalMaxReps === null ? $setReps : max($historicalMaxReps, $setReps);
-                    }
+        $candidateLogs->each(function (ClientExerciseLog $previousLog) use ($weight, &$historicalMaxReps) {
+            foreach (($previousLog->logged_sets ?? []) as $set) {
+                $setWeight = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : null;
+                $setReps = isset($set['reps']) && is_numeric($set['reps']) ? (int) $set['reps'] : null;
+                if ($setWeight === null || $setReps === null || $setReps <= 0) {
+                    continue;
                 }
-            });
+                if (abs($setWeight - $weight) < 0.01) {
+                    $historicalMaxReps = $historicalMaxReps === null ? $setReps : max($historicalMaxReps, $setReps);
+                }
+            }
+        });
 
         if ($historicalMaxReps === null || $reps <= $historicalMaxReps) {
             return;

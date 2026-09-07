@@ -16,4 +16,11 @@ enum ExceptionCategory: string
     // check:client-inactivity ya no genera ítems nuevos de esta categoría.
     case INACTIVIDAD = 'inactividad';
     case RIESGO_ABANDONO = 'riesgo_abandono';
+    // Motor de Auto-Regulación de Carga — Plan de Optimización, Ronda 4
+    // ítem 15 (docs/Motor_Autorregulacion_Analisis.md): AdaptiveWeekPlanner
+    // detecta que el cliente recorta el mismo día de la semana varias
+    // semanas adaptativas seguidas — sin source_type/source_id único (no
+    // hay una fila que identifique "el patrón", como en INACTIVIDAD),
+    // idempotencia vía CoachExceptionFeedService::hasPendingForClientCategory().
+    case PATRON_RECORTE_RECURRENTE = 'patron_recorte_recurrente';
 }

@@ -11,13 +11,14 @@ class ClientExerciseOverride extends Model
 
     protected $fillable = [
         'program_day_assignment_id', 'client_id', 'workout_template_exercise_id',
-        'prescribed_override', 'enabled_metrics_override', 'notes', 'hidden',
+        'prescribed_override', 'enabled_metrics_override', 'notes', 'hidden', 'no_recortable',
     ];
 
     protected $casts = [
         'prescribed_override'         => 'array',
         'enabled_metrics_override'    => 'array',
         'hidden'                      => 'boolean',
+        'no_recortable'               => 'boolean',
     ];
 
     public function client()

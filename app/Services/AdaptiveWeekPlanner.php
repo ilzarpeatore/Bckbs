@@ -2,10 +2,14 @@
 
 namespace App\Services;
 
+use App\Enums\ActionType;
 use App\Enums\ExceptionCategory;
 use App\Enums\ExceptionSeverity;
+use App\Enums\TargetStatus;
 use App\Models\AdaptiveWeekPlan;
 use App\Models\ClientExerciseOverride;
+use App\Models\ExerciseSessionMetric;
+use App\Models\NextSessionTarget;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\User;
@@ -15,14 +19,14 @@ use Illuminate\Support\Facades\Gate;
 
 /**
  * Motor de Auto-Regulación de Carga — Fase 4, modo vida real (documento
- * §4.2). Genera SIEMPRE una propuesta (`status = propuesto`), nunca aplica
- * nada al calendario real del cliente — el único camino a `aprobado` es
- * `POST /api/adaptive-week-plans/{id}/approve` (coach), y la transición
- * `aprobado -> aplicado` (que escribiría los `ClientExerciseOverride`
- * reales) está fuera del alcance de esta tarea: no se pidió ningún endpoint
- * para ella y no existe todavía en el documento/plan un disparador
- * explícito. La propuesta calculada se guarda en `adaptive_week_plans.details`
- * (JSON) para que ese futuro paso pueda aplicarla sin volver a calcular
+ * §4.2). `generateProposal()`/`generateFromClientSelection()` SIEMPRE
+ * generan una propuesta (`status = propuesto`), nunca aplican nada al
+ * calendario real del cliente por sí solas — el único camino a `aprobado`
+ * es `POST /api/adaptive-week-plans/{id}/approve` (coach). La transición
+ * `aprobado -> aplicado` (que escribe los `ClientExerciseOverride` reales)
+ * SÍ está implementada en esta misma clase: ver `applyPlan()` más abajo. La
+ * propuesta calculada se guarda en `adaptive_week_plans.details` (JSON)
+ * precisamente para que `applyPlan()` pueda aplicarla sin volver a calcular
  * (evita que un cambio de programa entre "aprobado" y "aplicado" cambie
  * silenciosamente qué se aplica).
  *
@@ -51,6 +55,19 @@ use Illuminate\Support\Facades\Gate;
  */
 class AdaptiveWeekPlanner
 {
+    /**
+     * Tope de saturación para el factor de progreso real (ítem 14, Ronda 4)
+     * -- una racha/estancamiento de 3+ sesiones ya es una señal clara, no
+     * hace falta distinguir 3 de 10 para decidir qué sesión recortar antes.
+     */
+    private const PROGRESS_STREAK_CAP = 3;
+
+    /**
+     * Nº de semanas consecutivas recortando el mismo día que dispara el
+     * aviso de "patrón recurrente" al coach (ítem 15, Ronda 4).
+     */
+    private const RECURRING_DROP_STREAK_WEEKS = 3;
+
     public function generateProposal(
         User $client,
         Carbon $originalWeekStart,
@@ -84,12 +101,12 @@ class AdaptiveWeekPlanner
             return $this->persist($client, $weekStart, $sessionsAvailable, $priorizacion, $details);
         }
 
-        [$kept, $dropped] = $this->selectSessionsToKeep($sessionsThisWeek, $sessionsAvailable, $priorizacion);
+        [$kept, $dropped] = $this->selectSessionsToKeep($sessionsThisWeek, $sessionsAvailable, $priorizacion, $client->id);
 
         $accessoryTrims = [];
         if ($priorizacion === 'mantener_ejercicios_principales') {
             foreach ($kept as $item) {
-                $trimIds = $this->accessoryExerciseIdsToTrim($item['assignment']);
+                $trimIds = $this->accessoryExerciseIdsToTrim($item['assignment'], $client->id);
                 if (!empty($trimIds)) {
                     $accessoryTrims[$item['assignment']->id] = $trimIds;
                 }
@@ -103,6 +120,11 @@ class AdaptiveWeekPlanner
             'sessions_dropped' => $dropped->pluck('assignment.id')->values()->all(),
             'accessory_trims'  => $accessoryTrims, // program_day_assignment_id => [workout_template_exercise_id, ...]
         ];
+
+        // Ítem 15, Ronda 4: memoria entre semanas adaptativas consecutivas
+        // -- antes de persistir esta propuesta, comprueba si ya viene
+        // recortando el mismo día varias semanas seguidas.
+        $this->detectRecurringDropPattern($client, $weekStart, $details['sessions_dropped']);
 
         return $this->persist($client, $weekStart, $sessionsAvailable, $priorizacion, $details);
     }
@@ -237,6 +259,17 @@ class AdaptiveWeekPlanner
      * del cliente, usando el mismo CalendarDateMapper que ya usa
      * ClientCalendarController::getMyMonth() para no divergir del
      * calendario real que ve el cliente.
+     *
+     * Ítem 12, Ronda 4 (antes: hasta 7 queries por programa activo, una por
+     * día dentro de un loop). `[weekStart, weekEnd]` son siempre los 7 días
+     * de UNA misma semana de calendario (lunes a domingo), y
+     * `CalendarDateMapper::toWeekAndDay()` calcula `week_number` comparando
+     * el lunes de la semana de `start_date` con el lunes de la semana de la
+     * fecha consultada -- como todos los días del rango comparten el mismo
+     * lunes, `week_number` es CONSTANTE para los 7 días, solo `day_of_week`
+     * cambia. Eso permite resolverlo una única vez por programa y traer de
+     * un solo query todas las asignaciones de esa semana (sea cual sea el
+     * día), en vez de repetir la query día a día.
      */
     private function resolveSessionsForWeek(User $client, Carbon $weekStart, Carbon $weekEnd): Collection
     {
@@ -255,24 +288,25 @@ class AdaptiveWeekPlanner
             }
 
             $startDate = Carbon::parse($ca->start_date);
+            $weekNumber = $mapper->toWeekAndDay($startDate, $weekStart)['week_number'];
+
+            if ($weekNumber < 1 || $weekNumber > $program->num_weeks) {
+                continue;
+            }
+
+            $pdasByDay = ProgramDayAssignment::where('training_program_id', $program->id)
+                ->where('week_number', $weekNumber)
+                ->whereNotNull('workout_template_id')
+                ->with('workoutTemplate.blocks.exercises.exercise')
+                ->get()
+                ->keyBy('day_of_week');
+
             $cursor = $weekStart->copy();
-
             while ($cursor->lte($weekEnd)) {
-                $wd = $mapper->toWeekAndDay($startDate, $cursor);
-
-                if ($wd['week_number'] >= 1 && $wd['week_number'] <= $program->num_weeks) {
-                    $pda = ProgramDayAssignment::where('training_program_id', $program->id)
-                        ->where('week_number', $wd['week_number'])
-                        ->where('day_of_week', $wd['day_of_week'])
-                        ->whereNotNull('workout_template_id')
-                        ->with('workoutTemplate.blocks.exercises.exercise')
-                        ->first();
-
-                    if ($pda) {
-                        $result->push(['date' => $cursor->toDateString(), 'assignment' => $pda]);
-                    }
+                $pda = $pdasByDay->get($cursor->dayOfWeekIso);
+                if ($pda) {
+                    $result->push(['date' => $cursor->toDateString(), 'assignment' => $pda]);
                 }
-
                 $cursor->addDay();
             }
         }
@@ -284,23 +318,36 @@ class AdaptiveWeekPlanner
      * Devuelve [kept, dropped] (ambas colecciones del mismo shape que
      * resolveSessionsForWeek). La estrategia de selección depende de
      * `priorizacion`:
-     * - mantener_distribucion_semanal_completa / mantener_ejercicios_principales:
-     *   muestreo uniforme a lo largo de la semana (preserva el espaciado de
-     *   descansos) -- difieren solo en si se recortan accesorios dentro de
-     *   las sesiones mantenidas (eso se decide en el caller).
+     * - mantener_distribucion_semanal_completa: muestreo uniforme a lo
+     *   largo de la semana (preserva el espaciado de descansos), puro por
+     *   fecha -- no puntúa por contenido de la sesión.
+     * - mantener_ejercicios_principales: se priorizan las sesiones con más
+     *   ejercicios "principales" (primero por `sequence` de cada bloque,
+     *   ver docblock de clase) -- antes (bug, Ronda 4 ítem 11) caía en el
+     *   mismo muestreo uniforme que la opción anterior, así que elegir esta
+     *   estrategia no cambiaba nada salvo el recorte de accesorios
+     *   posterior.
      * - mantener_grupo_muscular_prioritario: se priorizan las sesiones con
      *   más ejercicios del bodypart más frecuente de la semana (ver
      *   docblock de clase).
+     *
+     * Ítem 14, Ronda 4: las dos estrategias "por puntuación" (principales /
+     * grupo muscular) suman además `progressAdjustment()` -- un factor de
+     * progreso real por sesión (ver su docblock) -- para no recortar solo
+     * por fecha/frecuencia ignorando si el cliente está progresando o
+     * estancado en esos ejercicios. `mantener_distribucion_semanal_completa`
+     * NO lo usa a propósito: debe seguir siendo puro espaciado de fechas.
      */
-    private function selectSessionsToKeep(Collection $sessions, int $keepCount, string $priorizacion): array
+    private function selectSessionsToKeep(Collection $sessions, int $keepCount, string $priorizacion, int $clientId): array
     {
         if ($priorizacion === 'mantener_grupo_muscular_prioritario') {
             $priorityBodypartId = $this->dominantBodypartId($sessions);
             $ranked = $sessions
-                ->map(function ($item) use ($priorityBodypartId) {
-                    $item['score'] = $priorityBodypartId === null
+                ->map(function ($item) use ($priorityBodypartId, $clientId) {
+                    $bodypartScore = $priorityBodypartId === null
                         ? 0
                         : $this->countExercisesForBodypart($item['assignment'], $priorityBodypartId);
+                    $item['score'] = $bodypartScore + $this->progressAdjustment($item['assignment'], $clientId);
                     return $item;
                 })
                 ->sortByDesc('score')
@@ -313,8 +360,25 @@ class AdaptiveWeekPlanner
             return [$kept, $dropped];
         }
 
-        // mantener_distribucion_semanal_completa | mantener_ejercicios_principales
-        // -> muestreo uniforme por índice para preservar el espaciado real.
+        if ($priorizacion === 'mantener_ejercicios_principales') {
+            $ranked = $sessions
+                ->map(function ($item) use ($clientId) {
+                    $item['score'] = $this->countPrincipalExercises($item['assignment'])
+                        + $this->progressAdjustment($item['assignment'], $clientId);
+                    return $item;
+                })
+                ->sortByDesc('score')
+                ->values();
+
+            $kept = $ranked->take($keepCount)->sortBy('date')->values();
+            $keptIds = $kept->pluck('assignment.id')->all();
+            $dropped = $sessions->reject(fn ($item) => in_array($item['assignment']->id, $keptIds, true))->values();
+
+            return [$kept, $dropped];
+        }
+
+        // mantener_distribucion_semanal_completa -> muestreo uniforme por
+        // índice para preservar el espaciado real, sin puntuar contenido.
         $total = $sessions->count();
         $step = $total / $keepCount;
         $keptIndexes = [];
@@ -384,10 +448,33 @@ class AdaptiveWeekPlanner
     }
 
     /**
-     * IDs de workout_template_exercises "accesorios" (todos salvo el
-     * primero por `sequence` dentro de cada bloque) de una sesión mantenida.
+     * Nº de ejercicios "principales" (el primero por `sequence` de cada
+     * bloque, ver docblock de clase) de una sesión -- mismo patrón de
+     * scoring que `countExercisesForBodypart()`, usado por
+     * `mantener_ejercicios_principales` (Ronda 4, ítem 11) para priorizar
+     * de verdad las sesiones con más ejercicios compuestos/principales, en
+     * vez de caer en el muestreo uniforme genérico.
      */
-    private function accessoryExerciseIdsToTrim(ProgramDayAssignment $assignment): array
+    private function countPrincipalExercises(ProgramDayAssignment $assignment): int
+    {
+        $count = 0;
+        foreach ($assignment->workoutTemplate->blocks as $block) {
+            if ($block->exercises->isNotEmpty()) {
+                $count++;
+            }
+        }
+        return $count;
+    }
+
+    /**
+     * IDs de workout_template_exercises "accesorios" (todos salvo el
+     * primero por `sequence` dentro de cada bloque) de una sesión mantenida,
+     * EXCLUYENDO los que el coach marcó explícitamente como
+     * `no_recortable` en `ClientExerciseOverride` (Ronda 4, ítem 13 --
+     * p. ej. trabajo de rehabilitación prescrito por dolor, que nunca debe
+     * proponerse para recorte aunque no sea el "principal" del bloque).
+     */
+    private function accessoryExerciseIdsToTrim(ProgramDayAssignment $assignment, int $clientId): array
     {
         $ids = [];
         foreach ($assignment->workoutTemplate->blocks as $block) {
@@ -397,6 +484,194 @@ class AdaptiveWeekPlanner
                 $ids[] = $wte->id;
             }
         }
-        return $ids;
+
+        if (empty($ids)) {
+            return $ids;
+        }
+
+        $noRecortableIds = ClientExerciseOverride::where('program_day_assignment_id', $assignment->id)
+            ->where('client_id', $clientId)
+            ->where('no_recortable', true)
+            ->whereIn('workout_template_exercise_id', $ids)
+            ->pluck('workout_template_exercise_id')
+            ->all();
+
+        if (empty($noRecortableIds)) {
+            return $ids;
+        }
+
+        return array_values(array_diff($ids, $noRecortableIds));
+    }
+
+    /**
+     * Ítem 14, Ronda 4 -- factor de progreso real de una sesión, sumado al
+     * score de `mantener_ejercicios_principales` /
+     * `mantener_grupo_muscular_prioritario` (NUNCA a
+     * `mantener_distribucion_semanal_completa`, que debe seguir siendo
+     * puro espaciado de fechas). Suma el `exerciseProgressScore()` de cada
+     * ejercicio de la sesión: una sesión donde el cliente progresa de
+     * verdad puntúa más alto (más candidata a MANTENER), una sesión
+     * estancada puntúa más bajo (más candidata a RECORTAR). Es una
+     * heurística nueva, no una fórmula del documento original -- ver el
+     * criterio de peso en `exerciseProgressScore()`.
+     */
+    private function progressAdjustment(ProgramDayAssignment $assignment, int $clientId): float
+    {
+        $score = 0.0;
+        foreach ($assignment->workoutTemplate->blocks as $block) {
+            foreach ($block->exercises as $wte) {
+                $score += $this->exerciseProgressScore($clientId, $wte->exercise_id);
+            }
+        }
+        return $score;
+    }
+
+    /**
+     * Progreso reciente de UN ejercicio para este cliente, a partir de la
+     * última métrica válida (`is_outlier = false`) en `exercise_session_metrics`:
+     * - Progresando (+): `racha_misma_direccion` > 0 (Fase 2,
+     *   SessionProgressionRuleEngine::updateRachaMismaDireccion -- racha de
+     *   sesiones seguidas con la misma dirección de acción) Y la propuesta
+     *   más reciente (pendiente o ya aplicada) para ese ejercicio es una
+     *   subida real de carga/reps (`hasRecentUpwardTarget()`) -- así una
+     *   racha de "mantener"/"bloquear" (dirección `hold`, no sube nada) no
+     *   cuenta como progreso. Suma hasta `PROGRESS_STREAK_CAP` puntos.
+     * - Estancado (-): `sesiones_consecutivas_sin_cambio` > 0 (misma
+     *   `exercise_session_metrics`, Fase 1) resta hasta `PROGRESS_STREAK_CAP`
+     *   puntos -- cuantas más sesiones seguidas sin cambio de carga, más
+     *   candidato a recortar.
+     * Sin métrica todavía (ejercicio nuevo/sin histórico) -> 0, neutro.
+     * No es una fórmula exacta (el propio ítem 14 no la pide perfecta,
+     * solo razonable y legible) -- es deliberadamente simétrica y acotada
+     * para no dominar por completo el score principal (nº de ejercicios
+     * principales / del bodypart prioritario).
+     */
+    private function exerciseProgressScore(int $clientId, int $exerciseId): float
+    {
+        $metric = ExerciseSessionMetric::where('client_id', $clientId)
+            ->where('exercise_id', $exerciseId)
+            ->where('is_outlier', false)
+            ->latest('id')
+            ->first();
+
+        if (!$metric) {
+            return 0.0;
+        }
+
+        $score = 0.0;
+
+        if ($metric->racha_misma_direccion > 0 && $this->hasRecentUpwardTarget($clientId, $exerciseId)) {
+            $score += min($metric->racha_misma_direccion, self::PROGRESS_STREAK_CAP);
+        }
+
+        if ($metric->sesiones_consecutivas_sin_cambio > 0) {
+            $score -= min($metric->sesiones_consecutivas_sin_cambio, self::PROGRESS_STREAK_CAP);
+        }
+
+        return $score;
+    }
+
+    /**
+     * True si la propuesta (NextSessionTarget) más reciente pendiente o ya
+     * aplicada para este cliente+ejercicio es una subida real de carga/reps
+     * (mismo criterio de "dirección" que
+     * SessionProgressionRuleEngine::directionOfRule(), simplificado aquí a
+     * solo el caso "up" porque es el único que interesa a este heurístico).
+     */
+    private function hasRecentUpwardTarget(int $clientId, int $exerciseId): bool
+    {
+        $target = NextSessionTarget::where('client_id', $clientId)
+            ->where('exercise_id', $exerciseId)
+            ->whereIn('status', [TargetStatus::PENDIENTE->value, TargetStatus::APLICADO->value])
+            ->with('rule.action')
+            ->latest('generated_at')
+            ->first();
+
+        $action = $target?->rule?->action;
+        if (!$action) {
+            return false;
+        }
+
+        return in_array($action->type, [ActionType::AJUSTAR_CARGA_PCT, ActionType::AJUSTAR_CARGA_ABSOLUTA, ActionType::AJUSTAR_REPS], true)
+            && $action->value !== null
+            && (float) $action->value > 0;
+    }
+
+    /**
+     * Ítem 15, Ronda 4 -- memoria entre semanas adaptativas consecutivas.
+     * Si el mismo día de la semana (`ProgramDayAssignment.day_of_week`,
+     * 1=lunes..7=domingo -- estable entre semanas, a diferencia de
+     * `program_day_assignment_id`, que cambia cada semana) aparece en
+     * `sessions_dropped` durante `RECURRING_DROP_STREAK_WEEKS` (3) semanas
+     * de calendario SEGUIDAS (una semana sin propuesta algorítmica, o con
+     * `sessions_dropped` vacío, o una semana de `seleccion_manual_cliente`
+     * -- que es una decisión del cliente, no del algoritmo -- rompe la
+     * racha), se crea un ítem en el panel de excepciones del coach: es una
+     * señal de que el problema es el día del programa base, no una
+     * excepción puntual de esa semana. Idempotente vía
+     * `hasPendingForClientCategory()` -- no se duplica cada semana mientras
+     * el ítem anterior siga sin resolver.
+     */
+    private function detectRecurringDropPattern(User $client, Carbon $weekStart, array $droppedAssignmentIds): void
+    {
+        if (empty($droppedAssignmentIds) || !$client->coach_id) {
+            return;
+        }
+
+        $streakDays = ProgramDayAssignment::whereIn('id', $droppedAssignmentIds)
+            ->pluck('day_of_week')
+            ->unique()
+            ->all();
+
+        if (empty($streakDays)) {
+            return;
+        }
+
+        $cursorWeekStart = $weekStart->copy();
+
+        for ($i = 1; $i < self::RECURRING_DROP_STREAK_WEEKS; $i++) {
+            $cursorWeekStart = $cursorWeekStart->copy()->subWeek();
+
+            $priorPlan = AdaptiveWeekPlan::where('client_id', $client->id)
+                ->whereDate('original_week_start', $cursorWeekStart->toDateString())
+                ->where('priorizacion', '!=', 'seleccion_manual_cliente')
+                ->latest('id')
+                ->first();
+
+            if (!$priorPlan) {
+                return; // racha rota: no hubo propuesta algorítmica esa semana.
+            }
+
+            $priorDroppedIds = (array) ($priorPlan->details['sessions_dropped'] ?? []);
+            if (empty($priorDroppedIds)) {
+                return; // esa semana no hizo falta recortar nada.
+            }
+
+            $priorDays = ProgramDayAssignment::whereIn('id', $priorDroppedIds)->pluck('day_of_week')->unique()->all();
+            $streakDays = array_intersect($streakDays, $priorDays);
+
+            if (empty($streakDays)) {
+                return; // ningún día en común con la semana anterior: racha rota.
+            }
+        }
+
+        $feed = new CoachExceptionFeedService();
+        if ($feed->hasPendingForClientCategory($client->id, ExceptionCategory::PATRON_RECORTE_RECURRENTE)) {
+            return;
+        }
+
+        $dayNames = [1 => 'lunes', 2 => 'martes', 3 => 'miércoles', 4 => 'jueves', 5 => 'viernes', 6 => 'sábado', 7 => 'domingo'];
+        $dayLabel = implode(', ', array_map(fn ($d) => $dayNames[$d] ?? (string) $d, $streakDays));
+
+        $feed->createOrSkip(
+            coachId: (int) $client->coach_id,
+            clientId: $client->id,
+            category: ExceptionCategory::PATRON_RECORTE_RECURRENTE,
+            severity: ExceptionSeverity::MEDIA,
+            sourceType: null,
+            sourceId: null,
+            title: 'Recorte recurrente del mismo día en semanas adaptativas',
+            description: self::RECURRING_DROP_STREAK_WEEKS . " semanas seguidas recortando el {$dayLabel} -- revisa si el programa base debería cambiar ese día."
+        );
     }
 }

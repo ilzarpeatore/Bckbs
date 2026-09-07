@@ -11,6 +11,7 @@ use App\Models\PersonalRecord;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
+use App\Services\Concerns\ComputesLinearSlope;
 use Illuminate\Support\Collection;
 
 /**
@@ -35,6 +36,8 @@ use Illuminate\Support\Collection;
  */
 class SessionInterpretationService
 {
+    use ComputesLinearSlope;
+
     // Umbral de desviación para marcar outlier (documento §1.2).
     private const OUTLIER_DEVIATION = 0.30;
     // Ventana de sesiones válidas usadas para comparar contra outliers.
@@ -414,22 +417,11 @@ class SessionInterpretationService
             return null;
         }
 
-        $xs = range(0, $n - 1);
-        $meanX = array_sum($xs) / $n;
-        $meanY = array_sum($values) / $n;
-
-        $numerator = 0.0;
-        $denominator = 0.0;
-        foreach ($xs as $i => $x) {
-            $numerator += ($x - $meanX) * ($values[$i] - $meanY);
-            $denominator += ($x - $meanX) ** 2;
-        }
-
-        if ($denominator == 0.0) {
-            return 0.0;
-        }
-
-        return round($numerator / $denominator, 4);
+        // Núcleo matemático compartido con SessionProgressionRuleEngine
+        // (Plan de Optimización, Ronda 3 ítem 9) — la guarda de n<2 y el
+        // redondeo a 4 decimales son propios de este servicio, sin cambio
+        // de comportamiento.
+        return round($this->computeRawLinearSlope($values), 4);
     }
 
     /**

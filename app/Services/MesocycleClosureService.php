@@ -29,6 +29,29 @@ use Illuminate\Support\Facades\Gate;
 class MesocycleClosureService
 {
     /**
+     * Ítem 20 (docs/Motor_Autorregulacion_Analisis.md, Plan de Optimización,
+     * Ronda 5) — mínimo de sesiones válidas para ajustar una regresión
+     * lineal sobre carga_efectiva en vez de comparar solo primera vs.
+     * última. Con 2 puntos la recta pasa exactamente por ambos (equivale al
+     * comportamiento antiguo, no suaviza nada) — se exige un mínimo de 3
+     * para que el intercepto realmente incorpore información de al menos
+     * una sesión intermedia. Umbral elegido por criterio propio (no viene
+     * del "documento" de diseño original), documentado aquí.
+     */
+    private const MIN_SESSIONS_FOR_LINEAR_TREND = 3;
+
+    /**
+     * Umbral bajo el cual la pendiente de la regresión se considera
+     * "prácticamente plana": por debajo de esta variación relativa por
+     * sesión (0.1% de la carga media del grupo), el intercepto queda tan
+     * cerca del valor medio que sustituir la primera sesión real por él no
+     * aporta nada y sí resta transparencia al dato — se mantiene el
+     * fallback de comparar contra la primera sesión real. Umbral elegido
+     * por criterio propio, documentado aquí.
+     */
+    private const FLAT_SLOPE_RELATIVE_THRESHOLD = 0.001;
+
+    /**
      * @return int Número de asignaciones cerradas en esta pasada.
      */
     public function closeEligibleAssignments(?Carbon $date = null): int
@@ -63,9 +86,25 @@ class MesocycleClosureService
     }
 
     /**
-     * Compara carga_efectiva de la primera vs. la última sesión válida del
-     * mesociclo, por ejercicio principal, y persiste un achievement_event
-     * por ejercicio con datos suficientes.
+     * Compara la TENDENCIA completa de carga_efectiva del mesociclo (todas
+     * las sesiones válidas, no solo primera vs. última), por ejercicio
+     * principal, y persiste un achievement_event por ejercicio con datos
+     * suficientes.
+     *
+     * Ítem 20 (docs/Motor_Autorregulacion_Analisis.md, Plan de Optimización,
+     * Ronda 5): antes se comparaba únicamente first() vs. last(), sensible a
+     * que cualquiera de esos dos puntos fuera un outlier puntual (día de
+     * test de calibración, mal día aislado). Ahora, cuando hay suficientes
+     * sesiones (>= MIN_SESSIONS_FOR_LINEAR_TREND), se ajusta una regresión
+     * lineal simple sobre carga_efectiva en orden cronológico y se usa el
+     * INTERCEPTO (valor que tendría la recta en la primera sesión, x=0)
+     * como previous_best en vez del valor crudo de la primera sesión, para
+     * suavizar el efecto de que esa sesión concreta fuera atípica. `value`
+     * sigue siendo la carga_efectiva real de la ÚLTIMA sesión válida (sigue
+     * siendo relevante saber dónde terminó el cliente el bloque). Si hay
+     * menos de 3 sesiones válidas, o la pendiente resulta prácticamente
+     * plana (ver FLAT_SLOPE_RELATIVE_THRESHOLD), cae al comportamiento
+     * original (primera sesión real como previous_best).
      */
     private function persistComparisons(ProgramClientAssignment $assignment): void
     {
@@ -111,17 +150,83 @@ class MesocycleClosureService
             $first = $group->first();
             $last = $group->last();
 
+            // Fallback por defecto: comportamiento original (primera sesión real).
+            $previousBest = $first->carga_efectiva;
+
+            if ($group->count() >= self::MIN_SESSIONS_FOR_LINEAR_TREND) {
+                $values = $group->map(fn ($m) => (float) $m->carga_efectiva)->values()->all();
+                $regression = $this->linearRegression($values);
+
+                if ($regression !== null) {
+                    $meanCarga = array_sum($values) / count($values);
+                    $relativeSlope = $meanCarga == 0.0 ? 0.0 : abs($regression['slope']) / abs($meanCarga);
+
+                    // Pendiente prácticamente plana: el intercepto quedaría
+                    // casi idéntico al valor medio, sin aportar nada frente
+                    // al dato real de la primera sesión -- se mantiene el
+                    // fallback ya asignado arriba.
+                    if ($relativeSlope >= self::FLAT_SLOPE_RELATIVE_THRESHOLD) {
+                        $previousBest = $regression['intercept'];
+                    }
+                }
+            }
+
             AchievementEvent::create([
                 'client_id'                 => $assignment->client_id,
                 'type'                       => AchievementEventType::MESOCICLO_CERRADO->value,
                 'exercise_id'                => $exerciseId,
                 'value'                      => $last->carga_efectiva,
-                'previous_best'              => $first->carga_efectiva,
+                'previous_best'              => $previousBest,
                 'significancia_verificada'   => true,
                 'source_type'                => ProgramClientAssignment::class,
                 'source_id'                  => $assignment->id,
             ]);
         }
+    }
+
+    /**
+     * Pendiente e intercepto de una regresión lineal simple sobre $values
+     * (eje X = 0..n-1, en orden cronológico). Mismo patrón algorítmico que
+     * SessionInterpretationService::linearSlope()
+     * (app/Services/SessionInterpretationService.php:410-433) y
+     * SessionProgressionRuleEngine::linearSlope()
+     * (app/Services/SessionProgressionRuleEngine.php:561-576) — ambos
+     * métodos privados, en ficheros fuera del alcance de este cambio (en
+     * edición paralela por otro agente en el momento de escribir esto).
+     *
+     * NOTA DE CONSOLIDACIÓN PENDIENTE: esta es, a sabiendas, una TERCERA
+     * copia del mismo cálculo (extendida para devolver también el
+     * intercepto, que las otras dos no necesitan). No se extrajo a un
+     * helper/trait compartido porque tocar los dos ficheros de origen
+     * estaba fuera de mi alcance en esta tarea — el propio análisis
+     * (Ronda 3 del plan de optimización) ya señala la duplicación entre
+     * esos dos y pide extraerla; cuando se aborde esa ronda, esta tercera
+     * copia debería consolidarse también en el mismo helper.
+     *
+     * @return array{slope: float, intercept: float}|null null si hay menos de 2 puntos (no hay recta que ajustar).
+     */
+    private function linearRegression(array $values): ?array
+    {
+        $n = count($values);
+        if ($n < 2) {
+            return null;
+        }
+
+        $xs = range(0, $n - 1);
+        $meanX = array_sum($xs) / $n;
+        $meanY = array_sum($values) / $n;
+
+        $numerator = 0.0;
+        $denominator = 0.0;
+        foreach ($xs as $i => $x) {
+            $numerator += ($x - $meanX) * ($values[$i] - $meanY);
+            $denominator += ($x - $meanX) ** 2;
+        }
+
+        $slope = $denominator == 0.0 ? 0.0 : $numerator / $denominator;
+        $intercept = $meanY - $slope * $meanX;
+
+        return ['slope' => $slope, 'intercept' => $intercept];
     }
 
     /**
