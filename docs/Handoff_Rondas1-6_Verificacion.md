@@ -1,13 +1,54 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
-## ACTUALIZACIÓN — 2026-09-08, cuarta sesión, Rondas 11-15 (aún SIN commit/push)
+## PENDIENTE — resumen consolidado (actualizado 2026-09-08, tras fusionar Rondas 11-15 a `main`)
+
+**Fusionado a `main`**: Rondas 1-15 completas (ítems 1-44), commit
+`1428a08` en `main` (fast-forward, sin conflictos —
+`claude/motor-autorregulacion-46dke6` era estrictamente lineal respecto a
+`main`). La rama de trabajo sigue existiendo con el mismo contenido que
+`main` ahora mismo; el próximo lote de trabajo (Ronda 16 u otro) debería
+reiniciarla desde `main` si hace falta, mismo criterio ya usado antes en
+este documento.
+
+**Sin verificar contra BD real** — TODO este documento se ha escrito desde
+un sandbox sin conexión a base de datos (`Connection refused` en cada
+intento). Nada de lo de abajo se ha probado con datos reales todavía:
+
+1. **Aplicar 4 migraciones nuevas** de Rondas 11-15 (no aplicadas en
+   ningún entorno todavía):
+   - `2026_09_08_090002_add_carga_ratio_to_exercise_substitutions_table.php`
+   - `2026_09_08_090003_add_serie_top_fields_to_exercise_session_metrics_table.php`
+   - `2026_09_08_090004_add_increment_kg_to_exercises_table.php`
+   - `2026_09_08_090005_add_min_condiciones_requeridas_to_session_progression_rule_conditions_table.php`
+2. **Recorrer el checklist de 11 puntos** de la sección "Verificación
+   pendiente para consola con BD real (Rondas 11-15)" más abajo — uno por
+   cada ítem 30-44.
+3. **Desplegar a VPS** (`testapp.bestronger.es`, mismo destino que Rondas
+   1-6) — no se ha hecho para este lote; requiere acceso que este sandbox
+   no tiene.
+4. **Ronda 16 — Conciencia de periodización/deload (ítem 45)**: NO
+   implementada, a propósito (ver sección propia más abajo). Necesita una
+   conversación de diseño antes de tocar código: cómo se señaliza "semana
+   de descarga planificada" (¿campo nuevo en el programa generado por
+   `TrainingProgramGeneratorService`? ¿se infiere de la carga prescrita
+   esa semana?) y qué debe hacer `SessionInterpretationService::detectOutliers()`
+   con esa señal para no confundir una bajada intencional con una caída
+   anómala. Es el único ítem que queda del plan completo de 45 ítems
+   (Rondas 1-15 = ítems 1-44, ya todos implementados y en `main`).
+5. **Backfill histórico** — igual que con `volumen_total` (Ronda 8),
+   ninguno de los campos nuevos de Rondas 11-15 (`carga_ratio`,
+   `carga_efectiva_reps`/`rir_delta_serie_top`, `increment_kg`,
+   `min_condiciones_requeridas`) tiene backfill automático: solo se rellena
+   hacia adelante, en sesiones/configuraciones nuevas a partir de ahora.
+
+## ACTUALIZACIÓN — 2026-09-08, cuarta sesión, Rondas 11-15 (fusionado a `main`, commit `1428a08`)
 
 Continuación directa de la sesión anterior (Rondas 8-10, ya fusionadas a
 `main`, ver sección de abajo). Rama reanudada desde el `main` con esas
 Rondas ya dentro. Sigue sin haber BD en este sandbox — otra vez todo
-verificado solo con `php -l`, cero prueba contra datos reales. **Estos 5
-commits potenciales están en el árbol de trabajo, sin commitear todavía**
-(pendiente confirmación explícita del usuario antes de tocar git).
+verificado solo con `php -l`, cero prueba contra datos reales.
+**Commiteado (`1428a08`) y fusionado a `main` por fast-forward** —
+confirmación explícita del usuario recibida para ambos pasos.
 
 ### Ronda 11 — Sustitución de ejercicio inteligente (ítems 30-32)
 
