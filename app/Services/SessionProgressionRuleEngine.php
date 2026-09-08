@@ -16,6 +16,7 @@ use App\Models\Exercise;
 use App\Models\ExerciseSessionMetric;
 use App\Models\ExerciseSubstitution;
 use App\Models\NextSessionTarget;
+use App\Models\PainReport;
 use App\Models\ProgramDayAssignment;
 use App\Models\ReadinessScore;
 use App\Models\SessionProgressionRule;
@@ -85,6 +86,19 @@ class SessionProgressionRuleEngine
      */
     private array $evaluationCache = [];
 
+    /**
+     * Plan de Optimización, Ronda 15 ítem 44: nº de bajar_carga_pct/
+     * marcar_para_coach ya disparados (aplicados de verdad, ni simulados ni
+     * en shadow_mode) en ESTA ejecución del job -- a diferencia de
+     * $evaluationCache, NO se resetea en resetEvaluationCache() porque debe
+     * persistir entre los evaluateForExercise() de distintos ejercicios de
+     * la misma sesión (mismo criterio que $applicableRulesCache: vive tanto
+     * como la instancia, y la instancia vive tanto como el job,
+     * EvaluateSessionProgressionRules::handle() resuelve una instancia
+     * nueva por ejecución). Ver resolveAccionesBajadaEnSesion().
+     */
+    private int $accionesBajadaEnSesion = 0;
+
     // Fase 3 (documento §3.1): ventana de sesiones recientes usada para
     // validar la lógica de estancamiento antes de disparar una sustitución
     // — mismo tamaño que OUTLIER_WINDOW en SessionInterpretationService,
@@ -93,6 +107,9 @@ class SessionProgressionRuleEngine
     private const STAGNATION_WINDOW = 5;
     // >50% de las sesiones de la ventana con readiness_band=bajo -> no sustituir (documento §3.1).
     private const READINESS_LOW_MAJORITY_RATIO = 0.5;
+    // Ítem 42 (Plan de Optimización, Ronda 13): ventana de "reciente" para
+    // ConditionVariable::DOLOR_RECIENTE_NO_BLOQUEANTE.
+    private const DOLOR_RECIENTE_WINDOW_DAYS = 14;
 
     /**
      * Punto de entrada único (documento §2.2). $sessionId =
@@ -335,6 +352,11 @@ class SessionProgressionRuleEngine
      * dentro del grupo, OR entre grupos (documento §2.2 paso 5). Una regla
      * sin condiciones se trata como comodín (siempre matchea) — útil para
      * una regla global de fallback.
+     *
+     * Plan de Optimización, Ronda 14 ítem 43: "N de M condiciones" -- un
+     * grupo con `min_condiciones_requeridas` configurado ya no exige que
+     * las M condiciones se cumplan, basta con que N de ellas se cumplan
+     * (sin short-circuit: hay que evaluarlas todas para poder contar).
      */
     private function ruleMatches(SessionProgressionRule $rule, ExerciseSessionMetric $metrics, int $clientId, int $exerciseId): bool
     {
@@ -346,19 +368,34 @@ class SessionProgressionRuleEngine
         $groups = $conditions->groupBy('logic_group');
 
         foreach ($groups as $group) {
-            $allPass = true;
+            $minRequired = $this->resolveMinCondicionesRequeridas($group);
+            $passedCount = 0;
             foreach ($group as $condition) {
-                if (!$this->evaluateCondition($condition, $metrics, $clientId, $exerciseId)) {
-                    $allPass = false;
-                    break;
+                if ($this->evaluateCondition($condition, $metrics, $clientId, $exerciseId)) {
+                    $passedCount++;
                 }
             }
-            if ($allPass) {
+            if ($passedCount >= $minRequired) {
                 return true; // OR entre grupos: el primer grupo que cumple basta.
             }
         }
 
         return false;
+    }
+
+    /**
+     * Ítem 43 (Ronda 14): toma el mayor `min_condiciones_requeridas`
+     * configurado por el coach en cualquiera de las condiciones del grupo
+     * (es un parámetro de grupo, no de condición individual, pero la
+     * columna vive en `session_progression_rule_conditions` para no crear
+     * una tabla de grupos aparte). Sin configurar en ninguna condición del
+     * grupo -> AND estricto de siempre (N = tamaño del grupo).
+     */
+    private function resolveMinCondicionesRequeridas(Collection $group): int
+    {
+        $configured = $group->pluck('min_condiciones_requeridas')->filter()->max();
+
+        return $configured ? min((int) $configured, $group->count()) : $group->count();
     }
 
     private function evaluateCondition($condition, ExerciseSessionMetric $metrics, int $clientId, int $exerciseId): bool
@@ -407,7 +444,93 @@ class SessionProgressionRuleEngine
             ConditionVariable::HRV_Z_SCORE, ConditionVariable::SUENO_Z_SCORE, ConditionVariable::READINESS_BAND =>
                 $this->resolveReadinessValue($variable, $clientId, $metrics),
             ConditionVariable::NIVEL_EXPERIENCIA => $this->resolveNivelExperiencia($clientId),
+            ConditionVariable::RIR_DELTA_SERIE_TOP => $metrics->rir_delta_serie_top,
+            ConditionVariable::REPS_EN_TOPE_RANGO => $this->resolveRepsEnTopeRango($metrics),
+            ConditionVariable::ROL_EJERCICIO => $this->resolveRolEjercicio($metrics),
+            ConditionVariable::DOLOR_RECIENTE_NO_BLOQUEANTE => $this->resolveDolorRecienteNoBloqueante($clientId, $exerciseId),
+            ConditionVariable::ACCIONES_BAJADA_EN_SESION => (float) $this->accionesBajadaEnSesion,
         };
+    }
+
+    /**
+     * Ítem 38 (Plan de Optimización, Ronda 13): 1.0 si la sesión llegó al
+     * tope del rango de reps prescrito (`reps_max` en `prescribed`, clave
+     * nueva junto a las ya existentes 'series'/'reps'/'rir' -- JSON, sin
+     * migración), 0.0 si no lo alcanzó. Sin `reps_max` configurado por el
+     * coach para este ejercicio, o sin `carga_efectiva_reps` de esta sesión
+     * -> null (sin dato, la condición falla como cualquier otra). El coach
+     * monta la doble progresión clásica con dos reglas ordenadas por
+     * `priority` (jerarquía ya existente): una que sube reps mientras esto
+     * sea 0.0, otra que sube carga (y resetea reps) cuando esto es 1.0.
+     */
+    private function resolveRepsEnTopeRango(ExerciseSessionMetric $metrics): ?float
+    {
+        if ($metrics->carga_efectiva_reps === null || !$metrics->workout_template_exercise_id) {
+            return null;
+        }
+
+        $wte = WorkoutTemplateExercise::find($metrics->workout_template_exercise_id);
+        $prescribed = $wte && is_array($wte->prescribed) ? $wte->prescribed : [];
+        $repsMax = isset($prescribed['reps_max']) && is_numeric($prescribed['reps_max']) ? (int) $prescribed['reps_max'] : null;
+
+        if ($repsMax === null) {
+            return null;
+        }
+
+        return $metrics->carga_efectiva_reps >= $repsMax ? 1.0 : 0.0;
+    }
+
+    /**
+     * Ítem 41 (Plan de Optimización, Ronda 13): 1.0 si este ejercicio es el
+     * "principal" de su bloque (primer `sequence`, mismo proxy ya usado y
+     * documentado en `AdaptiveWeekPlanner`/`MesocycleClosureService::principalExerciseIds()`),
+     * 0.0 si es accesorio. Sin `workout_template_exercise_id` (ejercicio
+     * ad-hoc sin slot prescrito) -> null, sin dato.
+     */
+    private function resolveRolEjercicio(ExerciseSessionMetric $metrics): ?float
+    {
+        if (!$metrics->workout_template_exercise_id) {
+            return null;
+        }
+
+        $wte = WorkoutTemplateExercise::find($metrics->workout_template_exercise_id);
+        if (!$wte || !$wte->block) {
+            return null;
+        }
+
+        // WorkoutTemplateBlock::exercises() ya ordena por 'sequence'.
+        $principal = $wte->block->exercises()->first();
+
+        return ($principal && $principal->id === $wte->id) ? 1.0 : 0.0;
+    }
+
+    /**
+     * Ítem 42 (Plan de Optimización, Ronda 13): 1.0 si hubo algún
+     * `pain_report` para este cliente+ejercicio en los últimos
+     * DOLOR_RECIENTE_WINDOW_DAYS días que NO llegó a bloquear progresión
+     * (`blocksProgression()` false -- una molestia leve real, distinta del
+     * bloqueo total ya cubierto en `evaluateForExercise()` L88-93). Sin
+     * NINGÚN reporte en la ventana -> 0.0 (respuesta real, no "sin dato":
+     * a diferencia de readiness, un pain_report es un evento que ocurre o
+     * no ocurre, su ausencia SÍ es información).
+     */
+    private function resolveDolorRecienteNoBloqueante(int $clientId, int $exerciseId): float
+    {
+        $cacheKey = "dolor_reciente:{$clientId}:{$exerciseId}";
+        if (array_key_exists($cacheKey, $this->evaluationCache)) {
+            return $this->evaluationCache[$cacheKey];
+        }
+
+        $recentReports = PainReport::where('client_id', $clientId)
+            ->where('exercise_id', $exerciseId)
+            ->where('created_at', '>=', now()->subDays(self::DOLOR_RECIENTE_WINDOW_DAYS))
+            ->get();
+
+        if ($recentReports->isEmpty()) {
+            return $this->evaluationCache[$cacheKey] = 0.0;
+        }
+
+        return $this->evaluationCache[$cacheKey] = ($recentReports->contains(fn (PainReport $report) => !$report->blocksProgression()) ? 1.0 : 0.0);
     }
 
     /**
@@ -631,21 +754,21 @@ class SessionProgressionRuleEngine
                 if ($base['weight'] === null) {
                     return $this->finalizeNeutral($client, $exerciseId, $sessionId, $metrics, $rule, ActionType::MANTENER, TargetStatus::APLICADO, 'sin_base_referencia', $simulate);
                 }
-                $proposedWeight = $action->rounding->apply($base['weight'] * (1 + ((float) $action->value) / 100));
+                $proposedWeight = $this->applyRounding($base['weight'] * (1 + ((float) $action->value) / 100), $exerciseId, $action->rounding);
                 break;
 
             case ActionType::AJUSTAR_CARGA_ABSOLUTA:
                 if ($base['weight'] === null) {
                     return $this->finalizeNeutral($client, $exerciseId, $sessionId, $metrics, $rule, ActionType::MANTENER, TargetStatus::APLICADO, 'sin_base_referencia', $simulate);
                 }
-                $proposedWeight = $action->rounding->apply($base['weight'] + (float) $action->value);
+                $proposedWeight = $this->applyRounding($base['weight'] + (float) $action->value, $exerciseId, $action->rounding);
                 break;
 
             case ActionType::BAJAR_CARGA_PCT:
                 if ($base['weight'] === null) {
                     return $this->finalizeNeutral($client, $exerciseId, $sessionId, $metrics, $rule, ActionType::MANTENER, TargetStatus::APLICADO, 'sin_base_referencia', $simulate);
                 }
-                $proposedWeight = $action->rounding->apply($base['weight'] * (1 - abs((float) $action->value) / 100));
+                $proposedWeight = $this->applyRounding($base['weight'] * (1 - abs((float) $action->value) / 100), $exerciseId, $action->rounding);
                 break;
 
             case ActionType::AJUSTAR_REPS:
@@ -662,6 +785,27 @@ class SessionProgressionRuleEngine
         $status = $rule->mode === \App\Enums\RuleMode::AUTOMATICO ? TargetStatus::APLICADO : TargetStatus::PENDIENTE;
 
         return $this->finalizeProposal($client, $exerciseId, $sessionId, $metrics, $rule, $proposedWeight, $proposedReps, $status, $simulate);
+    }
+
+    /**
+     * Ítem 40 (Plan de Optimización, Ronda 13): si el EJERCICIO tiene su
+     * propio `increment_kg` configurado (mancuernas ±2kg, máquina con
+     * saltos de 5kg, barra con discos de 1.25kg...), se usa como fallback
+     * ANTES que el `RoundingMode` genérico de la regla -- evita proponer un
+     * peso no cargable en la práctica en ese equipo concreto. Sin
+     * `increment_kg` (el caso por defecto, nadie lo ha configurado), cae
+     * exactamente en el `RoundingMode` de la acción, comportamiento
+     * idéntico al de antes de este ítem.
+     */
+    private function applyRounding(float $value, int $exerciseId, \App\Enums\RoundingMode $fallbackRounding): float
+    {
+        $incrementKg = Exercise::find($exerciseId)?->increment_kg;
+
+        if ($incrementKg !== null && (float) $incrementKg > 0) {
+            return round($value / $incrementKg) * $incrementKg;
+        }
+
+        return $fallbackRounding->apply($value);
     }
 
     // ═══ Fase 3: sustitución de ejercicio (documento §3.1) ══════════════
@@ -698,10 +842,7 @@ class SessionProgressionRuleEngine
             );
         }
 
-        $coachId = $client->coach_id;
-        $substitution = $coachId
-            ? ExerciseSubstitution::where('coach_id', $coachId)->where('original_exercise_id', $exerciseId)->first()
-            : null;
+        $substitution = $this->findSubstitution($client->coach_id, $exerciseId, $this->inferSubstitutionMotivo($rule));
 
         if (!$substitution) {
             return $this->finalizeNeutral(
@@ -711,7 +852,74 @@ class SessionProgressionRuleEngine
             );
         }
 
-        return $this->finalizeSubstitution($client, $exerciseId, $sessionId, $metrics, $rule, (int) $substitution->substitute_exercise_id, $simulate);
+        return $this->finalizeSubstitution($client, $exerciseId, $sessionId, $metrics, $rule, $substitution, $simulate);
+    }
+
+    /**
+     * Ítem 30 (Plan de Optimización, Ronda 11): `category` existía en el
+     * esquema desde Fase 3 pero nunca se usaba -- se cogía la primera fila
+     * sin criterio (ni siquiera determinista, sin `orderBy`). Ahora, si se
+     * infirió un motivo (ver inferSubstitutionMotivo()), se prioriza una
+     * variante etiquetada con esa `category`; si no hay ninguna así, cae a
+     * una variante genérica (`category` null) para no perder cobertura de
+     * las sustituciones ya configuradas antes de que existiera esta lógica.
+     * `orderBy('id')` en ambos pasos -- determinista si el coach llegara a
+     * definir más de una variante para el mismo (coach, ejercicio, category).
+     */
+    private function findSubstitution(?int $coachId, int $exerciseId, ?string $motivo): ?ExerciseSubstitution
+    {
+        if (!$coachId) {
+            return null;
+        }
+
+        $base = ExerciseSubstitution::where('coach_id', $coachId)->where('original_exercise_id', $exerciseId);
+
+        if ($motivo !== null) {
+            $tagged = (clone $base)->where('category', $motivo)->orderBy('id')->first();
+            if ($tagged) {
+                return $tagged;
+            }
+        }
+
+        return (clone $base)->whereNull('category')->orderBy('id')->first()
+            ?? (clone $base)->orderBy('id')->first();
+    }
+
+    /**
+     * Ítem 31 (Plan de Optimización, Ronda 11): motivo de la regla ganadora,
+     * derivado de las variables que usan sus condiciones -- ninguna columna
+     * de la regla registra "por qué" de forma explícita, así que se infiere
+     * de QUÉ está midiendo. Heurística deliberadamente simple (no exhaustiva):
+     * variables de estancamiento/rendimiento -> 'estancamiento'; variables de
+     * readiness -> 'fatiga' (una regla puede condicionar a un umbral puntual
+     * de readiness sin pasar por isReadinessLowMajority(), que solo bloquea
+     * por MAYORÍA de la ventana). Una regla sin condiciones (comodín) o con
+     * variables no mapeadas -> null, cae al comportamiento genérico. Vocabulario
+     * abierto a extender cuando existan más ConditionVariable (p. ej. la Ronda 13
+     * añade DOLOR_RECIENTE_NO_BLOQUEANTE -> debería mapear a 'dolor' aquí).
+     */
+    private function inferSubstitutionMotivo(SessionProgressionRule $rule): ?string
+    {
+        $variables = $rule->conditions->pluck('variable');
+
+        $estancamiento = [
+            ConditionVariable::SESIONES_CONSECUTIVAS_SIN_CAMBIO,
+            ConditionVariable::TENDENCIA_RIR,
+            ConditionVariable::E1RM_DELTA,
+            ConditionVariable::RIR_DELTA_SESION,
+            ConditionVariable::PEOR_SERIE,
+            ConditionVariable::COMPLETION_RATIO,
+        ];
+        if ($variables->intersect($estancamiento)->isNotEmpty()) {
+            return 'estancamiento';
+        }
+
+        $fatiga = [ConditionVariable::READINESS_BAND, ConditionVariable::HRV_Z_SCORE, ConditionVariable::SUENO_Z_SCORE];
+        if ($variables->intersect($fatiga)->isNotEmpty()) {
+            return 'fatiga';
+        }
+
+        return null;
     }
 
     private function recentValidMetricsWindow(int $clientId, int $exerciseId, int $excludeMetricId): Collection
@@ -797,18 +1005,30 @@ class SessionProgressionRuleEngine
      * SIEMPRE queda `pendiente` de aprobación del coach, independientemente
      * del `mode` de la regla — nunca se aplica sola. El ejercicio sustituto
      * propuesto se guarda en next_session_targets.proposed_exercise_id.
+     *
+     * Ítem 32 (Plan de Optimización, Ronda 11): `proposed_weight` ya no es
+     * siempre null -- si la variante tiene `carga_ratio` configurado, se
+     * propone `referencia * carga_ratio` (redondeado con el mismo
+     * RoundingMode de la acción ganadora, que siempre existe aquí porque
+     * `executeAction()` ya comprobó `$rule->action` antes de llegar a
+     * `executeSustitucion()`). Sin `carga_ratio` -- el caso por defecto,
+     * nadie lo ha configurado -- se mantiene exactamente el comportamiento
+     * anterior (null, el coach decide desde cero).
      */
-    private function finalizeSubstitution(User $client, int $exerciseId, int $sessionId, ExerciseSessionMetric $metrics, SessionProgressionRule $rule, int $substituteExerciseId, bool $simulate): array
+    private function finalizeSubstitution(User $client, int $exerciseId, int $sessionId, ExerciseSessionMetric $metrics, SessionProgressionRule $rule, ExerciseSubstitution $substitution, bool $simulate): array
     {
+        $substituteExerciseId = (int) $substitution->substitute_exercise_id;
+        $proposedWeight = $this->resolveSubstitutionStartingWeight($metrics, $rule, $substitution);
+
         if ($simulate) {
-            return $this->result('sustitucion_propuesta', $rule, ActionType::SUSTITUIR_EJERCICIO, null, null, TargetStatus::PENDIENTE);
+            return $this->result('sustitucion_propuesta', $rule, ActionType::SUSTITUIR_EJERCICIO, $proposedWeight, null, TargetStatus::PENDIENTE);
         }
 
         $target = NextSessionTarget::updateOrCreate(
             ['workout_session_review_id' => $sessionId, 'exercise_id' => $exerciseId, 'client_id' => $client->id],
             [
                 'rule_id'               => $rule->id,
-                'proposed_weight'        => null,
+                'proposed_weight'        => $proposedWeight,
                 'proposed_reps'          => null,
                 'proposed_exercise_id'   => $substituteExerciseId,
                 'status'                 => TargetStatus::PENDIENTE->value,
@@ -838,7 +1058,41 @@ class SessionProgressionRuleEngine
 
         $this->updateRachaMismaDireccion($metrics, $client->id, $exerciseId, $rule);
 
-        return $this->result('sustitucion_propuesta', $rule, ActionType::SUSTITUIR_EJERCICIO, null, null, TargetStatus::PENDIENTE, $target);
+        return $this->result('sustitucion_propuesta', $rule, ActionType::SUSTITUIR_EJERCICIO, $proposedWeight, null, TargetStatus::PENDIENTE, $target);
+    }
+
+    /**
+     * Ítem 32 (Plan de Optimización, Ronda 11): peso de referencia del
+     * ejercicio ORIGINAL (e1RM estimado si existe, si no la carga_efectiva
+     * de esta sesión -- mismo orden de preferencia que
+     * BaseReference::E1RM_ESTIMADO/ULTIMO_EFECTIVO) multiplicado por
+     * `carga_ratio` de la variante, redondeado con el mismo RoundingMode
+     * que la acción de la regla ganadora ya usa para ajustes normales de
+     * carga. Sin `carga_ratio` configurado, o sin ninguna referencia de
+     * peso disponible todavía (ejercicio nuevo, sin histórico) -> null,
+     * mismo comportamiento que antes de este ítem.
+     */
+    private function resolveSubstitutionStartingWeight(ExerciseSessionMetric $metrics, SessionProgressionRule $rule, ExerciseSubstitution $substitution): ?float
+    {
+        if ($substitution->carga_ratio === null) {
+            return null;
+        }
+
+        $reference = $metrics->e1rm_estimado ?? $metrics->carga_efectiva;
+        if ($reference === null) {
+            return null;
+        }
+
+        $proposed = $reference * $substitution->carga_ratio;
+
+        // Ítem 40 (Ronda 13): redondeo por equipo del ejercicio SUSTITUTO
+        // (el peso propuesto es para ESE ejercicio, no para el original) --
+        // cae al RoundingMode de la regla si no tiene increment_kg propio.
+        if (!$rule->action) {
+            return round($proposed, 2);
+        }
+
+        return $this->applyRounding($proposed, (int) $substitution->substitute_exercise_id, $rule->action->rounding);
     }
 
     /**
@@ -1020,6 +1274,13 @@ class SessionProgressionRuleEngine
             ['workout_session_review_id' => $sessionId, 'exercise_id' => $exerciseId, 'client_id' => $client->id],
             $payload
         );
+
+        // Ítem 44 (Ronda 15): solo cuenta como "disparada" una acción real
+        // (ni simulate ni shadow_mode, ya descartados arriba en esta misma
+        // rama de finalizeProposal()) de bajada de carga o marcado al coach.
+        if ($type === ActionType::BAJAR_CARGA_PCT || $type === ActionType::MARCAR_PARA_COACH) {
+            $this->accionesBajadaEnSesion++;
+        }
 
         // Panel de Excepciones del Coach (documento §3.2/§3.3) — status
         // PENDIENTE aquí solo ocurre para marcar_para_coach (estancamiento/

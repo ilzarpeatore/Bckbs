@@ -158,6 +158,10 @@ class SessionInterpretationService
                 // client_exercise_logs desde ese servicio.
                 'workout_template_exercise_id' => $log->workout_template_exercise_id,
                 'rir_delta_sesion'   => $agg['rir_delta_sesion'],
+                // Ítem 39 (Plan de Optimización, Ronda 13): RIR delta de la
+                // serie top, ya calculado en aggregateSetLogs() pero nunca
+                // persistido hasta ahora.
+                'rir_delta_serie_top' => $agg['rir_delta_serie_top'],
                 'completion_ratio'   => $agg['completion_ratio'],
                 'peor_serie_index'   => $agg['peor_serie_index'],
                 // Fase 2 (condición 'peor_serie', ver migración
@@ -166,6 +170,11 @@ class SessionInterpretationService
                 // persistía porque Fase 1 no lo necesitaba.
                 'peor_serie_rir'     => $agg['peor_serie_rir'],
                 'carga_efectiva'     => $agg['carga_efectiva'],
+                // Ítem 38 (Plan de Optimización, Ronda 13): reps de la
+                // serie que define carga_efectiva -- ya se calculaba aquí
+                // (aggregateSetLogs) pero nunca se persistía; hace falta
+                // para resolver ConditionVariable::REPS_EN_TOPE_RANGO.
+                'carga_efectiva_reps' => $agg['carga_efectiva_reps'],
                 'volumen_total'      => $agg['volumen_total'],
                 'blocked_by_pain'    => $blockedByPain,
             ]
@@ -226,6 +235,11 @@ class SessionInterpretationService
         // central para Fase 2 en adelante. A diferencia de carga_efectiva
         // (pico de UN set), esto es el trabajo total de la sesión.
         $volumenTotal = 0.0;
+        // Ítem 39 (Plan de Optimización, Ronda 13): RIR delta de la
+        // PRIMERA serie completada CON rir reportado (orden cronológico de
+        // logged_sets) -- distinto del promedio de toda la sesión, soporta
+        // razonar sobre la serie top por separado de las de backoff.
+        $rirDeltaSerieTop = null;
 
         foreach ($sets as $index => $set) {
             $set = is_array($set) ? $set : [];
@@ -246,7 +260,12 @@ class SessionInterpretationService
                 // Un set con RIR nulo nunca debe romper el cálculo — se
                 // excluye simplemente de la media (documento, criterio de
                 // aceptación Fase 1).
-                $rirDeltas[] = $prescribedRir !== null ? ($rir - $prescribedRir) : $rir;
+                $delta = $prescribedRir !== null ? ($rir - $prescribedRir) : $rir;
+                $rirDeltas[] = $delta;
+
+                if ($isCompleted && $rirDeltaSerieTop === null) {
+                    $rirDeltaSerieTop = $delta;
+                }
 
                 if ($peorSerieRir === null || $rir < $peorSerieRir) {
                     $peorSerieRir = $rir;
@@ -263,6 +282,7 @@ class SessionInterpretationService
         }
 
         $rirDeltaSesion = count($rirDeltas) > 0 ? round(array_sum($rirDeltas) / count($rirDeltas), 3) : null;
+        $rirDeltaSerieTop = $rirDeltaSerieTop !== null ? round($rirDeltaSerieTop, 3) : null;
         $completionRatio = $prescribedSeries && $prescribedSeries > 0
             ? round($completedCount / $prescribedSeries, 2)
             : null;
@@ -277,6 +297,7 @@ class SessionInterpretationService
             'rir_null_count'     => $rirNullCount,
             'total_sets'         => count($sets),
             'rir_delta_sesion'   => $rirDeltaSesion,
+            'rir_delta_serie_top' => $rirDeltaSerieTop,
             'completion_ratio'   => $completionRatio,
             'peor_serie_index'   => $peorSerieIndex,
             'peor_serie_rir'     => $peorSerieRir,

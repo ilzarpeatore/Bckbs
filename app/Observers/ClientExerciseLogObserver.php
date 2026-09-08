@@ -8,6 +8,7 @@ use App\Models\ClientExerciseLog;
 use App\Models\Exercise;
 use App\Models\ExerciseSessionMetric;
 use App\Models\PersonalRecord;
+use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Notifications\CommonNotification;
@@ -36,6 +37,33 @@ class ClientExerciseLogObserver
     // achievement_events; personal_records en sí sigue sin umbral, igual
     // que siempre, para todos los clientes.
     private const PR_CARGA_MIN_IMPROVEMENT_PCT = 0.025;
+
+    // Ítem 33 (Plan de Optimización, Ronda 12, docs/Motor_Autorregulacion_Analisis.md):
+    // max_volume no tenía ningún umbral -- mismo criterio de "mejora
+    // significativa" que ya existía solo para pr_carga.
+    private const PR_VOLUME_MIN_IMPROVEMENT_PCT = 0.025;
+
+    // Ítem 34: umbral escalado por nivel de experiencia real
+    // (TrainingQuestionnaireAnswer, Ronda 7) -- un novato genera más ruido
+    // de aprendizaje motor (umbral más exigente), un avanzado cerca de su
+    // techo genético merece que cualquier mejora real cuente (umbral más
+    // permisivo). Sin dato de experiencia -> el umbral por defecto de
+    // siempre, sin cambios.
+    private const EXPERIENCE_NOVATO_MAX_MONTHS = 12;
+    private const EXPERIENCE_AVANZADO_MIN_MONTHS = 60;
+    private const IMPROVEMENT_PCT_NOVATO = 0.04;
+    private const IMPROVEMENT_PCT_AVANZADO = 0.01;
+
+    // Ítem 35: ventana de "mejor marca reciente" -- reconoce progreso real
+    // durante una recuperación (lesión, parón) sin esperar a superar un
+    // pico de hace años.
+    private const RECENT_BEST_WINDOW_DAYS = 90;
+
+    // Ítem 36: tolerancia para considerar que un cliente en déficit
+    // "mantiene" fuerza (no la sube, pero tampoco la pierde de forma
+    // relevante) + cooldown para no repetir el mismo logro cada sesión.
+    private const DEFICIT_STRENGTH_MAINTAIN_TOLERANCE_PCT = 0.03;
+    private const DEFICIT_ACHIEVEMENT_COOLDOWN_DAYS = 14;
 
     // Ventana de sesiones históricas recientes revisadas para pr_reps —
     // evita cargar el historial completo de un cliente con años de datos
@@ -76,6 +104,9 @@ class ClientExerciseLogObserver
         }
 
         $achievedAt = $log->performed_date ?? now();
+        // Ítem 34: se calcula una sola vez por guardado, reutilizada tanto
+        // para pr_carga como para max_volume (ítem 33).
+        $threshold = $this->resolveImprovementThreshold($log->client_id);
 
         // Un solo aviso aunque se batan varios tipos de récord a la vez
         // (max_weight/max_1rm/max_volume) en la misma serie — evita 3
@@ -84,13 +115,36 @@ class ClientExerciseLogObserver
         // para poblar previous_best en achievement_events).
         [$isNewWeightRecord, $previousWeight] = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_weight', $maxWeight, $achievedAt);
         [$isNewOneRmRecord, $previousOneRm] = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_1rm', $maxOneRm, $achievedAt);
-        [$isNewVolumeRecord, ] = $this->storeVolumeRecord($log->client_id, $log->exercise_id, $totalVolume, $achievedAt);
+        [$isNewVolumeRecord, ] = $this->storeVolumeRecord($log->client_id, $log->exercise_id, $totalVolume, $achievedAt, $threshold);
 
         if ($isNewWeightRecord || $isNewOneRmRecord || $isNewVolumeRecord) {
             $this->notifyNewRecord($log->client_id, $log->exercise_id);
         }
 
-        $this->writeAchievementEvents($log, $maxWeight, $maxWeightReps, $isNewWeightRecord, $previousWeight, $isNewOneRmRecord, $previousOneRm, $maxOneRm);
+        $this->writeAchievementEvents($log, $maxWeight, $maxWeightReps, $isNewWeightRecord, $previousWeight, $isNewOneRmRecord, $previousOneRm, $maxOneRm, $threshold);
+    }
+
+    /**
+     * Ítem 34 (Plan de Optimización, Ronda 12): umbral de "mejora
+     * significativa" escalado por nivel de experiencia real (Ronda 7) --
+     * usa la misma prioridad override-del-coach > autoevaluado > sin dato
+     * que el resto del motor (TrainingQuestionnaireAnswer::effectiveExperienceMonths()).
+     */
+    private function resolveImprovementThreshold(int $clientId): float
+    {
+        $months = TrainingQuestionnaireAnswer::where('user_id', $clientId)->first()?->effectiveExperienceMonths();
+
+        if ($months === null) {
+            return self::PR_CARGA_MIN_IMPROVEMENT_PCT;
+        }
+        if ($months < self::EXPERIENCE_NOVATO_MAX_MONTHS) {
+            return self::IMPROVEMENT_PCT_NOVATO;
+        }
+        if ($months >= self::EXPERIENCE_AVANZADO_MIN_MONTHS) {
+            return self::IMPROVEMENT_PCT_AVANZADO;
+        }
+
+        return self::PR_CARGA_MIN_IMPROVEMENT_PCT;
     }
 
     /**
@@ -147,9 +201,17 @@ class ClientExerciseLogObserver
      * volumen real contra el histórico se sigue detectando igual, solo
      * deja de repetirse dentro de la misma sesión.
      *
+     * Ítem 33 (Plan de Optimización, Ronda 12): el umbral de "mejora
+     * significativa" (antes solo aplicado a pr_carga) también filtra aquí
+     * -- un incremento de volumen frente a sesiones anteriores por debajo
+     * del umbral no cuenta como récord nuevo (no notifica), igual que ya
+     * pasaba con pr_carga. La actualización del acumulado DENTRO del mismo
+     * día ($existingToday) no se toca -- eso es corregir el running total
+     * de hoy, no una comparación cross-día.
+     *
      * @return array{0: bool, 1: ?float} [se creó/mejoró un récord de volumen frente a sesiones anteriores, mejor valor previo]
      */
-    private function storeVolumeRecord(int $userId, int $exerciseId, float $value, $achievedAt): array
+    private function storeVolumeRecord(int $userId, int $exerciseId, float $value, $achievedAt, float $threshold): array
     {
         if ($value <= 0) {
             return [false, null];
@@ -180,7 +242,7 @@ class ClientExerciseLogObserver
             return [false, $previousBest];
         }
 
-        if ($previousBest !== null && $value <= $previousBest) {
+        if (!$this->isSignificantImprovement($value, $previousBest, $threshold)) {
             return [false, $previousBest];
         }
 
@@ -220,7 +282,8 @@ class ClientExerciseLogObserver
         ?float $previousWeight,
         bool $isNewOneRmRecord,
         ?float $previousOneRm,
-        float $maxOneRm
+        float $maxOneRm,
+        float $threshold
     ): void {
         $client = User::find($log->client_id);
         if (!$client || !Gate::forUser($client)->allows('paid-tier')) {
@@ -235,8 +298,16 @@ class ClientExerciseLogObserver
             return;
         }
 
-        if ($isNewWeightRecord && $this->isSignificantImprovement($maxWeight, $previousWeight)) {
+        // Ítems 35-36 (Plan de Optimización, Ronda 12): cuando ESTE
+        // guardado no llega a ser un PR_CARGA real (ni por no ser récord
+        // all-time, ni por no superar el umbral de mejora significativa),
+        // sigue habiendo dos logros distintos que evaluar antes de
+        // descartarlo del todo.
+        if ($isNewWeightRecord && $this->isSignificantImprovement($maxWeight, $previousWeight, $threshold)) {
             $this->recordAchievement($log, AchievementEventType::PR_CARGA, $maxWeight, $previousWeight, 'max_weight');
+        } elseif ($maxWeight > 0) {
+            $this->maybeRecordRecentBest($log, $maxWeight, 'max_weight');
+            $this->maybeRecordDeficitMaintenance($log, $maxWeight, $previousWeight);
         }
 
         if ($isNewOneRmRecord) {
@@ -244,6 +315,107 @@ class ClientExerciseLogObserver
         }
 
         $this->maybeRecordPrReps($log, $maxWeight, $maxWeightReps);
+    }
+
+    /**
+     * Ítem 35 (Plan de Optimización, Ronda 12): "mejor marca reciente" de
+     * los últimos RECENT_BEST_WINDOW_DAYS -- reconoce progreso real durante
+     * una recuperación sin esperar a superar un pico de hace años. Si el
+     * cliente lleva más de la ventana entera sin marcar nada de este tipo
+     * (recuperación larga), cualquier valor real ya cuenta como "lo mejor
+     * reciente" por defecto -- no hay nada DENTRO de la ventana con qué
+     * compararlo, y ya se descartó que sea la primera vez absoluta
+     * ($hasAnyHistory).
+     */
+    private function maybeRecordRecentBest(ClientExerciseLog $log, float $value, string $recordType): void
+    {
+        if ($value <= 0) {
+            return;
+        }
+
+        $hasAnyHistory = PersonalRecord::where('user_id', $log->client_id)
+            ->where('exercise_id', $log->exercise_id)
+            ->where('record_type', $recordType)
+            ->exists();
+        if (!$hasAnyHistory) {
+            return; // primer registro real -- ya lo cubre storeIfRecord/PR_CARGA.
+        }
+
+        $recentBest = PersonalRecord::where('user_id', $log->client_id)
+            ->where('exercise_id', $log->exercise_id)
+            ->where('record_type', $recordType)
+            ->where('achieved_at', '>=', now()->subDays(self::RECENT_BEST_WINDOW_DAYS))
+            ->max('value');
+        $recentBest = $recentBest !== null ? (float) $recentBest : null;
+
+        if ($recentBest !== null && $value <= $recentBest) {
+            return;
+        }
+
+        $personalRecord = PersonalRecord::where('user_id', $log->client_id)
+            ->where('exercise_id', $log->exercise_id)
+            ->where('record_type', $recordType)
+            ->orderByDesc('id')
+            ->first();
+
+        AchievementEvent::create([
+            'client_id'                 => $log->client_id,
+            'type'                       => AchievementEventType::MEJOR_MARCA_RECIENTE->value,
+            'exercise_id'                => $log->exercise_id,
+            'value'                      => round($value, 2),
+            'previous_best'              => $recentBest,
+            'significancia_verificada'   => true,
+            'source_type'                => PersonalRecord::class,
+            'source_id'                  => $personalRecord?->id,
+        ]);
+    }
+
+    /**
+     * Ítem 36 (Plan de Optimización, Ronda 12): un cliente en fase de
+     * pérdida de grasa/recomposición (`TrainingQuestionnaireAnswer.goal_type`)
+     * que MANTIENE su fuerza (dentro de una tolerancia pequeña del mejor
+     * histórico, sin llegar a superarlo -- eso ya es un PR real, cubierto
+     * aparte) está teniendo un resultado excelente dado su contexto. Sin
+     * `goal_type` disponible, o sin referencia de fuerza previa, no hay
+     * nada que evaluar. Cooldown de DEFICIT_ACHIEVEMENT_COOLDOWN_DAYS para
+     * no repetir el mismo logro cada sesión mientras el cliente siga en la
+     * misma fase.
+     */
+    private function maybeRecordDeficitMaintenance(ClientExerciseLog $log, float $maxWeight, ?float $previousBest): void
+    {
+        if ($maxWeight <= 0 || $previousBest === null || $previousBest <= 0) {
+            return;
+        }
+
+        $goalType = TrainingQuestionnaireAnswer::where('user_id', $log->client_id)->value('goal_type');
+        if (!in_array($goalType, ['lose_fat', 'recomposition'], true)) {
+            return;
+        }
+
+        $ratio = $maxWeight / $previousBest;
+        if ($ratio > 1.0 || $ratio < (1 - self::DEFICIT_STRENGTH_MAINTAIN_TOLERANCE_PCT)) {
+            return; // superó el histórico (ya es PR_CARGA) o bajó más de lo tolerado (no es "mantener").
+        }
+
+        $alreadyRecorded = AchievementEvent::where('client_id', $log->client_id)
+            ->where('exercise_id', $log->exercise_id)
+            ->where('type', AchievementEventType::MANTIENE_FUERZA_EN_DEFICIT->value)
+            ->where('created_at', '>=', now()->subDays(self::DEFICIT_ACHIEVEMENT_COOLDOWN_DAYS))
+            ->exists();
+        if ($alreadyRecorded) {
+            return;
+        }
+
+        AchievementEvent::create([
+            'client_id'                 => $log->client_id,
+            'type'                       => AchievementEventType::MANTIENE_FUERZA_EN_DEFICIT->value,
+            'exercise_id'                => $log->exercise_id,
+            'value'                      => round($maxWeight, 2),
+            'previous_best'              => $previousBest,
+            'significancia_verificada'   => true,
+            'source_type'                => ClientExerciseLog::class,
+            'source_id'                  => $log->id,
+        ]);
     }
 
     /**
@@ -301,13 +473,13 @@ class ClientExerciseLogObserver
         return (bool) ($metrics->is_outlier ?? false);
     }
 
-    private function isSignificantImprovement(float $value, ?float $previous): bool
+    private function isSignificantImprovement(float $value, ?float $previous, float $thresholdPct): bool
     {
         if ($previous === null || $previous <= 0) {
             return true; // primer récord real: siempre cuenta.
         }
 
-        return (($value - $previous) / $previous) >= self::PR_CARGA_MIN_IMPROVEMENT_PCT;
+        return (($value - $previous) / $previous) >= $thresholdPct;
     }
 
     private function recordAchievement(ClientExerciseLog $log, AchievementEventType $type, float $value, ?float $previousBest, string $recordType): void

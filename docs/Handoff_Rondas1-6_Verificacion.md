@@ -1,5 +1,182 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
+## ACTUALIZACIÓN — 2026-09-08, cuarta sesión, Rondas 11-15 (aún SIN commit/push)
+
+Continuación directa de la sesión anterior (Rondas 8-10, ya fusionadas a
+`main`, ver sección de abajo). Rama reanudada desde el `main` con esas
+Rondas ya dentro. Sigue sin haber BD en este sandbox — otra vez todo
+verificado solo con `php -l`, cero prueba contra datos reales. **Estos 5
+commits potenciales están en el árbol de trabajo, sin commitear todavía**
+(pendiente confirmación explícita del usuario antes de tocar git).
+
+### Ronda 11 — Sustitución de ejercicio inteligente (ítems 30-32)
+
+- **Ítem 30** — `ExerciseSubstitution.category` existía desde Fase 3 pero
+  nunca se leía en la query: `findSubstitution()` ahora prioriza una
+  variante etiquetada con el motivo inferido de la regla ganadora, cae a
+  una variante genérica (`category` null) si no hay ninguna así, y a
+  cualquiera si tampoco hay genérica — `orderBy('id')` en los tres pasos,
+  antes no había ningún `orderBy` (no determinista).
+- **Ítem 31** — `inferSubstitutionMotivo()`: heurística simple sobre qué
+  `ConditionVariable` usa la regla ganadora → `'estancamiento'` (variables
+  de rendimiento/estancamiento) o `'fatiga'` (variables de readiness);
+  sin match → `null` (comportamiento genérico de antes).
+- **Ítem 32** — `carga_ratio` (nullable, `decimal(5,3)`) nuevo en
+  `exercise_substitutions` (migración `..._090002_...`). Si está
+  configurado, `resolveSubstitutionStartingWeight()` propone
+  `referencia_del_original × carga_ratio` (redondeado); sin configurar,
+  sigue devolviendo `null` como siempre (el coach decide desde cero). El
+  redondeo usa `applyRounding()` con el `increment_kg` del ejercicio
+  **sustituto** (ítem 40, Ronda 13), no del original.
+
+### Ronda 12 — Feed de logros más inteligente (ítems 33-37)
+
+- **Ítem 33** — `max_volume` ahora respeta un umbral de mejora
+  significativa (`PR_VOLUME_MIN_IMPROVEMENT_PCT = 2.5%`, mismo criterio
+  que `pr_carga`) vía `isSignificantImprovement()` reutilizado en
+  `storeVolumeRecord()`.
+- **Ítem 34** — el umbral de mejora (para `pr_carga` y `max_volume`) ahora
+  se escala por `TrainingQuestionnaireAnswer::effectiveExperienceMonths()`
+  (Ronda 7): <12 meses → 4% (más exigente, más ruido de aprendizaje
+  motor), ≥60 meses → 1% (más permisivo), sin dato o en medio → 2.5% (el
+  umbral de siempre).
+- **Ítem 35** — nuevo achievement `MEJOR_MARCA_RECIENTE`: mejor valor de
+  `max_weight` en los últimos 90 días (`RECENT_BEST_WINDOW_DAYS`), para
+  reconocer progreso real durante una recuperación sin esperar a superar
+  un pico de hace años. Solo se evalúa cuando el guardado NO califica como
+  `pr_carga` real.
+- **Ítem 36** — nuevo achievement `MANTIENE_FUERZA_EN_DEFICIT`: cliente con
+  `goal_type` en `lose_fat`/`recomposition` (valores reales validados en
+  `OnboardingController@store`) cuyo `max_weight` de hoy está dentro de un
+  3% por debajo de su histórico (ni lo supera —ya sería PR real— ni baja
+  más de lo tolerado). Cooldown de 14 días para no repetir el mismo logro
+  cada sesión.
+- **Ítem 37** — `progreso_sesion` (`WorkoutSessionStatsService::computeAchievements()`)
+  ahora compara el mejor set de hoy contra la MEDIA del mejor set de las
+  últimas `TREND_WINDOW=3` sesiones válidas (antes: solo la sesión
+  inmediatamente anterior) vía `averageBestSet()` nuevo — evita premiar
+  "recuperarse de un mal día puntual" como progreso real. Comparación de
+  igualdad de carga cambiada de `==` a epsilon (`< 0.01`) porque ahora se
+  compara contra una media, no un valor exacto.
+
+### Ronda 13 — Refinamientos de ejecución de reglas (ítems 38-42)
+
+- **Ítem 38** — `ConditionVariable::REPS_EN_TOPE_RANGO`: 1.0 si la sesión
+  llegó al `reps_max` prescrito (clave JSON nueva en `prescribed`, sin
+  migración), 0.0 si no, `null` sin `reps_max` configurado o sin
+  `carga_efectiva_reps` de la sesión. El coach monta la doble progresión
+  clásica con dos reglas por `priority`.
+- **Ítem 39** — `rir_delta_serie_top` nuevo en `exercise_session_metrics`
+  (migración `..._090003_...`, junto con `carga_efectiva_reps` que ya se
+  calculaba pero nunca se persistía): RIR delta de la PRIMERA serie
+  completada, capturado por separado en
+  `SessionInterpretationService::aggregateSetLogs()`. Nuevo
+  `ConditionVariable::RIR_DELTA_SERIE_TOP` (cuenta como variable RIR a
+  efectos de `dependsOnRirData()`/exclusión por `sin_dato_suficiente`).
+- **Ítem 40** — `increment_kg` (nullable, `float`) nuevo en `exercises`
+  (migración `..._090004_...`). `applyRounding()` nuevo: si el ejercicio
+  tiene `increment_kg` configurado, se usa como fallback ANTES que el
+  `RoundingMode` genérico de la regla (evita proponer un peso no cargable
+  en ese equipo concreto); sin configurar, comportamiento idéntico a
+  antes. Sustituye las 3 llamadas directas a `RoundingMode::apply()` en
+  `executeAction()` + la de `resolveSubstitutionStartingWeight()`.
+- **Ítem 41** — `ConditionVariable::ROL_EJERCICIO`: 1.0 si el ejercicio es
+  principal del bloque, 0.0 si es accesorio — reutiliza el mismo criterio
+  ya existente en `AdaptiveWeekPlanner`/`MesocycleClosureService::principalExerciseIds()`.
+- **Ítem 42** — `ConditionVariable::DOLOR_RECIENTE_NO_BLOQUEANTE`: 1.0 si
+  hay un `PainReport` en los últimos 14 días (`DOLOR_RECIENTE_WINDOW_DAYS`)
+  que NO llegó a bloquear la sesión (gradiente de precaución, distinto del
+  bloqueo absoluto por dolor de Fase 2 paso 1), memoizado en
+  `$evaluationCache`.
+
+### Ronda 14 — Síntesis de señales (ítem 43)
+
+`min_condiciones_requeridas` (nullable, `unsignedInteger`) nuevo en
+`session_progression_rule_conditions` (migración `..._090005_...`) +
+validación en `SessionProgressionRuleController::validateRulePayload()`.
+`ruleMatches()` ya no exige AND estricto de las M condiciones de un grupo
+si alguna de ellas trae `min_condiciones_requeridas` configurado — basta
+con que N de M se cumplan (`resolveMinCondicionesRequeridas()` toma el
+mayor valor configurado en el grupo). Sin configurar en ninguna condición
+del grupo → AND estricto de siempre, cero cambio de comportamiento para
+las reglas ya existentes. Es el cambio conceptual más grande del lote:
+por primera vez el coach puede decir "con que se cumplan 2 de estas 3
+señales, actúa" en vez de exigir las 3 a la vez.
+
+### Ronda 15 — Fatiga acumulada de la sesión completa (ítem 44)
+
+Nuevo `ConditionVariable::ACCIONES_BAJADA_EN_SESION`. En vez de tocar la
+firma de `EvaluateSessionProgressionRules::handle()`, el contador vive
+como propiedad de instancia del propio `SessionProgressionRuleEngine`
+(`$accionesBajadaEnSesion`, NO se resetea en `resetEvaluationCache()` a
+diferencia de `$evaluationCache`) — el job resuelve una única instancia
+del engine para todo su `foreach` de ejercicios de la sesión, así que el
+contador persiste correctamente entre ejercicios sin cambiar el job.
+Se incrementa en `finalizeProposal()` solo en la rama REAL (ni
+`$simulate`, ni `shadow_mode`) cuando el tipo de acción final es
+`bajar_carga_pct` o `marcar_para_coach`. El coach ya puede montar una
+regla tipo "si ya van 2+ bajadas/avisos en esta sesión, marca directamente
+al coach" sin esperar a la siguiente sesión.
+
+### Ronda 16 — Conciencia de periodización/deload: NO implementada
+
+Deliberadamente dejada fuera de esta tanda, tal como el propio plan la
+marca (`docs/Motor_Autorregulacion_Analisis.md`, "Riesgo: alto — cruza
+fases y servicios, necesita su propio diseño antes de tocar código").
+Cruza `SessionInterpretationService::detectOutliers()` (Fase 1) con datos
+de mesociclo/`TrainingProgramGeneratorService` que hoy no se consultan
+desde ahí — antes de tocar código hace falta decidir con el usuario cómo
+se identifica "semana de descarga planificada" (¿campo nuevo en el
+programa? ¿inferido de la carga prescrita?) y qué hace `detectOutliers()`
+con esa señal. Item 45 sigue pendiente.
+
+### Verificación pendiente para consola con BD real (Rondas 11-15)
+
+1. Aplicar las 4 migraciones nuevas (`carga_ratio`, `carga_efectiva_reps`/
+   `rir_delta_serie_top`, `increment_kg`, `min_condiciones_requeridas`) y
+   confirmar las columnas.
+2. **Ítem 30/31** — crear 2 variantes de sustitución para el mismo
+   `(coach_id, original_exercise_id)`, una con `category='estancamiento'`
+   y otra sin `category`; disparar una regla de `sustituir_ejercicio` cuyas
+   condiciones usen `tendencia_rir` (debe inferir `'estancamiento'`) y
+   confirmar que `findSubstitution()` elige la etiquetada, no la genérica.
+3. **Ítem 32** — configurar `carga_ratio=0.8` en una variante y confirmar
+   que `next_session_targets.proposed_weight` sale como
+   `referencia × 0.8`, redondeado.
+4. **Ítem 33/34** — cliente con `training_experience_months_coach` o
+   autoevaluado <12 meses: confirmar que un `max_volume`/`max_weight` con
+   +3% (por debajo del umbral normal de 2.5% pero encima del propio 4%)
+   NO genera `pr_carga`. Repetir con un cliente ≥60 meses y una mejora del
+   1.5% (debe SÍ contar, umbral 1%).
+5. **Ítem 35** — cliente con un PR de hace 200 días y otro valor menor
+   hace 30 días: un nuevo valor que supere el de hace 30 días (pero no el
+   histórico) debe generar `MEJOR_MARCA_RECIENTE`, no `pr_carga`.
+6. **Ítem 36** — cliente con `goal_type='lose_fat'` y `max_weight` de hoy
+   un 2% por debajo de su histórico → confirmar `MANTIENE_FUERZA_EN_DEFICIT`
+   una vez, y que NO se repite si se vuelve a guardar dentro de 14 días.
+7. **Ítem 37** — comparar `progreso_sesion` de un cliente con 3 sesiones
+   previas de cargas distintas — confirmar que compara contra la media, no
+   contra la última.
+8. **Ítem 38/39/41/42** — montar 4 reglas de prueba, una por variable
+   nueva (`reps_en_tope_rango`, `rir_delta_serie_top`, `rol_ejercicio`,
+   `dolor_reciente_no_bloqueante`) y confirmar que cada una resuelve el
+   valor esperado contra una sesión real, y `null`/condición-falla sin
+   dato.
+9. **Ítem 40** — configurar `increment_kg=2.5` en un ejercicio con
+   mancuerna y confirmar que una propuesta de `ajustar_carga_pct` sale
+   redondeada a múltiplos de 2.5, ignorando el `RoundingMode` de la regla.
+10. **Ítem 43** — montar un grupo de 3 condiciones con
+    `min_condiciones_requeridas=2` en una de ellas, cumplir solo 2 de las
+    3, y confirmar que la regla SÍ gana (antes de este ítem, no habría
+    ganado). Confirmar también que un grupo SIN este campo sigue exigiendo
+    las 3.
+11. **Ítem 44** — sesión con ≥2 ejercicios que disparen `bajar_carga_pct`/
+    `marcar_para_coach`; montar una regla con `acciones_bajada_en_sesion
+    gte 2` en un ejercicio posterior de la misma sesión y confirmar que se
+    dispara (el orden de `pluck('exercise_id')->unique()` en el job no está
+    garantizado — verificar con varios ejercicios si el orden real importa
+    para el caso de prueba).
+
 ## ACTUALIZACIÓN — 2026-09-08, misma tercera sesión, Rondas 8-10 (tonelaje real)
 
 Segunda tanda de esta sesión, después de la consolidación de `linearSlope`

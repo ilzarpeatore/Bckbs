@@ -16,6 +16,7 @@ class SessionProgressionRuleCondition extends Model
     protected $fillable = [
         'rule_id', 'variable', 'operator', 'threshold_value',
         'threshold_min', 'threshold_max', 'ventana_sesiones', 'logic_group',
+        'min_condiciones_requeridas',
     ];
 
     protected $casts = [
@@ -26,6 +27,9 @@ class SessionProgressionRuleCondition extends Model
         'threshold_max'     => 'float',
         'ventana_sesiones'  => 'integer',
         'logic_group'       => 'integer',
+        // Plan de Optimización, Ronda 14 ítem 43: "N de M condiciones" del
+        // grupo -- ver SessionProgressionRuleEngine::ruleMatches().
+        'min_condiciones_requeridas' => 'integer',
     ];
 
     public function rule()
