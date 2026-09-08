@@ -1,5 +1,53 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
+## ACTUALIZACIÓN — 2026-09-08, revisión de código de Rondas 11-15 (4 bugs corregidos, sin BD)
+
+Sin acceso a BD/VPS en esta sesión, se hizo una revisión adversarial del
+diff ya fusionado (Rondas 11-15) buscando errores de lógica antes de
+probarlo contra datos reales. 4 hallazgos, los 4 corregidos (solo
+`php -l`, sin poder ejecutar nada contra BD real):
+
+1. **`ClientExerciseLogObserver::maybeRecordRecentBest()` (ítem 35) se
+   autoanulaba** — cuando un guardado SÍ superaba el récord histórico
+   (`isNewWeightRecord=true`) pero por debajo del umbral de mejora
+   significativa, `storeIfRecord()` ya había insertado la fila
+   `PersonalRecord` nueva ANTES de llamar a `maybeRecordRecentBest()`; su
+   query de "mejor valor en los últimos 90 días" incluía esa misma fila
+   recién creada, así que `value <= recentBest` salía siempre cierto y el
+   logro `MEJOR_MARCA_RECIENTE` nunca se generaba en el caso exacto para
+   el que se diseñó (un PR real, pero por debajo del umbral). Fix:
+   `storeIfRecord()` ahora también devuelve el `id` de la fila creada;
+   `maybeRecordRecentBest()` la excluye de ambas queries.
+2. **`SessionProgressionRuleEngine::resolveRepsEnTopeRango()` (ítem 38)
+   ignoraba `ClientExerciseOverride`** — leía `WorkoutTemplateExercise->prescribed`
+   en crudo en vez de `resolveLastPrescribed()` (el método que ya existía
+   y fusiona plantilla + override del cliente, usado por
+   `resolveBaseReference()`). Un `reps_max` individualizado por el coach
+   para un cliente concreto se ignoraba, usando el de la plantilla
+   genérica. Fix: ahora usa `resolveLastPrescribed()`, memoizado por fila
+   de métrica.
+3. **`ClientExerciseLogObserver::PR_VOLUME_MIN_IMPROVEMENT_PCT` (ítem 33)
+   era una constante muerta** — declarada con un comentario que sugería
+   que controlaba el umbral de `max_volume`, pero `storeVolumeRecord()`
+   siempre usó el `$threshold` compartido de `resolveImprovementThreshold()`
+   (ítem 34). Eliminada (no se sustituye por nada, era solo confusión).
+4. **`resolveRolEjercicio()`/`resolveRepsEnTopeRango()` sin memoizar** —
+   a diferencia de `resolveNivelExperiencia()`/`resolveDolorRecienteNoBloqueante()`
+   (misma Ronda 13), no cacheaban su `WorkoutTemplateExercise::find()` en
+   `$evaluationCache`. Con el operador N-de-M de la Ronda 14 (sin
+   short-circuit dentro de un grupo), una regla que combine
+   `ROL_EJERCICIO` + `REPS_EN_TOPE_RANGO` en el mismo grupo duplicaría la
+   consulta en cada evaluación. Ambos métodos memoizados ahora.
+
+**Verificación pendiente añadida** (para el checklist de BD real de
+Rondas 11-15, más abajo): repetir el punto 5 (`MEJOR_MARCA_RECIENTE`) con
+un cliente cuyo nuevo valor SÍ sea un PR all-time pero por debajo del
+umbral de mejora significativa — antes de este fix no generaba ningún
+achievement_event, ahora debe generar `MEJOR_MARCA_RECIENTE`. Repetir
+también el punto 8 (`reps_en_tope_rango`) con un cliente que tenga un
+`ClientExerciseOverride.prescribed_override.reps_max` distinto del de la
+plantilla — debe resolver contra el override, no contra la plantilla.
+
 ## PENDIENTE — resumen consolidado (actualizado 2026-09-08, tras fusionar Rondas 11-15 a `main`)
 
 **Fusionado a `main`**: Rondas 1-15 completas (ítems 1-44), commit

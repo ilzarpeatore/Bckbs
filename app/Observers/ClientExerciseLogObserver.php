@@ -38,11 +38,6 @@ class ClientExerciseLogObserver
     // que siempre, para todos los clientes.
     private const PR_CARGA_MIN_IMPROVEMENT_PCT = 0.025;
 
-    // Ítem 33 (Plan de Optimización, Ronda 12, docs/Motor_Autorregulacion_Analisis.md):
-    // max_volume no tenía ningún umbral -- mismo criterio de "mejora
-    // significativa" que ya existía solo para pr_carga.
-    private const PR_VOLUME_MIN_IMPROVEMENT_PCT = 0.025;
-
     // Ítem 34: umbral escalado por nivel de experiencia real
     // (TrainingQuestionnaireAnswer, Ronda 7) -- un novato genera más ruido
     // de aprendizaje motor (umbral más exigente), un avanzado cerca de su
@@ -113,7 +108,7 @@ class ClientExerciseLogObserver
         // notificaciones seguidas por un único set. Comportamiento INTACTO,
         // solo se captura además el valor previo de cada tipo (necesario
         // para poblar previous_best en achievement_events).
-        [$isNewWeightRecord, $previousWeight] = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_weight', $maxWeight, $achievedAt);
+        [$isNewWeightRecord, $previousWeight, $newWeightRecordId] = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_weight', $maxWeight, $achievedAt);
         [$isNewOneRmRecord, $previousOneRm] = $this->storeIfRecord($log->client_id, $log->exercise_id, 'max_1rm', $maxOneRm, $achievedAt);
         [$isNewVolumeRecord, ] = $this->storeVolumeRecord($log->client_id, $log->exercise_id, $totalVolume, $achievedAt, $threshold);
 
@@ -121,7 +116,7 @@ class ClientExerciseLogObserver
             $this->notifyNewRecord($log->client_id, $log->exercise_id);
         }
 
-        $this->writeAchievementEvents($log, $maxWeight, $maxWeightReps, $isNewWeightRecord, $previousWeight, $isNewOneRmRecord, $previousOneRm, $maxOneRm, $threshold);
+        $this->writeAchievementEvents($log, $maxWeight, $maxWeightReps, $isNewWeightRecord, $previousWeight, $isNewOneRmRecord, $previousOneRm, $maxOneRm, $threshold, $newWeightRecordId);
     }
 
     /**
@@ -150,10 +145,13 @@ class ClientExerciseLogObserver
     /**
      * @return array{0: bool, 1: ?float} [se creó un récord nuevo, mejor valor previo (null si no había ninguno)]
      */
+    /**
+     * @return array{0: bool, 1: ?float, 2: ?int} [es récord nuevo, mejor valor previo, id de la fila creada (null si no se creó)]
+     */
     private function storeIfRecord(int $userId, int $exerciseId, string $recordType, float $value, $achievedAt): array
     {
         if ($value <= 0) {
-            return [false, null];
+            return [false, null, null];
         }
 
         $previousBest = PersonalRecord::where('user_id', $userId)
@@ -163,10 +161,10 @@ class ClientExerciseLogObserver
         $previousBest = $previousBest !== null ? (float) $previousBest : null;
 
         if ($previousBest !== null && $value <= $previousBest) {
-            return [false, $previousBest];
+            return [false, $previousBest, null];
         }
 
-        PersonalRecord::create([
+        $record = PersonalRecord::create([
             'user_id'      => $userId,
             'exercise_id'  => $exerciseId,
             'record_type'  => $recordType,
@@ -174,7 +172,7 @@ class ClientExerciseLogObserver
             'achieved_at'  => $achievedAt,
         ]);
 
-        return [true, $previousBest];
+        return [true, $previousBest, $record->id];
     }
 
     /**
@@ -283,7 +281,8 @@ class ClientExerciseLogObserver
         bool $isNewOneRmRecord,
         ?float $previousOneRm,
         float $maxOneRm,
-        float $threshold
+        float $threshold,
+        ?int $newWeightRecordId = null
     ): void {
         $client = User::find($log->client_id);
         if (!$client || !Gate::forUser($client)->allows('paid-tier')) {
@@ -306,7 +305,7 @@ class ClientExerciseLogObserver
         if ($isNewWeightRecord && $this->isSignificantImprovement($maxWeight, $previousWeight, $threshold)) {
             $this->recordAchievement($log, AchievementEventType::PR_CARGA, $maxWeight, $previousWeight, 'max_weight');
         } elseif ($maxWeight > 0) {
-            $this->maybeRecordRecentBest($log, $maxWeight, 'max_weight');
+            $this->maybeRecordRecentBest($log, $maxWeight, 'max_weight', $newWeightRecordId);
             $this->maybeRecordDeficitMaintenance($log, $maxWeight, $previousWeight);
         }
 
@@ -326,8 +325,17 @@ class ClientExerciseLogObserver
      * reciente" por defecto -- no hay nada DENTRO de la ventana con qué
      * compararlo, y ya se descartó que sea la primera vez absoluta
      * ($hasAnyHistory).
+     *
+     * $excludeRecordId: cuando este guardado NO fue un PR_CARGA real pero
+     * SÍ superó el histórico all-time (isNewWeightRecord=true, por debajo
+     * del umbral de mejora significativa), storeIfRecord() YA insertó la
+     * fila de personal_records para este mismo valor antes de llegar aquí
+     * -- sin excluirla, la comparación "recentBest" se compara consigo
+     * misma (value <= recentBest siempre cierto) y nunca genera el logro.
+     * En el resto de casos (récord no all-time, sin fila nueva) es null y
+     * no cambia nada.
      */
-    private function maybeRecordRecentBest(ClientExerciseLog $log, float $value, string $recordType): void
+    private function maybeRecordRecentBest(ClientExerciseLog $log, float $value, string $recordType, ?int $excludeRecordId = null): void
     {
         if ($value <= 0) {
             return;
@@ -336,6 +344,7 @@ class ClientExerciseLogObserver
         $hasAnyHistory = PersonalRecord::where('user_id', $log->client_id)
             ->where('exercise_id', $log->exercise_id)
             ->where('record_type', $recordType)
+            ->when($excludeRecordId, fn ($q) => $q->where('id', '!=', $excludeRecordId))
             ->exists();
         if (!$hasAnyHistory) {
             return; // primer registro real -- ya lo cubre storeIfRecord/PR_CARGA.
@@ -345,6 +354,7 @@ class ClientExerciseLogObserver
             ->where('exercise_id', $log->exercise_id)
             ->where('record_type', $recordType)
             ->where('achieved_at', '>=', now()->subDays(self::RECENT_BEST_WINDOW_DAYS))
+            ->when($excludeRecordId, fn ($q) => $q->where('id', '!=', $excludeRecordId))
             ->max('value');
         $recentBest = $recentBest !== null ? (float) $recentBest : null;
 

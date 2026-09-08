@@ -445,7 +445,7 @@ class SessionProgressionRuleEngine
                 $this->resolveReadinessValue($variable, $clientId, $metrics),
             ConditionVariable::NIVEL_EXPERIENCIA => $this->resolveNivelExperiencia($clientId),
             ConditionVariable::RIR_DELTA_SERIE_TOP => $metrics->rir_delta_serie_top,
-            ConditionVariable::REPS_EN_TOPE_RANGO => $this->resolveRepsEnTopeRango($metrics),
+            ConditionVariable::REPS_EN_TOPE_RANGO => $this->resolveRepsEnTopeRango($clientId, $exerciseId, $metrics),
             ConditionVariable::ROL_EJERCICIO => $this->resolveRolEjercicio($metrics),
             ConditionVariable::DOLOR_RECIENTE_NO_BLOQUEANTE => $this->resolveDolorRecienteNoBloqueante($clientId, $exerciseId),
             ConditionVariable::ACCIONES_BAJADA_EN_SESION => (float) $this->accionesBajadaEnSesion,
@@ -462,22 +462,38 @@ class SessionProgressionRuleEngine
      * monta la doble progresión clásica con dos reglas ordenadas por
      * `priority` (jerarquía ya existente): una que sube reps mientras esto
      * sea 0.0, otra que sube carga (y resetea reps) cuando esto es 1.0.
+     *
+     * FIX (revisión post-Ronda 13): usa resolveLastPrescribed() -- que ya
+     * fusiona el `prescribed` base de la plantilla con el
+     * ClientExerciseOverride del cliente, ver resolveBaseReference() -- en
+     * vez de leer `$wte->prescribed` en crudo. Leer solo la plantilla
+     * ignoraba un `reps_max` individualizado por el coach para este
+     * cliente concreto (p. ej. por una limitación de movilidad),
+     * devolviendo el `reps_max` genérico incorrecto en su lugar.
+     * Memoizado por fila de métrica (`carga_efectiva_reps`/prescripción no
+     * cambian dentro de la misma evaluación).
      */
-    private function resolveRepsEnTopeRango(ExerciseSessionMetric $metrics): ?float
+    private function resolveRepsEnTopeRango(int $clientId, int $exerciseId, ExerciseSessionMetric $metrics): ?float
     {
         if ($metrics->carga_efectiva_reps === null || !$metrics->workout_template_exercise_id) {
             return null;
         }
 
-        $wte = WorkoutTemplateExercise::find($metrics->workout_template_exercise_id);
-        $prescribed = $wte && is_array($wte->prescribed) ? $wte->prescribed : [];
+        $cacheKey = "reps_en_tope_rango:{$metrics->id}";
+        if (array_key_exists($cacheKey, $this->evaluationCache)) {
+            return $this->evaluationCache[$cacheKey];
+        }
+
+        $prescribed = $this->resolveLastPrescribed(
+            $clientId, $exerciseId, (int) $metrics->workout_session_review_id, (int) $metrics->workout_template_exercise_id
+        );
         $repsMax = isset($prescribed['reps_max']) && is_numeric($prescribed['reps_max']) ? (int) $prescribed['reps_max'] : null;
 
         if ($repsMax === null) {
-            return null;
+            return $this->evaluationCache[$cacheKey] = null;
         }
 
-        return $metrics->carga_efectiva_reps >= $repsMax ? 1.0 : 0.0;
+        return $this->evaluationCache[$cacheKey] = ($metrics->carga_efectiva_reps >= $repsMax ? 1.0 : 0.0);
     }
 
     /**
@@ -485,7 +501,12 @@ class SessionProgressionRuleEngine
      * "principal" de su bloque (primer `sequence`, mismo proxy ya usado y
      * documentado en `AdaptiveWeekPlanner`/`MesocycleClosureService::principalExerciseIds()`),
      * 0.0 si es accesorio. Sin `workout_template_exercise_id` (ejercicio
-     * ad-hoc sin slot prescrito) -> null, sin dato.
+     * ad-hoc sin slot prescrito) -> null, sin dato. Memoizado por
+     * `workout_template_exercise_id` (mismo criterio que
+     * resolveNivelExperiencia()) -- una regla que combine esta variable con
+     * REPS_EN_TOPE_RANGO en el mismo grupo (Ronda 14 ítem 43, "N de M", ya
+     * evalúa TODAS las condiciones del grupo sin short-circuit) ya no
+     * repite la consulta de WorkoutTemplateExercise/bloque.
      */
     private function resolveRolEjercicio(ExerciseSessionMetric $metrics): ?float
     {
@@ -493,15 +514,20 @@ class SessionProgressionRuleEngine
             return null;
         }
 
+        $cacheKey = "rol_ejercicio:{$metrics->workout_template_exercise_id}";
+        if (array_key_exists($cacheKey, $this->evaluationCache)) {
+            return $this->evaluationCache[$cacheKey];
+        }
+
         $wte = WorkoutTemplateExercise::find($metrics->workout_template_exercise_id);
         if (!$wte || !$wte->block) {
-            return null;
+            return $this->evaluationCache[$cacheKey] = null;
         }
 
         // WorkoutTemplateBlock::exercises() ya ordena por 'sequence'.
         $principal = $wte->block->exercises()->first();
 
-        return ($principal && $principal->id === $wte->id) ? 1.0 : 0.0;
+        return $this->evaluationCache[$cacheKey] = (($principal && $principal->id === $wte->id) ? 1.0 : 0.0);
     }
 
     /**
