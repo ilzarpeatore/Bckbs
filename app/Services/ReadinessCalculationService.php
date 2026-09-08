@@ -273,7 +273,7 @@ class ReadinessCalculationService
     }
 
     /**
-     * ACWR = carga aguda (suma carga_efectiva últimos 7 días) / carga
+     * ACWR = carga aguda (suma volumen_total últimos 7 días) / carga
      * crónica (media móvil semanal de las últimas 4 semanas = suma de 28
      * días / 4). Reutiliza exercise_session_metrics (Fase 1) vía
      * workout_session_review.completed_at para fechar cada métrica -
@@ -286,6 +286,16 @@ class ReadinessCalculationService
      * siempre está contenida en la crónica -- una sola pasada por
      * [chronicStart, end] con una suma condicional (CASE WHEN) por fecha
      * basta para obtener los dos acumulados sin cambiar el resultado.
+     *
+     * CAMBIO DE MÉTRICA (Plan de Optimización, Ronda 10 ítem 28,
+     * docs/Motor_Autorregulacion_Analisis.md): antes sumaba `carga_efectiva`
+     * (el pico de UN set por ejercicio+sesión) en vez de trabajo real -- el
+     * ACWR "de libro" en ciencias del deporte se calcula sobre carga total
+     * (tonelaje), no sobre el mejor set. Ahora usa `volumen_total` (Ronda 8).
+     * Esto CAMBIA el valor numérico del ACWR (y por tanto puede mover la
+     * banda de readiness) para clientes con histórico ya calculado con la
+     * fórmula anterior -- comunicar el cambio al desplegar, no silencioso
+     * (nota del propio plan).
      */
     private function acwr(int $clientId, Carbon $date): ?float
     {
@@ -297,8 +307,8 @@ class ReadinessCalculationService
             ->join('workout_session_reviews', 'workout_session_reviews.id', '=', 'exercise_session_metrics.workout_session_review_id')
             ->whereBetween('workout_session_reviews.completed_at', [$chronicStart, $end])
             ->selectRaw(
-                'SUM(CASE WHEN workout_session_reviews.completed_at >= ? THEN exercise_session_metrics.carga_efectiva ELSE 0 END) as acute_sum,'
-                .' SUM(exercise_session_metrics.carga_efectiva) as chronic_sum',
+                'SUM(CASE WHEN workout_session_reviews.completed_at >= ? THEN exercise_session_metrics.volumen_total ELSE 0 END) as acute_sum,'
+                .' SUM(exercise_session_metrics.volumen_total) as chronic_sum',
                 [$acuteStart]
             )
             ->first();

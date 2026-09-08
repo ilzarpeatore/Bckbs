@@ -90,7 +90,7 @@ class MesocycleClosureService
     }
 
     /**
-     * Compara la TENDENCIA completa de carga_efectiva del mesociclo (todas
+     * Compara la TENDENCIA completa de volumen_total del mesociclo (todas
      * las sesiones válidas, no solo primera vs. última), por ejercicio
      * principal, y persiste un achievement_event por ejercicio con datos
      * suficientes.
@@ -100,15 +100,26 @@ class MesocycleClosureService
      * que cualquiera de esos dos puntos fuera un outlier puntual (día de
      * test de calibración, mal día aislado). Ahora, cuando hay suficientes
      * sesiones (>= MIN_SESSIONS_FOR_LINEAR_TREND), se ajusta una regresión
-     * lineal simple sobre carga_efectiva en orden cronológico y se usa el
-     * INTERCEPTO (valor que tendría la recta en la primera sesión, x=0)
-     * como previous_best en vez del valor crudo de la primera sesión, para
-     * suavizar el efecto de que esa sesión concreta fuera atípica. `value`
-     * sigue siendo la carga_efectiva real de la ÚLTIMA sesión válida (sigue
-     * siendo relevante saber dónde terminó el cliente el bloque). Si hay
-     * menos de 3 sesiones válidas, o la pendiente resulta prácticamente
-     * plana (ver FLAT_SLOPE_RELATIVE_THRESHOLD), cae al comportamiento
-     * original (primera sesión real como previous_best).
+     * lineal simple en orden cronológico y se usa el INTERCEPTO (valor que
+     * tendría la recta en la primera sesión, x=0) como previous_best en vez
+     * del valor crudo de la primera sesión, para suavizar el efecto de que
+     * esa sesión concreta fuera atípica. `value` sigue siendo el valor real
+     * de la ÚLTIMA sesión válida (sigue siendo relevante saber dónde
+     * terminó el cliente el bloque). Si hay menos de 3 sesiones válidas, o
+     * la pendiente resulta prácticamente plana (ver
+     * FLAT_SLOPE_RELATIVE_THRESHOLD), cae al comportamiento original
+     * (primera sesión real como previous_best).
+     *
+     * CAMBIO DE MÉTRICA (Plan de Optimización, Ronda 10 ítem 29): antes
+     * `value`/`previous_best` se calculaban sobre `carga_efectiva` (el pico
+     * de UN set del ejercicio principal). Ahora usan `volumen_total`
+     * (tonelaje real, Ronda 8) -- la métrica más honesta para "cuánto
+     * trabajaste en este ejercicio durante el bloque", en vez de solo el
+     * peso máximo levantado. La lógica de regresión/intercepto (ítem 20)
+     * no cambia, solo la columna de origen. Igual que en
+     * ReadinessCalculationService::acwr() (ítem 28), esto cambia el
+     * significado de `mesociclo_cerrado` para achievement_events nuevos --
+     * comunicar el cambio al desplegar, no silencioso.
      */
     private function persistComparisons(ProgramClientAssignment $assignment): void
     {
@@ -126,7 +137,7 @@ class MesocycleClosureService
             ->where('client_id', $assignment->client_id)
             ->where('is_outlier', false)
             ->where('sin_dato_suficiente', false)
-            ->whereNotNull('carga_efectiva')
+            ->whereNotNull('volumen_total')
             ->whereHas('workoutSessionReview', function ($q) use ($assignment) {
                 $q->whereBetween('completed_at', [
                         Carbon::parse($assignment->start_date)->startOfDay(),
@@ -155,15 +166,15 @@ class MesocycleClosureService
             $last = $group->last();
 
             // Fallback por defecto: comportamiento original (primera sesión real).
-            $previousBest = $first->carga_efectiva;
+            $previousBest = $first->volumen_total;
 
             if ($group->count() >= self::MIN_SESSIONS_FOR_LINEAR_TREND) {
-                $values = $group->map(fn ($m) => (float) $m->carga_efectiva)->values()->all();
+                $values = $group->map(fn ($m) => (float) $m->volumen_total)->values()->all();
                 $regression = $this->linearRegression($values);
 
                 if ($regression !== null) {
-                    $meanCarga = array_sum($values) / count($values);
-                    $relativeSlope = $meanCarga == 0.0 ? 0.0 : abs($regression['slope']) / abs($meanCarga);
+                    $meanVolumen = array_sum($values) / count($values);
+                    $relativeSlope = $meanVolumen == 0.0 ? 0.0 : abs($regression['slope']) / abs($meanVolumen);
 
                     // Pendiente prácticamente plana: el intercepto quedaría
                     // casi idéntico al valor medio, sin aportar nada frente
@@ -179,7 +190,7 @@ class MesocycleClosureService
                 'client_id'                 => $assignment->client_id,
                 'type'                       => AchievementEventType::MESOCICLO_CERRADO->value,
                 'exercise_id'                => $exerciseId,
-                'value'                      => $last->carga_efectiva,
+                'value'                      => $last->volumen_total,
                 'previous_best'              => $previousBest,
                 'significancia_verificada'   => true,
                 'source_type'                => ProgramClientAssignment::class,

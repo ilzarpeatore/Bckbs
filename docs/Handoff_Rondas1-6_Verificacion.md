@@ -1,6 +1,41 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
-## ESTADO ACTUAL — 2026-09-08, tercera sesión (sandbox sin BD, de nuevo)
+## ACTUALIZACIÓN — 2026-09-08, misma tercera sesión, Rondas 8-10 (tonelaje real)
+
+Segunda tanda de esta sesión, después de la consolidación de `linearSlope`
+y la Ronda 7 (ver sección siguiente). Implementa la cadena de tonelaje
+completa:
+
+- **Ronda 8 (ítem 26)** — `volumen_total` (tonelaje: `peso × reps` de sets
+  completados, misma fórmula que `MuscleVolumeService`/`ClientExerciseLogObserver`)
+  y su tendencia `tendencia_volumen` (misma pendiente lineal que
+  `tendencia_rir`, vía el trait compartido) añadidos a
+  `exercise_session_metrics` — migración
+  `2026_09_08_090001_add_volumen_total_to_exercise_session_metrics_table.php`,
+  calculados en `SessionInterpretationService::aggregateSetLogs()`/`updateTrendMetrics()`.
+  `null` (no `0.0`) cuando no hubo ningún set completado, mismo criterio que `carga_efectiva`.
+- **Ronda 9 (ítem 27)** — `ConditionVariable::TENDENCIA_VOLUMEN` nuevo, resuelto
+  directamente desde la columna ya calculada (mismo patrón que `TENDENCIA_RIR`).
+- **Ronda 10 (ítems 28-29)** — **cambio de métrica, no solo aditivo**:
+  - `ReadinessCalculationService::acwr()` ahora suma `volumen_total` en vez de `carga_efectiva`.
+  - `MesocycleClosureService::persistComparisons()` ahora calcula `value`/`previous_best`
+    (y la regresión del ítem 20) sobre `volumen_total` en vez de `carga_efectiva`.
+
+**Importante para la verificación**: estos dos últimos cambios alteran el
+valor numérico de métricas que YA se calculaban y ya están en producción
+(ACWR, achievement `mesociclo_cerrado`) — no es un fallo si el número
+cambia, es intencional, pero hay que comunicarlo (banda de readiness de
+clientes existentes puede moverse la próxima vez que corra `readiness:calculate`).
+
+### Verificación pendiente (añadir a la lista de antes)
+
+- Aplicar la migración `volumen_total`.
+- Reprocesar/backfillear `exercise_session_metrics` de sesiones ya existentes si se quiere `volumen_total` histórico (hoy solo se calcula hacia adelante, en sesiones nuevas — no hay backfill automático en esta tanda).
+- Comparar el ACWR de un cliente real ANTES/DESPUÉS de este cambio — confirmar que el número es distinto (se espera) y que la banda de readiness resultante sigue siendo razonable.
+- Cerrar un mesociclo de prueba y confirmar que el `AchievementEvent` de `mesociclo_cerrado` ahora refleja tonelaje, no peso pico.
+- Montar una regla con condición `tendencia_volumen` y confirmar que se resuelve igual que `tendencia_rir` (sin dato → falla la condición, con dato → compara bien).
+
+## ESTADO ANTERIOR — 2026-09-08, tercera sesión (sandbox sin BD, de nuevo)
 
 Rama `claude/motor-autorregulacion-46dke6` reiniciada desde `main` (la
 anterior ya se fusionó, ver sección de abajo) — mismo criterio que la

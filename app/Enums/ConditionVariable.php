@@ -32,6 +32,13 @@ enum ConditionVariable: string
     // SessionProgressionRuleEngine::resolveNivelExperiencia() para la
     // prioridad override-del-coach > autoevaluado > sin dato.
     case NIVEL_EXPERIENCIA = 'nivel_experiencia';
+    // Plan de Optimización, Ronda 9 ítem 27: pendiente lineal de
+    // volumen_total (tonelaje real) en las últimas TREND_WINDOW sesiones
+    // válidas -- mismo patrón que TENDENCIA_RIR, calculada en Fase 1
+    // (SessionInterpretationService::updateTrendMetrics()) y ya persistida
+    // en exercise_session_metrics.tendencia_volumen, sin resolución
+    // adicional en el motor de reglas.
+    case TENDENCIA_VOLUMEN = 'tendencia_volumen';
 
     /**
      * documento §2.2 paso 5: "excluyendo automáticamente reglas que

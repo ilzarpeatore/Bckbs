@@ -399,6 +399,7 @@ class SessionProgressionRuleEngine
             ConditionVariable::RIR_DELTA_SESION => $metrics->rir_delta_sesion,
             ConditionVariable::COMPLETION_RATIO => $metrics->completion_ratio,
             ConditionVariable::TENDENCIA_RIR => $metrics->tendencia_rir,
+            ConditionVariable::TENDENCIA_VOLUMEN => $metrics->tendencia_volumen,
             ConditionVariable::SESIONES_CONSECUTIVAS_SIN_CAMBIO => (float) $metrics->sesiones_consecutivas_sin_cambio,
             ConditionVariable::PEOR_SERIE => $metrics->peor_serie_rir,
             ConditionVariable::SIN_DATO_SUFICIENTE => $metrics->sin_dato_suficiente ? 1.0 : 0.0,

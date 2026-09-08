@@ -166,6 +166,7 @@ class SessionInterpretationService
                 // persistía porque Fase 1 no lo necesitaba.
                 'peor_serie_rir'     => $agg['peor_serie_rir'],
                 'carga_efectiva'     => $agg['carga_efectiva'],
+                'volumen_total'      => $agg['volumen_total'],
                 'blocked_by_pain'    => $blockedByPain,
             ]
         );
@@ -218,6 +219,13 @@ class SessionInterpretationService
         $peorSerieRir = null;
         $cargaEfectiva = null;
         $cargaEfectivaReps = null;
+        // Ítem 22 (Plan de Optimización, Ronda 8, docs/Motor_Autorregulacion_Analisis.md):
+        // tonelaje real (peso × reps de cada set completado, sumado) — misma
+        // fórmula ya usada y probada en MuscleVolumeService::computeVolume()
+        // y ClientExerciseLogObserver::created(), llevada aquí como fuente
+        // central para Fase 2 en adelante. A diferencia de carga_efectiva
+        // (pico de UN set), esto es el trabajo total de la sesión.
+        $volumenTotal = 0.0;
 
         foreach ($sets as $index => $set) {
             $set = is_array($set) ? $set : [];
@@ -229,6 +237,7 @@ class SessionInterpretationService
             $isCompleted = $weight !== null && $weight > 0 && $reps !== null && $reps > 0;
             if ($isCompleted) {
                 $completedCount++;
+                $volumenTotal += $weight * $reps;
             }
 
             if ($rir === null) {
@@ -257,6 +266,11 @@ class SessionInterpretationService
         $completionRatio = $prescribedSeries && $prescribedSeries > 0
             ? round($completedCount / $prescribedSeries, 2)
             : null;
+        // null (no 0.0) cuando no hubo NINGÚN set completado -- mismo
+        // criterio que carga_efectiva: "sin dato" se distingue de "trabajo
+        // real de cero", para que un futuro volumen_delta no confunda una
+        // sesión sin datos con una sesión de volumen 0 real.
+        $volumenTotal = $completedCount > 0 ? round($volumenTotal, 2) : null;
 
         return [
             'sets'               => $sets,
@@ -267,6 +281,7 @@ class SessionInterpretationService
             'peor_serie_index'   => $peorSerieIndex,
             'peor_serie_rir'     => $peorSerieRir,
             'carga_efectiva'     => $cargaEfectiva,
+            'volumen_total'      => $volumenTotal,
             'carga_efectiva_reps'=> $cargaEfectivaReps,
         ];
     }
@@ -370,7 +385,7 @@ class SessionInterpretationService
             ->where('blocked_by_pain', false)
             ->orderByDesc('created_at')
             ->limit(self::TREND_WINDOW)
-            ->get(['id', 'rir_delta_sesion', 'carga_efectiva', 'created_at']);
+            ->get(['id', 'rir_delta_sesion', 'carga_efectiva', 'volumen_total', 'created_at']);
 
         // Pendiente lineal simple de rir_delta_sesión en las N sesiones
         // (orden cronológico ascendente para que la pendiente tenga signo
@@ -379,6 +394,14 @@ class SessionInterpretationService
         $chronological = $validRecent->reverse()->values();
         $tendenciaRir = $this->linearSlope(
             $chronological->pluck('rir_delta_sesion')->filter(fn ($v) => $v !== null)->values()->all()
+        );
+
+        // Ítem 22 (Plan de Optimización, Ronda 8): misma pendiente lineal,
+        // ahora sobre volumen_total -- tonelaje real en vez de rir_delta.
+        // Mismo criterio de signo (positivo = subiendo volumen con el
+        // tiempo) y misma ventana (TREND_WINDOW sesiones válidas).
+        $tendenciaVolumen = $this->linearSlope(
+            $chronological->pluck('volumen_total')->filter(fn ($v) => $v !== null)->values()->all()
         );
 
         // Sesiones consecutivas con la misma carga_efectiva que la actual.
@@ -402,6 +425,7 @@ class SessionInterpretationService
         }
 
         $current->tendencia_rir = $tendenciaRir;
+        $current->tendencia_volumen = $tendenciaVolumen;
         $current->sesiones_consecutivas_sin_cambio = $sesionesSinCambio;
         $current->e1rm_estimado = $e1rm;
         // racha_misma_dirección: depende de la "última acción del motor"

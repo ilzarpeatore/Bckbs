@@ -12,6 +12,7 @@ class ExerciseSessionMetric extends Model
     protected $fillable = [
         'workout_session_review_id', 'exercise_id', 'workout_template_exercise_id', 'client_id',
         'rir_delta_sesion', 'completion_ratio', 'peor_serie_index', 'peor_serie_rir', 'carga_efectiva',
+        'volumen_total', 'tendencia_volumen',
         'is_outlier', 'sin_dato_suficiente', 'tendencia_rir',
         'sesiones_consecutivas_sin_cambio', 'e1rm_estimado', 'racha_misma_direccion',
         'blocked_by_pain',
@@ -22,6 +23,8 @@ class ExerciseSessionMetric extends Model
         'completion_ratio'   => 'float',
         'peor_serie_rir'     => 'float',
         'carga_efectiva'     => 'float',
+        'volumen_total'       => 'float',
+        'tendencia_volumen'   => 'float',
         'is_outlier'          => 'boolean',
         'sin_dato_suficiente' => 'boolean',
         'tendencia_rir'       => 'float',
