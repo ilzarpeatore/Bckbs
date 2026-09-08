@@ -20,6 +20,7 @@ use App\Models\ProgramDayAssignment;
 use App\Models\ReadinessScore;
 use App\Models\SessionProgressionRule;
 use App\Models\ShadowEvaluation;
+use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
@@ -404,7 +405,29 @@ class SessionProgressionRuleEngine
             ConditionVariable::E1RM_DELTA => $this->resolveE1rmDelta($clientId, $exerciseId, $metrics),
             ConditionVariable::HRV_Z_SCORE, ConditionVariable::SUENO_Z_SCORE, ConditionVariable::READINESS_BAND =>
                 $this->resolveReadinessValue($variable, $clientId, $metrics),
+            ConditionVariable::NIVEL_EXPERIENCIA => $this->resolveNivelExperiencia($clientId),
         };
+    }
+
+    /**
+     * Plan de Optimización, Ronda 7 ítem 25: meses de experiencia real de
+     * entrenamiento, con prioridad override-del-coach > autoevaluado por el
+     * cliente > sin dato (mismo criterio "sin dato = la condición falla"
+     * de todo el motor, ver docblock de evaluateCondition()). Memoizado en
+     * $evaluationCache -- una regla puede tener varias condiciones que lean
+     * esta misma variable para el mismo cliente en la misma evaluación.
+     */
+    private function resolveNivelExperiencia(int $clientId): ?float
+    {
+        $cacheKey = "nivel_experiencia:{$clientId}";
+        if (array_key_exists($cacheKey, $this->evaluationCache)) {
+            return $this->evaluationCache[$cacheKey];
+        }
+
+        $answer = TrainingQuestionnaireAnswer::where('user_id', $clientId)->first();
+        $months = $answer?->effectiveExperienceMonths();
+
+        return $this->evaluationCache[$cacheKey] = $months !== null ? (float) $months : null;
     }
 
     /**

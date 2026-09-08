@@ -1,6 +1,36 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
-## ESTADO ACTUAL — 2026-09-07, fin de la segunda sesión (consola local, BD real)
+## ESTADO ACTUAL — 2026-09-08, tercera sesión (sandbox sin BD, de nuevo)
+
+Rama `claude/motor-autorregulacion-46dke6` reiniciada desde `main` (la
+anterior ya se fusionó, ver sección de abajo) — mismo criterio que la
+primera vez: "si el PR ya se mergeó, la rama de trabajo se reinicia desde
+el último `main`". En esta tanda:
+
+1. **Consolidada la decisión abierta #3**: `MesocycleClosureService::linearRegression()`
+   ya no tiene su propia copia del núcleo de la regresión — usa
+   `ComputesLinearSlope::computeRawLinearSlope()` (el mismo trait que ya
+   usan `SessionInterpretationService` y `SessionProgressionRuleEngine`) y
+   solo calcula el intercepto localmente. Cero cambio de comportamiento.
+2. **Ronda 7 implementada (ítems 23-25)** — nivel de experiencia real del cliente:
+   - Migración `2026_09_08_090000_add_coach_overrides_to_training_questionnaire_answers_table.php`: añade `training_experience_months_coach`, `technique_level_coach`, `overridden_by_id`, `overridden_at` a `training_questionnaire_answers`.
+   - `TrainingQuestionnaireAnswer`: `effectiveExperienceMonths()`/`effectiveTechniqueLevel()` (override del coach si existe, si no el autoevaluado).
+   - `Admin\OnboardingController::updateTrainingExperience()` + ruta `POST admin-onboarding-training-experience-update` (mismo grupo `admin.api` que el resto del panel admin de onboarding) — **requiere que el cliente ya tenga fila** en `training_questionnaire_answers` (el resto de columnas de esa tabla son NOT NULL sin default; crear una fila nueva solo con el override la dejaría inválida) — devuelve 422 explícito si no.
+   - `ConditionVariable::NIVEL_EXPERIENCIA` nuevo + `SessionProgressionRuleEngine::resolveNivelExperiencia()` (memoizado en `$evaluationCache`) — el coach ya puede montar reglas condicionadas a meses de experiencia real.
+
+**Otra vez sin BD en este sandbox** (mismo `Connection refused` que la
+primera tanda) — nada de esto se ha podido probar contra datos reales.
+`php -l` limpio en los 7 ficheros tocados.
+
+### Verificación pendiente para consola con BD real (añadir al checklist de abajo)
+
+- Aplicar la migración nueva y confirmar las 4 columnas.
+- `POST admin-onboarding-training-experience-update` con un `user_id` que SÍ tenga fila en `training_questionnaire_answers` → confirmar que solo se escriben las columnas `_coach` + `overridden_by_id`/`overridden_at`, sin tocar los valores autoevaluados originales.
+- Mismo endpoint con un `user_id` que NO haya completado el onboarding → confirmar el 422 ("todavía no completó el cuestionario").
+- Montar una regla con condición `nivel_experiencia` (p. ej. `gte 60` = 5 años) contra un cliente con override de coach vs. uno solo con autoevaluación vs. uno sin ninguna fila (debe fallar la condición, no romper).
+- Confirmar que `MesocycleClosureService` sigue generando los mismos `previous_best` que antes de la consolidación (mismo caso de prueba que ya se usó para el ítem 20, si se conservó).
+
+## ESTADO ANTERIOR — 2026-09-07, fin de la segunda sesión (consola local, BD real)
 
 **Cerrado y en producción.** Las Rondas 1-6 (22 ítems) están verificadas
 contra la BD real de la VPS, con un bug real encontrado y corregido (ítem

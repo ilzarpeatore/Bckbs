@@ -25,6 +25,13 @@ enum ConditionVariable: string
     case READINESS_BAND = 'readiness_band';
     case HRV_Z_SCORE = 'hrv_z_score';
     case SUENO_Z_SCORE = 'sueno_z_score';
+    // Plan de Optimización, Ronda 7 ítem 25 (docs/Motor_Autorregulacion_Analisis.md):
+    // meses de experiencia real de entrenamiento -- independiente del nº de
+    // sesiones registradas en la app (un cliente puede llevar años
+    // entrenando fuera de la plataforma). Ver
+    // SessionProgressionRuleEngine::resolveNivelExperiencia() para la
+    // prioridad override-del-coach > autoevaluado > sin dato.
+    case NIVEL_EXPERIENCIA = 'nivel_experiencia';
 
     /**
      * documento §2.2 paso 5: "excluyendo automáticamente reglas que

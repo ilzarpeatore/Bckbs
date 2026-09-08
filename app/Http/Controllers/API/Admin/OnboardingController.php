@@ -107,4 +107,55 @@ class OnboardingController extends Controller
 
         return json_custom_response($response);
     }
+
+    /**
+     * Plan de Optimización del Motor de Auto-Regulación, Ronda 7 ítems
+     * 23-24 (docs/Motor_Autorregulacion_Analisis.md): el nivel de
+     * experiencia autoevaluado por el cliente en el onboarding
+     * (training_experience_months/technique_level) no se podía corregir
+     * desde ningún sitio -- un coach con criterio profesional (evaluación
+     * en persona, meses de seguimiento real) no tenía forma de ajustarlo.
+     *
+     * No pisa el valor autoevaluado: escribe en las columnas
+     * `_coach` (override), separadas y con trazabilidad
+     * (overridden_by_id/overridden_at) -- ver
+     * TrainingQuestionnaireAnswer::effectiveExperienceMonths(), que el
+     * motor de reglas ya usa (ConditionVariable::NIVEL_EXPERIENCIA).
+     *
+     * Requiere que el cliente ya tenga una fila (haya completado la etapa 3
+     * del onboarding) -- el resto de columnas de esta tabla son NOT NULL
+     * sin default (goal_type, activity_level, realistic_goal...), así que
+     * crear una fila nueva solo con el override dejaría un registro
+     * inválido. Si el cliente aún no completó el cuestionario, no hay
+     * autoevaluación que corregir todavía -- 422 explícito.
+     */
+    public function updateTrainingExperience(Request $request)
+    {
+        $request->validate([
+            'user_id'                     => 'required|exists:users,id',
+            'training_experience_months'  => 'nullable|integer|min:0',
+            'technique_level'              => 'nullable|integer|min:1|max:10',
+        ]);
+
+        if (!$request->filled('training_experience_months') && !$request->filled('technique_level')) {
+            return json_message_response('Debes indicar al menos training_experience_months o technique_level.', 422);
+        }
+
+        $answer = TrainingQuestionnaireAnswer::where('user_id', $request->user_id)->first();
+        if (!$answer) {
+            return json_message_response('Este cliente todavía no completó el cuestionario de entrenamiento del onboarding.', 422);
+        }
+
+        if ($request->filled('training_experience_months')) {
+            $answer->training_experience_months_coach = $request->integer('training_experience_months');
+        }
+        if ($request->filled('technique_level')) {
+            $answer->technique_level_coach = $request->integer('technique_level');
+        }
+        $answer->overridden_by_id = auth('sanctum')->id();
+        $answer->overridden_at = now();
+        $answer->save();
+
+        return json_custom_response(['data' => $answer]);
+    }
 }

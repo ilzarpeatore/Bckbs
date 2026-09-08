@@ -962,6 +962,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // ═══ V2: Onboarding ═══════════════════════════════════════════════
     Route::get('admin-onboarding-list', [API\Admin\OnboardingController::class, 'getList']);
     Route::get('admin-onboarding-detail', [API\Admin\OnboardingController::class, 'getDetail']);
+    // AÑADIDO: Motor de Auto-Regulación de Carga -- Plan de Optimización,
+    // Ronda 7 (docs/Motor_Autorregulacion_Analisis.md): corregir el nivel
+    // de experiencia autoevaluado por el cliente.
+    Route::post('admin-onboarding-training-experience-update', [API\Admin\OnboardingController::class, 'updateTrainingExperience']);
 
     // ═══ V2: App Feedback ═════════════════════════════════════════════
     Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
