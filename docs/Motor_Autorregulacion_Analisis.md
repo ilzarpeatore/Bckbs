@@ -578,3 +578,12 @@ De Fase 2, puntos #2-#5 y #8 del catálogo "¿qué le falta para pensar como un 
 45. Dar a `detectOutliers()` (Fase 1) alguna señal de "semana de descarga planificada" para no confundir una bajada intencional con una caída anómala — requiere cruzar con datos de mesociclo/`TrainingProgramGeneratorService`. Es el cambio más "de entrenador" pero también el más invasivo (toca la generación del programa, no solo la interpretación de sesión) — se deja deliberadamente para el final, una vez las rondas anteriores estén validadas en producción.
 
 *Riesgo: alto — cruza fases y servicios, necesita su propio diseño antes de tocar código.*
+
+**IMPLEMENTADO 2026-09-10** — con una corrección importante al planteamiento
+original: `TrainingProgramGeneratorService` NO tenía ningún dato de
+mesociclo/deload que cruzar (el modelador `is_deload`/`load_multiplier`
+que citaba este ítem se había retirado antes por no usarse nunca en
+producción). Se reintrodujo `is_deload` como campo mínimo directamente en
+`program_day_assignments` (la tabla que Fase 1/2 ya leen en tiempo real),
+sin tocar la generación del programa. Detalle completo en
+`docs/Handoff_Rondas1-6_Verificacion.md`.

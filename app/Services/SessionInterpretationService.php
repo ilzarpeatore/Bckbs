@@ -8,6 +8,7 @@ use App\Models\ClientExerciseOverride;
 use App\Models\ExerciseSessionMetric;
 use App\Models\PainReport;
 use App\Models\PersonalRecord;
+use App\Models\ProgramDayAssignment;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
@@ -188,7 +189,13 @@ class SessionInterpretationService
             return;
         }
 
-        $isOutlier = $this->detectOutliers($clientId, $exerciseId, $agg['carga_efectiva'], $metrics->id);
+        // Ítem 45 (Ronda 16): $programDayAssignmentId ya resuelto arriba
+        // para el bloqueo por dolor -- se reutiliza, sin sesión programada
+        // (workout suelto) el concepto de "semana de descarga" no aplica.
+        $isDeloadWeek = $programDayAssignmentId
+            ? (bool) ProgramDayAssignment::find($programDayAssignmentId)?->is_deload
+            : false;
+        $isOutlier = $this->detectOutliers($clientId, $exerciseId, $agg['carga_efectiva'], $metrics->id, $isDeloadWeek);
         $sinDatoSuficiente = $this->checkDataSufficiency($agg['sets']);
 
         $metrics->is_outlier = $isOutlier;
@@ -340,7 +347,19 @@ class SessionInterpretationService
      * Si la desviación es >30%, se marca is_outlier=true y se excluye de
      * agregados de tendencia (no se borra el dato).
      */
-    public function detectOutliers(int $clientId, int $exerciseId, ?float $cargaEfectiva, int $excludeMetricId): bool
+    /**
+     * Ítem 45 (Plan de Optimización, Ronda 16): `$isDeloadWeek` -- ver
+     * ProgramDayAssignment.is_deload (migración
+     * 2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php),
+     * marcado por el coach vía TrainingProgramController::markWeekDeload().
+     * En semana de descarga planificada, una BAJADA de carga es la
+     * intención, no una anomalía -- se suprime el outlier solo cuando
+     * $cargaEfectiva < $mean (la desviación es hacia abajo). Una subida
+     * inusual durante una semana de descarga (dato raro, pero posible: un
+     * cliente que rompe la pauta) sigue marcándose igual que siempre, la
+     * descarga no la explica.
+     */
+    public function detectOutliers(int $clientId, int $exerciseId, ?float $cargaEfectiva, int $excludeMetricId, bool $isDeloadWeek = false): bool
     {
         if ($cargaEfectiva === null) {
             return false;
@@ -364,6 +383,10 @@ class SessionInterpretationService
 
         $mean = $recent->avg();
         if ($mean <= 0) {
+            return false;
+        }
+
+        if ($isDeloadWeek && $cargaEfectiva < $mean) {
             return false;
         }
 

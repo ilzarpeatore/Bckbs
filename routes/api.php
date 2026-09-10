@@ -810,6 +810,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('training-program-assign-client', [API\TrainingProgramController::class, 'assignClient']);
     Route::post('training-program-remove-assignment', [API\TrainingProgramController::class, 'removeAssignment']);
     Route::get('training-program-assignments', [API\TrainingProgramController::class, 'getAssignments']);
+    Route::post('training-program-mark-week-deload', [API\TrainingProgramController::class, 'markWeekDeload']);
 
     // ═══ V2: Program Calendar (abstract weeks) ════════════════════════
     Route::get('program-calendar', [API\ProgramCalendarController::class, 'getCalendar']);

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\TrainingProgram;
 use App\Models\ProgramClientAssignment;
+use App\Models\ProgramDayAssignment;
 use App\Models\User;
 use App\Notifications\CommonNotification;
 use App\Services\TrainingProgramGeneratorService;
@@ -300,5 +301,38 @@ class TrainingProgramController extends Controller
             ->get();
 
         return json_custom_response(['data' => $assignments]);
+    }
+
+    /**
+     * Plan de Optimización, Ronda 16 ítem 45 (docs/Motor_Autorregulacion_Analisis.md):
+     * el coach marca una semana ENTERA del mesociclo como descarga
+     * planificada -- bulk update de todas las filas de
+     * program_day_assignments de esa (training_program_id, week_number),
+     * sin importar cuántos días tenga la semana ni cómo se hayan creado
+     * esas filas (import, generador de semanas, calendario...). Ver
+     * SessionInterpretationService::detectOutliers().
+     */
+    public function markWeekDeload(Request $request)
+    {
+        $request->validate([
+            'training_program_id' => 'required|exists:training_programs,id',
+            'week_number'         => 'required|integer|min:1',
+            'is_deload'           => 'required|boolean',
+        ]);
+
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->training_program_id);
+        if ($program == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
+        }
+
+        $updated = ProgramDayAssignment::where('training_program_id', $request->training_program_id)
+            ->where('week_number', $request->week_number)
+            ->update(['is_deload' => $request->boolean('is_deload')]);
+
+        if ($updated === 0) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Week']));
+        }
+
+        return json_message_response($updated.' días actualizados');
     }
 }

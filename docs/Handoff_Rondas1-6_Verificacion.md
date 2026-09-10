@@ -1,5 +1,87 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
+## ACTUALIZACIÓN — 2026-09-10, Ronda 16 implementada (ítem 45, el último del plan de 45)
+
+Sin BD/VPS de nuevo en esta sesión. Antes de implementar, se investigó el
+planteamiento original del ítem 45 ("cruzar con datos de mesociclo/
+`TrainingProgramGeneratorService`") y resultó estar basado en una premisa
+falsa:
+
+**Hallazgo**: `TrainingProgramGeneratorService` no tiene NINGÚN concepto
+de "semana de descarga" hoy. Lo tuvo (`progression_rules`,
+`load_multiplier`/`is_deload`) pero se retiró explícitamente — comentario
+en el propio servicio: "nunca se usó en producción, 0 filas en 20
+programas reales". Las semanas 2..N son clones exactos de la semana 1;
+la progresión real la decide el motor sesión a sesión. `TrainingProgram`/
+`ProgramDayAssignment` tampoco tenían ningún campo de fase/tipo de semana.
+
+Se presentaron 2 caminos al usuario (inferir la descarga del `prescribed`
+sin campo nuevo, vs. reintroducir un flag explícito) — **eligió B:
+flag explícito `is_deload`**, asumiendo el riesgo de repetir un concepto
+que antes no se usó.
+
+### Diseño elegido (alcance deliberadamente acotado)
+
+En vez de reconstruir el flag en `workout_days`/`Workout` (la estructura
+de AUTORÍA del coach, con su propio generador de semanas y varios caminos
+distintos que materializan `program_day_assignments` — import masivo,
+resolución de calendario, generador de semanas — que no se investigaron
+a fondo por riesgo/tiempo), se puso `is_deload` directamente en
+`program_day_assignments`: la tabla que Fase 1/Fase 2 YA leen en tiempo
+real (mismo patrón que `resolveFirstWeekPrescribed()`). El coach marca
+la semana ENTERA vía un endpoint nuevo que hace `UPDATE` masivo de todas
+las filas de esa `(training_program_id, week_number)` — funciona sin
+importar por cuál de los caminos se crearon esas filas.
+
+**Cambios:**
+
+- Migración `2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php`:
+  `is_deload` boolean, default `false`, en `program_day_assignments`.
+- `ProgramDayAssignment`: `is_deload` en fillable/casts.
+- `TrainingProgramController::markWeekDeload()` (nuevo) + ruta
+  `POST training-program-mark-week-deload` (`training_program_id`,
+  `week_number`, `is_deload`) — mismo patrón de autorización
+  (`where('coach_id', auth('sanctum')->id())`) que el resto del
+  controlador. `UPDATE` masivo, 0 filas actualizadas → 404.
+- `SessionInterpretationService::detectOutliers()`: nuevo parámetro
+  `bool $isDeloadWeek = false`. En semana de descarga, una BAJADA de
+  `carga_efectiva` (`$cargaEfectiva < $mean`) ya NO se marca `is_outlier`
+  — es la intención, no una anomalía. Una SUBIDA inusual durante la
+  descarga se sigue marcando igual que siempre (la descarga no la
+  explica).
+- `SessionInterpretationService::processExercise()`: resuelve
+  `$isDeloadWeek` desde `ProgramDayAssignment::find($programDayAssignmentId)?->is_deload`
+  (reutilizando el mismo `$programDayAssignmentId` ya resuelto para el
+  bloqueo por dolor) y se lo pasa a `detectOutliers()`.
+
+**NO tocado deliberadamente** (fuera del alcance acotado): generación de
+semanas (`TrainingProgramGeneratorService`/`WorkoutDay`), `ProgramsImporter`,
+`RealCalendarController`/`ClientProfileCalendarController`/`SessionDetailController`
+(los 3 sitios que también crean `ProgramDayAssignment` — no se tocaron
+porque el endpoint nuevo actualiza filas YA EXISTENTES, sin importar cuál
+de esos caminos las creó). Tampoco hay UI para el coach — solo el
+endpoint; falta el botón/toggle en el panel de coach si se quiere que lo
+use de verdad (mismo riesgo histórico del concepto retirado: una feature
+que existe pero nadie usa).
+
+### Verificación pendiente para consola con BD real (ítem 45)
+
+1. Aplicar la migración `is_deload` y confirmar la columna (default `false`).
+2. `POST training-program-mark-week-deload` con un programa/semana real →
+   confirmar que TODAS las filas de esa semana quedan `is_deload=true`, y
+   que un `week_number` sin filas devuelve 404 sin tocar nada.
+3. Sesión real dentro de una semana marcada como descarga, con
+   `carga_efectiva` claramente por debajo de la media de las
+   `OUTLIER_WINDOW` sesiones anteriores → confirmar que `is_outlier` sale
+   `false` (antes de este cambio habría salido `true`).
+4. Misma semana de descarga, pero con una `carga_efectiva` anómalamente
+   ALTA (por encima de la media + `OUTLIER_DEVIATION`) → confirmar que
+   SÍ se marca `is_outlier=true` (la descarga no debe enmascarar subidas
+   raras).
+5. Sesión fuera de cualquier semana marcada (`is_deload=false` o
+   `program_day_assignment_id` null, workout suelto) → confirmar
+   comportamiento idéntico al de siempre (sin regresión).
+
 ## ACTUALIZACIÓN — 2026-09-08, revisión de código de Rondas 11-15 (4 bugs corregidos, sin BD)
 
 Sin acceso a BD/VPS en esta sesión, se hizo una revisión adversarial del
@@ -48,46 +130,42 @@ también el punto 8 (`reps_en_tope_rango`) con un cliente que tenga un
 `ClientExerciseOverride.prescribed_override.reps_max` distinto del de la
 plantilla — debe resolver contra el override, no contra la plantilla.
 
-## PENDIENTE — resumen consolidado (actualizado 2026-09-08, tras fusionar Rondas 11-15 a `main`)
+## PENDIENTE — resumen consolidado (actualizado 2026-09-10, Ronda 16/ítem 45 implementada — plan completo de 45 ítems ya codificado)
 
-**Fusionado a `main`**: Rondas 1-15 completas (ítems 1-44), commit
-`1428a08` en `main` (fast-forward, sin conflictos —
-`claude/motor-autorregulacion-46dke6` era estrictamente lineal respecto a
-`main`). La rama de trabajo sigue existiendo con el mismo contenido que
-`main` ahora mismo; el próximo lote de trabajo (Ronda 16 u otro) debería
-reiniciarla desde `main` si hace falta, mismo criterio ya usado antes en
-este documento.
+**Fusionado a `main`** (a falta del commit de Ronda 16, ver más abajo):
+Rondas 1-15 completas (ítems 1-44), commit `d7f7874`. La Ronda 16 (ítem
+45, el último del plan) está implementada en el árbol de trabajo de esta
+sesión, con el alcance acotado que describe la sección propia más abajo
+— pendiente de confirmación para commit/push, mismo patrón de siempre.
 
 **Sin verificar contra BD real** — TODO este documento se ha escrito desde
 un sandbox sin conexión a base de datos (`Connection refused` en cada
 intento). Nada de lo de abajo se ha probado con datos reales todavía:
 
-1. **Aplicar 4 migraciones nuevas** de Rondas 11-15 (no aplicadas en
-   ningún entorno todavía):
+1. **Aplicar 5 migraciones nuevas** (Rondas 11-15 + Ronda 16, ninguna
+   aplicada en ningún entorno todavía):
    - `2026_09_08_090002_add_carga_ratio_to_exercise_substitutions_table.php`
    - `2026_09_08_090003_add_serie_top_fields_to_exercise_session_metrics_table.php`
    - `2026_09_08_090004_add_increment_kg_to_exercises_table.php`
    - `2026_09_08_090005_add_min_condiciones_requeridas_to_session_progression_rule_conditions_table.php`
-2. **Recorrer el checklist de 11 puntos** de la sección "Verificación
-   pendiente para consola con BD real (Rondas 11-15)" más abajo — uno por
-   cada ítem 30-44.
+   - `2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php`
+2. **Recorrer los checklists de verificación** de Rondas 11-15 (11 puntos)
+   y de Ronda 16 (5 puntos), ambos más abajo.
 3. **Desplegar a VPS** (`testapp.bestronger.es`, mismo destino que Rondas
-   1-6) — no se ha hecho para este lote; requiere acceso que este sandbox
-   no tiene.
-4. **Ronda 16 — Conciencia de periodización/deload (ítem 45)**: NO
-   implementada, a propósito (ver sección propia más abajo). Necesita una
-   conversación de diseño antes de tocar código: cómo se señaliza "semana
-   de descarga planificada" (¿campo nuevo en el programa generado por
-   `TrainingProgramGeneratorService`? ¿se infiere de la carga prescrita
-   esa semana?) y qué debe hacer `SessionInterpretationService::detectOutliers()`
-   con esa señal para no confundir una bajada intencional con una caída
-   anómala. Es el único ítem que queda del plan completo de 45 ítems
-   (Rondas 1-15 = ítems 1-44, ya todos implementados y en `main`).
+   1-6) — no se ha hecho para ninguno de estos dos lotes; requiere acceso
+   que este sandbox no tiene.
+4. **UI de coach para `markWeekDeload()`** — el endpoint existe
+   (`POST training-program-mark-week-deload`) pero no hay ningún botón/
+   toggle en el panel de coach que lo llame. Sin eso, el flag es
+   inalcanzable en la práctica — mismo riesgo que el concepto retirado
+   antes por no usarse nunca.
 5. **Backfill histórico** — igual que con `volumen_total` (Ronda 8),
    ninguno de los campos nuevos de Rondas 11-15 (`carga_ratio`,
    `carga_efectiva_reps`/`rir_delta_serie_top`, `increment_kg`,
    `min_condiciones_requeridas`) tiene backfill automático: solo se rellena
    hacia adelante, en sesiones/configuraciones nuevas a partir de ahora.
+   `is_deload` (Ronda 16) nace en `false` para todo lo existente, correcto
+   por defecto (no hay semanas de descarga retroactivas que inferir).
 
 ## ACTUALIZACIÓN — 2026-09-08, cuarta sesión, Rondas 11-15 (fusionado a `main`, commit `1428a08`)
 
