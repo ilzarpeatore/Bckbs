@@ -15,6 +15,7 @@ use App\Http\Requests\UserRequest;
 use App\DataTables\SubscriptionDataTable;
 use App\Exports\UserReportExport;
 use App\Models\UserGraph;
+use App\Models\ReadinessScore;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Facades\Excel;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -116,6 +117,18 @@ class UserController extends Controller
 
             case 'matrix':
                 return view('users.profile', compact('pageTitle', 'data', 'type'));
+
+            case 'readiness':
+                // Motor de Auto-Regulacion de Carga (Fase 4) -- item 10 de
+                // docs/PENDIENTE_BACKEND_ADMIN.md. Misma fuente de datos que
+                // GET /api/admin/users/{user}/readiness (ReportController::clientReadiness),
+                // leida directamente aqui porque este tab es server-rendered.
+                $readinessHistory = ReadinessScore::where('client_id', $id)
+                    ->orderBy('date', 'desc')
+                    ->limit(30)
+                    ->get();
+                $readinessLatest = $readinessHistory->first();
+                return view('users.profile', compact('pageTitle', 'data', 'type', 'readinessHistory', 'readinessLatest'));
 
             case 'daily-step-water-tracking':
                 $goals = $data->userGraph()->latestPerType()->pluck('value','type');                

@@ -353,7 +353,10 @@
         </li> 
         <li class="nav-item">
             <a href="{{ route('users.show', [$data->id  , 'daily-step-water-tracking']) }}" id="pills- daily-step-water-tracking-tab-fill" role="tab" class="nav-link {{ 'daily-step-water-tracking' == $type ? 'active' : '' }}" aria-controls="pills-daily-step-water-tracking" aria-selected="{{ 'daily-step-water-tracking' == $type ? true : false }}"> {{ __('message.daily_tracking') }}</a>
-        </li> 
+        </li>
+        <li class="nav-item">
+            <a href="{{ route('users.show', [$data->id  , 'readiness']) }}" id="pills- readiness-tab-fill" role="tab" class="nav-link {{ 'readiness' == $type ? 'active' : '' }}" aria-controls="pills-readiness" aria-selected="{{ 'readiness' == $type ? true : false }}"> Readiness / Carga</a>
+        </li>
     </ul>
 <div class="tab-content">
 @if ($type == 'detail')
@@ -792,6 +795,81 @@
             <div class="card-body">
                 <div class="chart">
                     <div id="apex-line-area-water-goal"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+@endif
+
+@if ($type == 'readiness')
+<div class="row">
+    <div class="col-lg-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">Readiness / Carga (Motor de Auto-Regulacion)</h5>
+            </div>
+            <div class="card-body">
+                @if ($readinessLatest)
+                    @php
+                        $bandClass = [
+                            'optimo' => 'bg-success',
+                            'reducido' => 'bg-warning text-dark',
+                            'bajo' => 'bg-danger',
+                            'dato_insuficiente' => 'bg-secondary',
+                        ][$readinessLatest->band] ?? 'bg-secondary';
+                    @endphp
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="text-muted">Ultimo dato ({{ $readinessLatest->date->format('d/m/Y') }})</div>
+                            <h3 class="mb-0">{{ $readinessLatest->combined_score !== null ? number_format($readinessLatest->combined_score, 0) : '-' }}</h3>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted">Banda</div>
+                            <span class="badge {{ $bandClass }}" style="font-size: 1rem;">{{ $readinessLatest->band }}</span>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted">ACWR (carga aguda:cronica)</div>
+                            <h3 class="mb-0">{{ $readinessLatest->acwr !== null ? number_format($readinessLatest->acwr, 2) : '-' }}</h3>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-muted">Calculado</div>
+                            <div>{{ $readinessLatest->calculated_at?->format('d/m/Y H:i') ?? '-' }}</div>
+                        </div>
+                    </div>
+                @endif
+
+                <div class="table-responsive">
+                    <table class="table table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Score</th>
+                                <th>Banda</th>
+                                <th>ACWR</th>
+                                <th>HRV z-score</th>
+                                <th>Sueno z-score</th>
+                                <th>Subjetivo</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @forelse ($readinessHistory as $row)
+                                <tr>
+                                    <td>{{ $row->date->format('d/m/Y') }}</td>
+                                    <td>{{ $row->combined_score !== null ? number_format($row->combined_score, 0) : '-' }}</td>
+                                    <td>{{ $row->band }}</td>
+                                    <td>{{ $row->acwr !== null ? number_format($row->acwr, 2) : '-' }}</td>
+                                    <td>{{ $row->hrv_z_score !== null ? number_format($row->hrv_z_score, 2) : '-' }}</td>
+                                    <td>{{ $row->sueno_z_score !== null ? number_format($row->sueno_z_score, 2) : '-' }}</td>
+                                    <td>{{ $row->subjetivo_score !== null ? number_format($row->subjetivo_score, 2) : '-' }}</td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">Sin datos de readiness todavia para este cliente.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
