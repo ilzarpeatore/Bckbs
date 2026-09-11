@@ -1,6 +1,415 @@
 # Handoff — Verificación de Rondas 1-6 con base de datos real
 
-## ESTADO ACTUAL — 2026-09-07, fin de la segunda sesión (consola local, BD real)
+## ACTUALIZACIÓN — 2026-09-10, Ronda 16 implementada (ítem 45, el último del plan de 45)
+
+Sin BD/VPS de nuevo en esta sesión. Antes de implementar, se investigó el
+planteamiento original del ítem 45 ("cruzar con datos de mesociclo/
+`TrainingProgramGeneratorService`") y resultó estar basado en una premisa
+falsa:
+
+**Hallazgo**: `TrainingProgramGeneratorService` no tiene NINGÚN concepto
+de "semana de descarga" hoy. Lo tuvo (`progression_rules`,
+`load_multiplier`/`is_deload`) pero se retiró explícitamente — comentario
+en el propio servicio: "nunca se usó en producción, 0 filas en 20
+programas reales". Las semanas 2..N son clones exactos de la semana 1;
+la progresión real la decide el motor sesión a sesión. `TrainingProgram`/
+`ProgramDayAssignment` tampoco tenían ningún campo de fase/tipo de semana.
+
+Se presentaron 2 caminos al usuario (inferir la descarga del `prescribed`
+sin campo nuevo, vs. reintroducir un flag explícito) — **eligió B:
+flag explícito `is_deload`**, asumiendo el riesgo de repetir un concepto
+que antes no se usó.
+
+### Diseño elegido (alcance deliberadamente acotado)
+
+En vez de reconstruir el flag en `workout_days`/`Workout` (la estructura
+de AUTORÍA del coach, con su propio generador de semanas y varios caminos
+distintos que materializan `program_day_assignments` — import masivo,
+resolución de calendario, generador de semanas — que no se investigaron
+a fondo por riesgo/tiempo), se puso `is_deload` directamente en
+`program_day_assignments`: la tabla que Fase 1/Fase 2 YA leen en tiempo
+real (mismo patrón que `resolveFirstWeekPrescribed()`). El coach marca
+la semana ENTERA vía un endpoint nuevo que hace `UPDATE` masivo de todas
+las filas de esa `(training_program_id, week_number)` — funciona sin
+importar por cuál de los caminos se crearon esas filas.
+
+**Cambios:**
+
+- Migración `2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php`:
+  `is_deload` boolean, default `false`, en `program_day_assignments`.
+- `ProgramDayAssignment`: `is_deload` en fillable/casts.
+- `TrainingProgramController::markWeekDeload()` (nuevo) + ruta
+  `POST training-program-mark-week-deload` (`training_program_id`,
+  `week_number`, `is_deload`) — mismo patrón de autorización
+  (`where('coach_id', auth('sanctum')->id())`) que el resto del
+  controlador. `UPDATE` masivo, 0 filas actualizadas → 404.
+- `SessionInterpretationService::detectOutliers()`: nuevo parámetro
+  `bool $isDeloadWeek = false`. En semana de descarga, una BAJADA de
+  `carga_efectiva` (`$cargaEfectiva < $mean`) ya NO se marca `is_outlier`
+  — es la intención, no una anomalía. Una SUBIDA inusual durante la
+  descarga se sigue marcando igual que siempre (la descarga no la
+  explica).
+- `SessionInterpretationService::processExercise()`: resuelve
+  `$isDeloadWeek` desde `ProgramDayAssignment::find($programDayAssignmentId)?->is_deload`
+  (reutilizando el mismo `$programDayAssignmentId` ya resuelto para el
+  bloqueo por dolor) y se lo pasa a `detectOutliers()`.
+
+**NO tocado deliberadamente** (fuera del alcance acotado): generación de
+semanas (`TrainingProgramGeneratorService`/`WorkoutDay`), `ProgramsImporter`,
+`RealCalendarController`/`ClientProfileCalendarController`/`SessionDetailController`
+(los 3 sitios que también crean `ProgramDayAssignment` — no se tocaron
+porque el endpoint nuevo actualiza filas YA EXISTENTES, sin importar cuál
+de esos caminos las creó). Tampoco hay UI para el coach — solo el
+endpoint; falta el botón/toggle en el panel de coach si se quiere que lo
+use de verdad (mismo riesgo histórico del concepto retirado: una feature
+que existe pero nadie usa).
+
+### Verificación pendiente para consola con BD real (ítem 45)
+
+1. Aplicar la migración `is_deload` y confirmar la columna (default `false`).
+2. `POST training-program-mark-week-deload` con un programa/semana real →
+   confirmar que TODAS las filas de esa semana quedan `is_deload=true`, y
+   que un `week_number` sin filas devuelve 404 sin tocar nada.
+3. Sesión real dentro de una semana marcada como descarga, con
+   `carga_efectiva` claramente por debajo de la media de las
+   `OUTLIER_WINDOW` sesiones anteriores → confirmar que `is_outlier` sale
+   `false` (antes de este cambio habría salido `true`).
+4. Misma semana de descarga, pero con una `carga_efectiva` anómalamente
+   ALTA (por encima de la media + `OUTLIER_DEVIATION`) → confirmar que
+   SÍ se marca `is_outlier=true` (la descarga no debe enmascarar subidas
+   raras).
+5. Sesión fuera de cualquier semana marcada (`is_deload=false` o
+   `program_day_assignment_id` null, workout suelto) → confirmar
+   comportamiento idéntico al de siempre (sin regresión).
+
+## ACTUALIZACIÓN — 2026-09-08, revisión de código de Rondas 11-15 (4 bugs corregidos, sin BD)
+
+Sin acceso a BD/VPS en esta sesión, se hizo una revisión adversarial del
+diff ya fusionado (Rondas 11-15) buscando errores de lógica antes de
+probarlo contra datos reales. 4 hallazgos, los 4 corregidos (solo
+`php -l`, sin poder ejecutar nada contra BD real):
+
+1. **`ClientExerciseLogObserver::maybeRecordRecentBest()` (ítem 35) se
+   autoanulaba** — cuando un guardado SÍ superaba el récord histórico
+   (`isNewWeightRecord=true`) pero por debajo del umbral de mejora
+   significativa, `storeIfRecord()` ya había insertado la fila
+   `PersonalRecord` nueva ANTES de llamar a `maybeRecordRecentBest()`; su
+   query de "mejor valor en los últimos 90 días" incluía esa misma fila
+   recién creada, así que `value <= recentBest` salía siempre cierto y el
+   logro `MEJOR_MARCA_RECIENTE` nunca se generaba en el caso exacto para
+   el que se diseñó (un PR real, pero por debajo del umbral). Fix:
+   `storeIfRecord()` ahora también devuelve el `id` de la fila creada;
+   `maybeRecordRecentBest()` la excluye de ambas queries.
+2. **`SessionProgressionRuleEngine::resolveRepsEnTopeRango()` (ítem 38)
+   ignoraba `ClientExerciseOverride`** — leía `WorkoutTemplateExercise->prescribed`
+   en crudo en vez de `resolveLastPrescribed()` (el método que ya existía
+   y fusiona plantilla + override del cliente, usado por
+   `resolveBaseReference()`). Un `reps_max` individualizado por el coach
+   para un cliente concreto se ignoraba, usando el de la plantilla
+   genérica. Fix: ahora usa `resolveLastPrescribed()`, memoizado por fila
+   de métrica.
+3. **`ClientExerciseLogObserver::PR_VOLUME_MIN_IMPROVEMENT_PCT` (ítem 33)
+   era una constante muerta** — declarada con un comentario que sugería
+   que controlaba el umbral de `max_volume`, pero `storeVolumeRecord()`
+   siempre usó el `$threshold` compartido de `resolveImprovementThreshold()`
+   (ítem 34). Eliminada (no se sustituye por nada, era solo confusión).
+4. **`resolveRolEjercicio()`/`resolveRepsEnTopeRango()` sin memoizar** —
+   a diferencia de `resolveNivelExperiencia()`/`resolveDolorRecienteNoBloqueante()`
+   (misma Ronda 13), no cacheaban su `WorkoutTemplateExercise::find()` en
+   `$evaluationCache`. Con el operador N-de-M de la Ronda 14 (sin
+   short-circuit dentro de un grupo), una regla que combine
+   `ROL_EJERCICIO` + `REPS_EN_TOPE_RANGO` en el mismo grupo duplicaría la
+   consulta en cada evaluación. Ambos métodos memoizados ahora.
+
+**Verificación pendiente añadida** (para el checklist de BD real de
+Rondas 11-15, más abajo): repetir el punto 5 (`MEJOR_MARCA_RECIENTE`) con
+un cliente cuyo nuevo valor SÍ sea un PR all-time pero por debajo del
+umbral de mejora significativa — antes de este fix no generaba ningún
+achievement_event, ahora debe generar `MEJOR_MARCA_RECIENTE`. Repetir
+también el punto 8 (`reps_en_tope_rango`) con un cliente que tenga un
+`ClientExerciseOverride.prescribed_override.reps_max` distinto del de la
+plantilla — debe resolver contra el override, no contra la plantilla.
+
+## PENDIENTE — resumen consolidado (actualizado 2026-09-10, Ronda 16/ítem 45 implementada — plan completo de 45 ítems ya codificado)
+
+**Fusionado a `main`** (a falta del commit de Ronda 16, ver más abajo):
+Rondas 1-15 completas (ítems 1-44), commit `d7f7874`. La Ronda 16 (ítem
+45, el último del plan) está implementada en el árbol de trabajo de esta
+sesión, con el alcance acotado que describe la sección propia más abajo
+— pendiente de confirmación para commit/push, mismo patrón de siempre.
+
+**Sin verificar contra BD real** — TODO este documento se ha escrito desde
+un sandbox sin conexión a base de datos (`Connection refused` en cada
+intento). Nada de lo de abajo se ha probado con datos reales todavía:
+
+1. **Aplicar 5 migraciones nuevas** (Rondas 11-15 + Ronda 16, ninguna
+   aplicada en ningún entorno todavía):
+   - `2026_09_08_090002_add_carga_ratio_to_exercise_substitutions_table.php`
+   - `2026_09_08_090003_add_serie_top_fields_to_exercise_session_metrics_table.php`
+   - `2026_09_08_090004_add_increment_kg_to_exercises_table.php`
+   - `2026_09_08_090005_add_min_condiciones_requeridas_to_session_progression_rule_conditions_table.php`
+   - `2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php`
+2. **Recorrer los checklists de verificación** de Rondas 11-15 (11 puntos)
+   y de Ronda 16 (5 puntos), ambos más abajo.
+3. **Desplegar a VPS** (`testapp.bestronger.es`, mismo destino que Rondas
+   1-6) — no se ha hecho para ninguno de estos dos lotes; requiere acceso
+   que este sandbox no tiene.
+4. **UI de coach para `markWeekDeload()`** — el endpoint existe
+   (`POST training-program-mark-week-deload`) pero no hay ningún botón/
+   toggle en el panel de coach que lo llame. Sin eso, el flag es
+   inalcanzable en la práctica — mismo riesgo que el concepto retirado
+   antes por no usarse nunca.
+5. **Backfill histórico** — igual que con `volumen_total` (Ronda 8),
+   ninguno de los campos nuevos de Rondas 11-15 (`carga_ratio`,
+   `carga_efectiva_reps`/`rir_delta_serie_top`, `increment_kg`,
+   `min_condiciones_requeridas`) tiene backfill automático: solo se rellena
+   hacia adelante, en sesiones/configuraciones nuevas a partir de ahora.
+   `is_deload` (Ronda 16) nace en `false` para todo lo existente, correcto
+   por defecto (no hay semanas de descarga retroactivas que inferir).
+
+## ACTUALIZACIÓN — 2026-09-08, cuarta sesión, Rondas 11-15 (fusionado a `main`, commit `1428a08`)
+
+Continuación directa de la sesión anterior (Rondas 8-10, ya fusionadas a
+`main`, ver sección de abajo). Rama reanudada desde el `main` con esas
+Rondas ya dentro. Sigue sin haber BD en este sandbox — otra vez todo
+verificado solo con `php -l`, cero prueba contra datos reales.
+**Commiteado (`1428a08`) y fusionado a `main` por fast-forward** —
+confirmación explícita del usuario recibida para ambos pasos.
+
+### Ronda 11 — Sustitución de ejercicio inteligente (ítems 30-32)
+
+- **Ítem 30** — `ExerciseSubstitution.category` existía desde Fase 3 pero
+  nunca se leía en la query: `findSubstitution()` ahora prioriza una
+  variante etiquetada con el motivo inferido de la regla ganadora, cae a
+  una variante genérica (`category` null) si no hay ninguna así, y a
+  cualquiera si tampoco hay genérica — `orderBy('id')` en los tres pasos,
+  antes no había ningún `orderBy` (no determinista).
+- **Ítem 31** — `inferSubstitutionMotivo()`: heurística simple sobre qué
+  `ConditionVariable` usa la regla ganadora → `'estancamiento'` (variables
+  de rendimiento/estancamiento) o `'fatiga'` (variables de readiness);
+  sin match → `null` (comportamiento genérico de antes).
+- **Ítem 32** — `carga_ratio` (nullable, `decimal(5,3)`) nuevo en
+  `exercise_substitutions` (migración `..._090002_...`). Si está
+  configurado, `resolveSubstitutionStartingWeight()` propone
+  `referencia_del_original × carga_ratio` (redondeado); sin configurar,
+  sigue devolviendo `null` como siempre (el coach decide desde cero). El
+  redondeo usa `applyRounding()` con el `increment_kg` del ejercicio
+  **sustituto** (ítem 40, Ronda 13), no del original.
+
+### Ronda 12 — Feed de logros más inteligente (ítems 33-37)
+
+- **Ítem 33** — `max_volume` ahora respeta un umbral de mejora
+  significativa (`PR_VOLUME_MIN_IMPROVEMENT_PCT = 2.5%`, mismo criterio
+  que `pr_carga`) vía `isSignificantImprovement()` reutilizado en
+  `storeVolumeRecord()`.
+- **Ítem 34** — el umbral de mejora (para `pr_carga` y `max_volume`) ahora
+  se escala por `TrainingQuestionnaireAnswer::effectiveExperienceMonths()`
+  (Ronda 7): <12 meses → 4% (más exigente, más ruido de aprendizaje
+  motor), ≥60 meses → 1% (más permisivo), sin dato o en medio → 2.5% (el
+  umbral de siempre).
+- **Ítem 35** — nuevo achievement `MEJOR_MARCA_RECIENTE`: mejor valor de
+  `max_weight` en los últimos 90 días (`RECENT_BEST_WINDOW_DAYS`), para
+  reconocer progreso real durante una recuperación sin esperar a superar
+  un pico de hace años. Solo se evalúa cuando el guardado NO califica como
+  `pr_carga` real.
+- **Ítem 36** — nuevo achievement `MANTIENE_FUERZA_EN_DEFICIT`: cliente con
+  `goal_type` en `lose_fat`/`recomposition` (valores reales validados en
+  `OnboardingController@store`) cuyo `max_weight` de hoy está dentro de un
+  3% por debajo de su histórico (ni lo supera —ya sería PR real— ni baja
+  más de lo tolerado). Cooldown de 14 días para no repetir el mismo logro
+  cada sesión.
+- **Ítem 37** — `progreso_sesion` (`WorkoutSessionStatsService::computeAchievements()`)
+  ahora compara el mejor set de hoy contra la MEDIA del mejor set de las
+  últimas `TREND_WINDOW=3` sesiones válidas (antes: solo la sesión
+  inmediatamente anterior) vía `averageBestSet()` nuevo — evita premiar
+  "recuperarse de un mal día puntual" como progreso real. Comparación de
+  igualdad de carga cambiada de `==` a epsilon (`< 0.01`) porque ahora se
+  compara contra una media, no un valor exacto.
+
+### Ronda 13 — Refinamientos de ejecución de reglas (ítems 38-42)
+
+- **Ítem 38** — `ConditionVariable::REPS_EN_TOPE_RANGO`: 1.0 si la sesión
+  llegó al `reps_max` prescrito (clave JSON nueva en `prescribed`, sin
+  migración), 0.0 si no, `null` sin `reps_max` configurado o sin
+  `carga_efectiva_reps` de la sesión. El coach monta la doble progresión
+  clásica con dos reglas por `priority`.
+- **Ítem 39** — `rir_delta_serie_top` nuevo en `exercise_session_metrics`
+  (migración `..._090003_...`, junto con `carga_efectiva_reps` que ya se
+  calculaba pero nunca se persistía): RIR delta de la PRIMERA serie
+  completada, capturado por separado en
+  `SessionInterpretationService::aggregateSetLogs()`. Nuevo
+  `ConditionVariable::RIR_DELTA_SERIE_TOP` (cuenta como variable RIR a
+  efectos de `dependsOnRirData()`/exclusión por `sin_dato_suficiente`).
+- **Ítem 40** — `increment_kg` (nullable, `float`) nuevo en `exercises`
+  (migración `..._090004_...`). `applyRounding()` nuevo: si el ejercicio
+  tiene `increment_kg` configurado, se usa como fallback ANTES que el
+  `RoundingMode` genérico de la regla (evita proponer un peso no cargable
+  en ese equipo concreto); sin configurar, comportamiento idéntico a
+  antes. Sustituye las 3 llamadas directas a `RoundingMode::apply()` en
+  `executeAction()` + la de `resolveSubstitutionStartingWeight()`.
+- **Ítem 41** — `ConditionVariable::ROL_EJERCICIO`: 1.0 si el ejercicio es
+  principal del bloque, 0.0 si es accesorio — reutiliza el mismo criterio
+  ya existente en `AdaptiveWeekPlanner`/`MesocycleClosureService::principalExerciseIds()`.
+- **Ítem 42** — `ConditionVariable::DOLOR_RECIENTE_NO_BLOQUEANTE`: 1.0 si
+  hay un `PainReport` en los últimos 14 días (`DOLOR_RECIENTE_WINDOW_DAYS`)
+  que NO llegó a bloquear la sesión (gradiente de precaución, distinto del
+  bloqueo absoluto por dolor de Fase 2 paso 1), memoizado en
+  `$evaluationCache`.
+
+### Ronda 14 — Síntesis de señales (ítem 43)
+
+`min_condiciones_requeridas` (nullable, `unsignedInteger`) nuevo en
+`session_progression_rule_conditions` (migración `..._090005_...`) +
+validación en `SessionProgressionRuleController::validateRulePayload()`.
+`ruleMatches()` ya no exige AND estricto de las M condiciones de un grupo
+si alguna de ellas trae `min_condiciones_requeridas` configurado — basta
+con que N de M se cumplan (`resolveMinCondicionesRequeridas()` toma el
+mayor valor configurado en el grupo). Sin configurar en ninguna condición
+del grupo → AND estricto de siempre, cero cambio de comportamiento para
+las reglas ya existentes. Es el cambio conceptual más grande del lote:
+por primera vez el coach puede decir "con que se cumplan 2 de estas 3
+señales, actúa" en vez de exigir las 3 a la vez.
+
+### Ronda 15 — Fatiga acumulada de la sesión completa (ítem 44)
+
+Nuevo `ConditionVariable::ACCIONES_BAJADA_EN_SESION`. En vez de tocar la
+firma de `EvaluateSessionProgressionRules::handle()`, el contador vive
+como propiedad de instancia del propio `SessionProgressionRuleEngine`
+(`$accionesBajadaEnSesion`, NO se resetea en `resetEvaluationCache()` a
+diferencia de `$evaluationCache`) — el job resuelve una única instancia
+del engine para todo su `foreach` de ejercicios de la sesión, así que el
+contador persiste correctamente entre ejercicios sin cambiar el job.
+Se incrementa en `finalizeProposal()` solo en la rama REAL (ni
+`$simulate`, ni `shadow_mode`) cuando el tipo de acción final es
+`bajar_carga_pct` o `marcar_para_coach`. El coach ya puede montar una
+regla tipo "si ya van 2+ bajadas/avisos en esta sesión, marca directamente
+al coach" sin esperar a la siguiente sesión.
+
+### Ronda 16 — Conciencia de periodización/deload: NO implementada
+
+Deliberadamente dejada fuera de esta tanda, tal como el propio plan la
+marca (`docs/Motor_Autorregulacion_Analisis.md`, "Riesgo: alto — cruza
+fases y servicios, necesita su propio diseño antes de tocar código").
+Cruza `SessionInterpretationService::detectOutliers()` (Fase 1) con datos
+de mesociclo/`TrainingProgramGeneratorService` que hoy no se consultan
+desde ahí — antes de tocar código hace falta decidir con el usuario cómo
+se identifica "semana de descarga planificada" (¿campo nuevo en el
+programa? ¿inferido de la carga prescrita?) y qué hace `detectOutliers()`
+con esa señal. Item 45 sigue pendiente.
+
+### Verificación pendiente para consola con BD real (Rondas 11-15)
+
+1. Aplicar las 4 migraciones nuevas (`carga_ratio`, `carga_efectiva_reps`/
+   `rir_delta_serie_top`, `increment_kg`, `min_condiciones_requeridas`) y
+   confirmar las columnas.
+2. **Ítem 30/31** — crear 2 variantes de sustitución para el mismo
+   `(coach_id, original_exercise_id)`, una con `category='estancamiento'`
+   y otra sin `category`; disparar una regla de `sustituir_ejercicio` cuyas
+   condiciones usen `tendencia_rir` (debe inferir `'estancamiento'`) y
+   confirmar que `findSubstitution()` elige la etiquetada, no la genérica.
+3. **Ítem 32** — configurar `carga_ratio=0.8` en una variante y confirmar
+   que `next_session_targets.proposed_weight` sale como
+   `referencia × 0.8`, redondeado.
+4. **Ítem 33/34** — cliente con `training_experience_months_coach` o
+   autoevaluado <12 meses: confirmar que un `max_volume`/`max_weight` con
+   +3% (por debajo del umbral normal de 2.5% pero encima del propio 4%)
+   NO genera `pr_carga`. Repetir con un cliente ≥60 meses y una mejora del
+   1.5% (debe SÍ contar, umbral 1%).
+5. **Ítem 35** — cliente con un PR de hace 200 días y otro valor menor
+   hace 30 días: un nuevo valor que supere el de hace 30 días (pero no el
+   histórico) debe generar `MEJOR_MARCA_RECIENTE`, no `pr_carga`.
+6. **Ítem 36** — cliente con `goal_type='lose_fat'` y `max_weight` de hoy
+   un 2% por debajo de su histórico → confirmar `MANTIENE_FUERZA_EN_DEFICIT`
+   una vez, y que NO se repite si se vuelve a guardar dentro de 14 días.
+7. **Ítem 37** — comparar `progreso_sesion` de un cliente con 3 sesiones
+   previas de cargas distintas — confirmar que compara contra la media, no
+   contra la última.
+8. **Ítem 38/39/41/42** — montar 4 reglas de prueba, una por variable
+   nueva (`reps_en_tope_rango`, `rir_delta_serie_top`, `rol_ejercicio`,
+   `dolor_reciente_no_bloqueante`) y confirmar que cada una resuelve el
+   valor esperado contra una sesión real, y `null`/condición-falla sin
+   dato.
+9. **Ítem 40** — configurar `increment_kg=2.5` en un ejercicio con
+   mancuerna y confirmar que una propuesta de `ajustar_carga_pct` sale
+   redondeada a múltiplos de 2.5, ignorando el `RoundingMode` de la regla.
+10. **Ítem 43** — montar un grupo de 3 condiciones con
+    `min_condiciones_requeridas=2` en una de ellas, cumplir solo 2 de las
+    3, y confirmar que la regla SÍ gana (antes de este ítem, no habría
+    ganado). Confirmar también que un grupo SIN este campo sigue exigiendo
+    las 3.
+11. **Ítem 44** — sesión con ≥2 ejercicios que disparen `bajar_carga_pct`/
+    `marcar_para_coach`; montar una regla con `acciones_bajada_en_sesion
+    gte 2` en un ejercicio posterior de la misma sesión y confirmar que se
+    dispara (el orden de `pluck('exercise_id')->unique()` en el job no está
+    garantizado — verificar con varios ejercicios si el orden real importa
+    para el caso de prueba).
+
+## ACTUALIZACIÓN — 2026-09-08, misma tercera sesión, Rondas 8-10 (tonelaje real)
+
+Segunda tanda de esta sesión, después de la consolidación de `linearSlope`
+y la Ronda 7 (ver sección siguiente). Implementa la cadena de tonelaje
+completa:
+
+- **Ronda 8 (ítem 26)** — `volumen_total` (tonelaje: `peso × reps` de sets
+  completados, misma fórmula que `MuscleVolumeService`/`ClientExerciseLogObserver`)
+  y su tendencia `tendencia_volumen` (misma pendiente lineal que
+  `tendencia_rir`, vía el trait compartido) añadidos a
+  `exercise_session_metrics` — migración
+  `2026_09_08_090001_add_volumen_total_to_exercise_session_metrics_table.php`,
+  calculados en `SessionInterpretationService::aggregateSetLogs()`/`updateTrendMetrics()`.
+  `null` (no `0.0`) cuando no hubo ningún set completado, mismo criterio que `carga_efectiva`.
+- **Ronda 9 (ítem 27)** — `ConditionVariable::TENDENCIA_VOLUMEN` nuevo, resuelto
+  directamente desde la columna ya calculada (mismo patrón que `TENDENCIA_RIR`).
+- **Ronda 10 (ítems 28-29)** — **cambio de métrica, no solo aditivo**:
+  - `ReadinessCalculationService::acwr()` ahora suma `volumen_total` en vez de `carga_efectiva`.
+  - `MesocycleClosureService::persistComparisons()` ahora calcula `value`/`previous_best`
+    (y la regresión del ítem 20) sobre `volumen_total` en vez de `carga_efectiva`.
+
+**Importante para la verificación**: estos dos últimos cambios alteran el
+valor numérico de métricas que YA se calculaban y ya están en producción
+(ACWR, achievement `mesociclo_cerrado`) — no es un fallo si el número
+cambia, es intencional, pero hay que comunicarlo (banda de readiness de
+clientes existentes puede moverse la próxima vez que corra `readiness:calculate`).
+
+### Verificación pendiente (añadir a la lista de antes)
+
+- Aplicar la migración `volumen_total`.
+- Reprocesar/backfillear `exercise_session_metrics` de sesiones ya existentes si se quiere `volumen_total` histórico (hoy solo se calcula hacia adelante, en sesiones nuevas — no hay backfill automático en esta tanda).
+- Comparar el ACWR de un cliente real ANTES/DESPUÉS de este cambio — confirmar que el número es distinto (se espera) y que la banda de readiness resultante sigue siendo razonable.
+- Cerrar un mesociclo de prueba y confirmar que el `AchievementEvent` de `mesociclo_cerrado` ahora refleja tonelaje, no peso pico.
+- Montar una regla con condición `tendencia_volumen` y confirmar que se resuelve igual que `tendencia_rir` (sin dato → falla la condición, con dato → compara bien).
+
+## ESTADO ANTERIOR — 2026-09-08, tercera sesión (sandbox sin BD, de nuevo)
+
+Rama `claude/motor-autorregulacion-46dke6` reiniciada desde `main` (la
+anterior ya se fusionó, ver sección de abajo) — mismo criterio que la
+primera vez: "si el PR ya se mergeó, la rama de trabajo se reinicia desde
+el último `main`". En esta tanda:
+
+1. **Consolidada la decisión abierta #3**: `MesocycleClosureService::linearRegression()`
+   ya no tiene su propia copia del núcleo de la regresión — usa
+   `ComputesLinearSlope::computeRawLinearSlope()` (el mismo trait que ya
+   usan `SessionInterpretationService` y `SessionProgressionRuleEngine`) y
+   solo calcula el intercepto localmente. Cero cambio de comportamiento.
+2. **Ronda 7 implementada (ítems 23-25)** — nivel de experiencia real del cliente:
+   - Migración `2026_09_08_090000_add_coach_overrides_to_training_questionnaire_answers_table.php`: añade `training_experience_months_coach`, `technique_level_coach`, `overridden_by_id`, `overridden_at` a `training_questionnaire_answers`.
+   - `TrainingQuestionnaireAnswer`: `effectiveExperienceMonths()`/`effectiveTechniqueLevel()` (override del coach si existe, si no el autoevaluado).
+   - `Admin\OnboardingController::updateTrainingExperience()` + ruta `POST admin-onboarding-training-experience-update` (mismo grupo `admin.api` que el resto del panel admin de onboarding) — **requiere que el cliente ya tenga fila** en `training_questionnaire_answers` (el resto de columnas de esa tabla son NOT NULL sin default; crear una fila nueva solo con el override la dejaría inválida) — devuelve 422 explícito si no.
+   - `ConditionVariable::NIVEL_EXPERIENCIA` nuevo + `SessionProgressionRuleEngine::resolveNivelExperiencia()` (memoizado en `$evaluationCache`) — el coach ya puede montar reglas condicionadas a meses de experiencia real.
+
+**Otra vez sin BD en este sandbox** (mismo `Connection refused` que la
+primera tanda) — nada de esto se ha podido probar contra datos reales.
+`php -l` limpio en los 7 ficheros tocados.
+
+### Verificación pendiente para consola con BD real (añadir al checklist de abajo)
+
+- Aplicar la migración nueva y confirmar las 4 columnas.
+- `POST admin-onboarding-training-experience-update` con un `user_id` que SÍ tenga fila en `training_questionnaire_answers` → confirmar que solo se escriben las columnas `_coach` + `overridden_by_id`/`overridden_at`, sin tocar los valores autoevaluados originales.
+- Mismo endpoint con un `user_id` que NO haya completado el onboarding → confirmar el 422 ("todavía no completó el cuestionario").
+- Montar una regla con condición `nivel_experiencia` (p. ej. `gte 60` = 5 años) contra un cliente con override de coach vs. uno solo con autoevaluación vs. uno sin ninguna fila (debe fallar la condición, no romper).
+- Confirmar que `MesocycleClosureService` sigue generando los mismos `previous_best` que antes de la consolidación (mismo caso de prueba que ya se usó para el ítem 20, si se conservó).
+
+## ESTADO ANTERIOR — 2026-09-07, fin de la segunda sesión (consola local, BD real)
 
 **Cerrado y en producción.** Las Rondas 1-6 (22 ítems) están verificadas
 contra la BD real de la VPS, con un bug real encontrado y corregido (ítem

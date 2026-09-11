@@ -10,9 +10,9 @@ class ProgramDayAssignment extends Model
 {
     use HasFactory, SoftDeletes;
 
-    protected $fillable = ['training_program_id', 'week_number', 'day_of_week', 'workout_template_id', 'scheduled_date'];
+    protected $fillable = ['training_program_id', 'week_number', 'day_of_week', 'workout_template_id', 'scheduled_date', 'is_deload'];
 
-    protected $casts = ['scheduled_date' => 'date'];
+    protected $casts = ['scheduled_date' => 'date', 'is_deload' => 'boolean'];
 
     public function trainingProgram()
     {

@@ -14,7 +14,11 @@ class ExerciseSubstitution extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['coach_id', 'original_exercise_id', 'substitute_exercise_id', 'category'];
+    protected $fillable = ['coach_id', 'original_exercise_id', 'substitute_exercise_id', 'category', 'carga_ratio'];
+
+    protected $casts = [
+        'carga_ratio' => 'float',
+    ];
 
     public function coach()
     {

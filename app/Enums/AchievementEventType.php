@@ -37,4 +37,15 @@ enum AchievementEventType: string
     case MEJORA_E1RM = 'mejora_e1rm';
     case HITO_COMPLIANCE = 'hito_compliance';
     case PROGRESO_SESION = 'progreso_sesion';
+    // Plan de Optimización, Ronda 12 ítem 35 (docs/Motor_Autorregulacion_Analisis.md):
+    // supera el mejor valor de los últimos RECENT_BEST_WINDOW_DAYS (90) sin
+    // llegar a ser récord ALL-TIME -- reconoce progreso real durante una
+    // recuperación (lesión, parón) sin esperar a superar un pico de hace
+    // años. Ver ClientExerciseLogObserver::maybeRecordRecentBest().
+    case MEJOR_MARCA_RECIENTE = 'mejor_marca_reciente';
+    // Ítem 36: cliente en fase de pérdida de grasa/recomposición
+    // (TrainingQuestionnaireAnswer.goal_type) que mantiene su fuerza sin
+    // bajar -- logro distinto de un PR al alza, orientado a reforzar
+    // adherencia durante un déficit calórico.
+    case MANTIENE_FUERZA_EN_DEFICIT = 'mantiene_fuerza_en_deficit';
 }

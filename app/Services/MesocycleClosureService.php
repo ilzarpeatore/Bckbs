@@ -7,6 +7,7 @@ use App\Models\AchievementEvent;
 use App\Models\ExerciseSessionMetric;
 use App\Models\ProgramClientAssignment;
 use App\Models\TrainingProgram;
+use App\Services\Concerns\ComputesLinearSlope;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Gate;
 
@@ -28,6 +29,9 @@ use Illuminate\Support\Facades\Gate;
  */
 class MesocycleClosureService
 {
+    use ComputesLinearSlope;
+
+
     /**
      * Ítem 20 (docs/Motor_Autorregulacion_Analisis.md, Plan de Optimización,
      * Ronda 5) — mínimo de sesiones válidas para ajustar una regresión
@@ -86,7 +90,7 @@ class MesocycleClosureService
     }
 
     /**
-     * Compara la TENDENCIA completa de carga_efectiva del mesociclo (todas
+     * Compara la TENDENCIA completa de volumen_total del mesociclo (todas
      * las sesiones válidas, no solo primera vs. última), por ejercicio
      * principal, y persiste un achievement_event por ejercicio con datos
      * suficientes.
@@ -96,15 +100,26 @@ class MesocycleClosureService
      * que cualquiera de esos dos puntos fuera un outlier puntual (día de
      * test de calibración, mal día aislado). Ahora, cuando hay suficientes
      * sesiones (>= MIN_SESSIONS_FOR_LINEAR_TREND), se ajusta una regresión
-     * lineal simple sobre carga_efectiva en orden cronológico y se usa el
-     * INTERCEPTO (valor que tendría la recta en la primera sesión, x=0)
-     * como previous_best en vez del valor crudo de la primera sesión, para
-     * suavizar el efecto de que esa sesión concreta fuera atípica. `value`
-     * sigue siendo la carga_efectiva real de la ÚLTIMA sesión válida (sigue
-     * siendo relevante saber dónde terminó el cliente el bloque). Si hay
-     * menos de 3 sesiones válidas, o la pendiente resulta prácticamente
-     * plana (ver FLAT_SLOPE_RELATIVE_THRESHOLD), cae al comportamiento
-     * original (primera sesión real como previous_best).
+     * lineal simple en orden cronológico y se usa el INTERCEPTO (valor que
+     * tendría la recta en la primera sesión, x=0) como previous_best en vez
+     * del valor crudo de la primera sesión, para suavizar el efecto de que
+     * esa sesión concreta fuera atípica. `value` sigue siendo el valor real
+     * de la ÚLTIMA sesión válida (sigue siendo relevante saber dónde
+     * terminó el cliente el bloque). Si hay menos de 3 sesiones válidas, o
+     * la pendiente resulta prácticamente plana (ver
+     * FLAT_SLOPE_RELATIVE_THRESHOLD), cae al comportamiento original
+     * (primera sesión real como previous_best).
+     *
+     * CAMBIO DE MÉTRICA (Plan de Optimización, Ronda 10 ítem 29): antes
+     * `value`/`previous_best` se calculaban sobre `carga_efectiva` (el pico
+     * de UN set del ejercicio principal). Ahora usan `volumen_total`
+     * (tonelaje real, Ronda 8) -- la métrica más honesta para "cuánto
+     * trabajaste en este ejercicio durante el bloque", en vez de solo el
+     * peso máximo levantado. La lógica de regresión/intercepto (ítem 20)
+     * no cambia, solo la columna de origen. Igual que en
+     * ReadinessCalculationService::acwr() (ítem 28), esto cambia el
+     * significado de `mesociclo_cerrado` para achievement_events nuevos --
+     * comunicar el cambio al desplegar, no silencioso.
      */
     private function persistComparisons(ProgramClientAssignment $assignment): void
     {
@@ -122,7 +137,7 @@ class MesocycleClosureService
             ->where('client_id', $assignment->client_id)
             ->where('is_outlier', false)
             ->where('sin_dato_suficiente', false)
-            ->whereNotNull('carga_efectiva')
+            ->whereNotNull('volumen_total')
             ->whereHas('workoutSessionReview', function ($q) use ($assignment) {
                 $q->whereBetween('completed_at', [
                         Carbon::parse($assignment->start_date)->startOfDay(),
@@ -151,15 +166,15 @@ class MesocycleClosureService
             $last = $group->last();
 
             // Fallback por defecto: comportamiento original (primera sesión real).
-            $previousBest = $first->carga_efectiva;
+            $previousBest = $first->volumen_total;
 
             if ($group->count() >= self::MIN_SESSIONS_FOR_LINEAR_TREND) {
-                $values = $group->map(fn ($m) => (float) $m->carga_efectiva)->values()->all();
+                $values = $group->map(fn ($m) => (float) $m->volumen_total)->values()->all();
                 $regression = $this->linearRegression($values);
 
                 if ($regression !== null) {
-                    $meanCarga = array_sum($values) / count($values);
-                    $relativeSlope = $meanCarga == 0.0 ? 0.0 : abs($regression['slope']) / abs($meanCarga);
+                    $meanVolumen = array_sum($values) / count($values);
+                    $relativeSlope = $meanVolumen == 0.0 ? 0.0 : abs($regression['slope']) / abs($meanVolumen);
 
                     // Pendiente prácticamente plana: el intercepto quedaría
                     // casi idéntico al valor medio, sin aportar nada frente
@@ -175,7 +190,7 @@ class MesocycleClosureService
                 'client_id'                 => $assignment->client_id,
                 'type'                       => AchievementEventType::MESOCICLO_CERRADO->value,
                 'exercise_id'                => $exerciseId,
-                'value'                      => $last->carga_efectiva,
+                'value'                      => $last->volumen_total,
                 'previous_best'              => $previousBest,
                 'significancia_verificada'   => true,
                 'source_type'                => ProgramClientAssignment::class,
@@ -186,22 +201,16 @@ class MesocycleClosureService
 
     /**
      * Pendiente e intercepto de una regresión lineal simple sobre $values
-     * (eje X = 0..n-1, en orden cronológico). Mismo patrón algorítmico que
-     * SessionInterpretationService::linearSlope()
-     * (app/Services/SessionInterpretationService.php:410-433) y
-     * SessionProgressionRuleEngine::linearSlope()
-     * (app/Services/SessionProgressionRuleEngine.php:561-576) — ambos
-     * métodos privados, en ficheros fuera del alcance de este cambio (en
-     * edición paralela por otro agente en el momento de escribir esto).
+     * (eje X = 0..n-1, en orden cronológico).
      *
-     * NOTA DE CONSOLIDACIÓN PENDIENTE: esta es, a sabiendas, una TERCERA
-     * copia del mismo cálculo (extendida para devolver también el
-     * intercepto, que las otras dos no necesitan). No se extrajo a un
-     * helper/trait compartido porque tocar los dos ficheros de origen
-     * estaba fuera de mi alcance en esta tarea — el propio análisis
-     * (Ronda 3 del plan de optimización) ya señala la duplicación entre
-     * esos dos y pide extraerla; cuando se aborde esa ronda, esta tercera
-     * copia debería consolidarse también en el mismo helper.
+     * CONSOLIDACIÓN (Plan de Optimización, Ronda 3 ítem 9, decisión abierta
+     * #3 del handoff de verificación): esta era, a sabiendas, una tercera
+     * copia del mismo cálculo que SessionInterpretationService::linearSlope()
+     * y SessionProgressionRuleEngine::linearSlope() — ahora reutiliza el
+     * núcleo compartido `ComputesLinearSlope::computeRawLinearSlope()`
+     * (misma pendiente) y solo calcula aquí el intercepto (`meanY - slope *
+     * meanX`), que es lo único que este servicio necesita y los otros dos
+     * no. Cero cambio de comportamiento respecto a la copia local anterior.
      *
      * @return array{slope: float, intercept: float}|null null si hay menos de 2 puntos (no hay recta que ajustar).
      */
@@ -212,18 +221,9 @@ class MesocycleClosureService
             return null;
         }
 
-        $xs = range(0, $n - 1);
-        $meanX = array_sum($xs) / $n;
+        $slope = $this->computeRawLinearSlope($values);
+        $meanX = array_sum(range(0, $n - 1)) / $n;
         $meanY = array_sum($values) / $n;
-
-        $numerator = 0.0;
-        $denominator = 0.0;
-        foreach ($xs as $i => $x) {
-            $numerator += ($x - $meanX) * ($values[$i] - $meanY);
-            $denominator += ($x - $meanX) ** 2;
-        }
-
-        $slope = $denominator == 0.0 ? 0.0 : $numerator / $denominator;
         $intercept = $meanY - $slope * $meanX;
 
         return ['slope' => $slope, 'intercept' => $intercept];

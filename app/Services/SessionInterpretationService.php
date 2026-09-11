@@ -8,6 +8,7 @@ use App\Models\ClientExerciseOverride;
 use App\Models\ExerciseSessionMetric;
 use App\Models\PainReport;
 use App\Models\PersonalRecord;
+use App\Models\ProgramDayAssignment;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
@@ -158,6 +159,10 @@ class SessionInterpretationService
                 // client_exercise_logs desde ese servicio.
                 'workout_template_exercise_id' => $log->workout_template_exercise_id,
                 'rir_delta_sesion'   => $agg['rir_delta_sesion'],
+                // Ítem 39 (Plan de Optimización, Ronda 13): RIR delta de la
+                // serie top, ya calculado en aggregateSetLogs() pero nunca
+                // persistido hasta ahora.
+                'rir_delta_serie_top' => $agg['rir_delta_serie_top'],
                 'completion_ratio'   => $agg['completion_ratio'],
                 'peor_serie_index'   => $agg['peor_serie_index'],
                 // Fase 2 (condición 'peor_serie', ver migración
@@ -166,6 +171,12 @@ class SessionInterpretationService
                 // persistía porque Fase 1 no lo necesitaba.
                 'peor_serie_rir'     => $agg['peor_serie_rir'],
                 'carga_efectiva'     => $agg['carga_efectiva'],
+                // Ítem 38 (Plan de Optimización, Ronda 13): reps de la
+                // serie que define carga_efectiva -- ya se calculaba aquí
+                // (aggregateSetLogs) pero nunca se persistía; hace falta
+                // para resolver ConditionVariable::REPS_EN_TOPE_RANGO.
+                'carga_efectiva_reps' => $agg['carga_efectiva_reps'],
+                'volumen_total'      => $agg['volumen_total'],
                 'blocked_by_pain'    => $blockedByPain,
             ]
         );
@@ -178,7 +189,13 @@ class SessionInterpretationService
             return;
         }
 
-        $isOutlier = $this->detectOutliers($clientId, $exerciseId, $agg['carga_efectiva'], $metrics->id);
+        // Ítem 45 (Ronda 16): $programDayAssignmentId ya resuelto arriba
+        // para el bloqueo por dolor -- se reutiliza, sin sesión programada
+        // (workout suelto) el concepto de "semana de descarga" no aplica.
+        $isDeloadWeek = $programDayAssignmentId
+            ? (bool) ProgramDayAssignment::find($programDayAssignmentId)?->is_deload
+            : false;
+        $isOutlier = $this->detectOutliers($clientId, $exerciseId, $agg['carga_efectiva'], $metrics->id, $isDeloadWeek);
         $sinDatoSuficiente = $this->checkDataSufficiency($agg['sets']);
 
         $metrics->is_outlier = $isOutlier;
@@ -218,6 +235,18 @@ class SessionInterpretationService
         $peorSerieRir = null;
         $cargaEfectiva = null;
         $cargaEfectivaReps = null;
+        // Ítem 22 (Plan de Optimización, Ronda 8, docs/Motor_Autorregulacion_Analisis.md):
+        // tonelaje real (peso × reps de cada set completado, sumado) — misma
+        // fórmula ya usada y probada en MuscleVolumeService::computeVolume()
+        // y ClientExerciseLogObserver::created(), llevada aquí como fuente
+        // central para Fase 2 en adelante. A diferencia de carga_efectiva
+        // (pico de UN set), esto es el trabajo total de la sesión.
+        $volumenTotal = 0.0;
+        // Ítem 39 (Plan de Optimización, Ronda 13): RIR delta de la
+        // PRIMERA serie completada CON rir reportado (orden cronológico de
+        // logged_sets) -- distinto del promedio de toda la sesión, soporta
+        // razonar sobre la serie top por separado de las de backoff.
+        $rirDeltaSerieTop = null;
 
         foreach ($sets as $index => $set) {
             $set = is_array($set) ? $set : [];
@@ -229,6 +258,7 @@ class SessionInterpretationService
             $isCompleted = $weight !== null && $weight > 0 && $reps !== null && $reps > 0;
             if ($isCompleted) {
                 $completedCount++;
+                $volumenTotal += $weight * $reps;
             }
 
             if ($rir === null) {
@@ -237,7 +267,12 @@ class SessionInterpretationService
                 // Un set con RIR nulo nunca debe romper el cálculo — se
                 // excluye simplemente de la media (documento, criterio de
                 // aceptación Fase 1).
-                $rirDeltas[] = $prescribedRir !== null ? ($rir - $prescribedRir) : $rir;
+                $delta = $prescribedRir !== null ? ($rir - $prescribedRir) : $rir;
+                $rirDeltas[] = $delta;
+
+                if ($isCompleted && $rirDeltaSerieTop === null) {
+                    $rirDeltaSerieTop = $delta;
+                }
 
                 if ($peorSerieRir === null || $rir < $peorSerieRir) {
                     $peorSerieRir = $rir;
@@ -254,19 +289,27 @@ class SessionInterpretationService
         }
 
         $rirDeltaSesion = count($rirDeltas) > 0 ? round(array_sum($rirDeltas) / count($rirDeltas), 3) : null;
+        $rirDeltaSerieTop = $rirDeltaSerieTop !== null ? round($rirDeltaSerieTop, 3) : null;
         $completionRatio = $prescribedSeries && $prescribedSeries > 0
             ? round($completedCount / $prescribedSeries, 2)
             : null;
+        // null (no 0.0) cuando no hubo NINGÚN set completado -- mismo
+        // criterio que carga_efectiva: "sin dato" se distingue de "trabajo
+        // real de cero", para que un futuro volumen_delta no confunda una
+        // sesión sin datos con una sesión de volumen 0 real.
+        $volumenTotal = $completedCount > 0 ? round($volumenTotal, 2) : null;
 
         return [
             'sets'               => $sets,
             'rir_null_count'     => $rirNullCount,
             'total_sets'         => count($sets),
             'rir_delta_sesion'   => $rirDeltaSesion,
+            'rir_delta_serie_top' => $rirDeltaSerieTop,
             'completion_ratio'   => $completionRatio,
             'peor_serie_index'   => $peorSerieIndex,
             'peor_serie_rir'     => $peorSerieRir,
             'carga_efectiva'     => $cargaEfectiva,
+            'volumen_total'      => $volumenTotal,
             'carga_efectiva_reps'=> $cargaEfectivaReps,
         ];
     }
@@ -304,7 +347,19 @@ class SessionInterpretationService
      * Si la desviación es >30%, se marca is_outlier=true y se excluye de
      * agregados de tendencia (no se borra el dato).
      */
-    public function detectOutliers(int $clientId, int $exerciseId, ?float $cargaEfectiva, int $excludeMetricId): bool
+    /**
+     * Ítem 45 (Plan de Optimización, Ronda 16): `$isDeloadWeek` -- ver
+     * ProgramDayAssignment.is_deload (migración
+     * 2026_09_10_090000_add_is_deload_to_program_day_assignments_table.php),
+     * marcado por el coach vía TrainingProgramController::markWeekDeload().
+     * En semana de descarga planificada, una BAJADA de carga es la
+     * intención, no una anomalía -- se suprime el outlier solo cuando
+     * $cargaEfectiva < $mean (la desviación es hacia abajo). Una subida
+     * inusual durante una semana de descarga (dato raro, pero posible: un
+     * cliente que rompe la pauta) sigue marcándose igual que siempre, la
+     * descarga no la explica.
+     */
+    public function detectOutliers(int $clientId, int $exerciseId, ?float $cargaEfectiva, int $excludeMetricId, bool $isDeloadWeek = false): bool
     {
         if ($cargaEfectiva === null) {
             return false;
@@ -328,6 +383,10 @@ class SessionInterpretationService
 
         $mean = $recent->avg();
         if ($mean <= 0) {
+            return false;
+        }
+
+        if ($isDeloadWeek && $cargaEfectiva < $mean) {
             return false;
         }
 
@@ -370,7 +429,7 @@ class SessionInterpretationService
             ->where('blocked_by_pain', false)
             ->orderByDesc('created_at')
             ->limit(self::TREND_WINDOW)
-            ->get(['id', 'rir_delta_sesion', 'carga_efectiva', 'created_at']);
+            ->get(['id', 'rir_delta_sesion', 'carga_efectiva', 'volumen_total', 'created_at']);
 
         // Pendiente lineal simple de rir_delta_sesión en las N sesiones
         // (orden cronológico ascendente para que la pendiente tenga signo
@@ -379,6 +438,14 @@ class SessionInterpretationService
         $chronological = $validRecent->reverse()->values();
         $tendenciaRir = $this->linearSlope(
             $chronological->pluck('rir_delta_sesion')->filter(fn ($v) => $v !== null)->values()->all()
+        );
+
+        // Ítem 22 (Plan de Optimización, Ronda 8): misma pendiente lineal,
+        // ahora sobre volumen_total -- tonelaje real en vez de rir_delta.
+        // Mismo criterio de signo (positivo = subiendo volumen con el
+        // tiempo) y misma ventana (TREND_WINDOW sesiones válidas).
+        $tendenciaVolumen = $this->linearSlope(
+            $chronological->pluck('volumen_total')->filter(fn ($v) => $v !== null)->values()->all()
         );
 
         // Sesiones consecutivas con la misma carga_efectiva que la actual.
@@ -402,6 +469,7 @@ class SessionInterpretationService
         }
 
         $current->tendencia_rir = $tendenciaRir;
+        $current->tendencia_volumen = $tendenciaVolumen;
         $current->sesiones_consecutivas_sin_cambio = $sesionesSinCambio;
         $current->e1rm_estimado = $e1rm;
         // racha_misma_dirección: depende de la "última acción del motor"

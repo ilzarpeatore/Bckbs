@@ -28,13 +28,19 @@ class Exercise extends Model implements HasMedia
         'cardio'      => 'Cardio',
     ];
 
-    protected $fillable = [ 'title', 'slug', 'instruction', 'tips', 'video_type', 'video_url', 'bodypart_ids', 'duration', 'sets', 'equipment_id', 'level_id', 'status','is_premium', 'based', 'type', 'exercise_type', 'seconds_per_rep' ];
+    protected $fillable = [ 'title', 'slug', 'instruction', 'tips', 'video_type', 'video_url', 'bodypart_ids', 'duration', 'sets', 'equipment_id', 'level_id', 'status','is_premium', 'based', 'type', 'exercise_type', 'seconds_per_rep', 'increment_kg' ];
 
     protected $casts = [
         'equipment_id'      => 'integer',
         'level_id'          => 'integer',
         'is_premium'        => 'integer',
         'seconds_per_rep'   => 'integer',
+        // Plan de Optimización, Ronda 13 ítem 40: incremento real de carga
+        // de este ejercicio/equipo (mancuernas, máquina, barra...) --
+        // usado por SessionProgressionRuleEngine como fallback antes que el
+        // RoundingMode genérico de la regla, ver
+        // SessionProgressionRuleEngine::applyRounding().
+        'increment_kg'      => 'float',
     ];
 
     public function equipment()

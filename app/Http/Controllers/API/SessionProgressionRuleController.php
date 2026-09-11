@@ -83,6 +83,8 @@ class SessionProgressionRuleController extends Controller
             'conditions.*.threshold_max'        => 'nullable|numeric',
             'conditions.*.ventana_sesiones'     => 'nullable|integer|min:1',
             'conditions.*.logic_group'          => 'nullable|integer|min:0',
+            // Plan de Optimización, Ronda 14 ítem 43: "N de M condiciones".
+            'conditions.*.min_condiciones_requeridas' => 'nullable|integer|min:1',
             'action'                    => 'nullable|array',
             'action.type'                => ['required_with:action', new Enum(ActionType::class)],
             'action.value'               => 'nullable|numeric',
