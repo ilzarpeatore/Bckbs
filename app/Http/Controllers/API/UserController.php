@@ -374,6 +374,7 @@ class UserController extends Controller
         if($request->is('api*'))
         {
             $user->player_id = null;
+            $user->expo_push_token = null;
             $user->save();
             $user->currentAccessToken()->delete();
             $message = __('message.logout_success');
@@ -391,10 +392,31 @@ class UserController extends Controller
     {
         $user = Auth::user();
         $user->player_id = null;
+        $user->expo_push_token = null;
         $user->save();
         $user->tokens()->delete();
         $message = __('message.logout_success');
         return json_message_response($message);
+    }
+
+    /**
+     * AÑADIDO 2026-09-11 -- registro del token de Expo Push. El cliente lo
+     * llama cada vez que expo-notifications le da un token (login, primer
+     * arranque tras conceder permisos, o si Expo lo rota). Independiente de
+     * login/register a proposito: un token puede refrescarse a mitad de
+     * sesion, sin pasar por login otra vez.
+     */
+    public function updatePushToken(Request $request)
+    {
+        $request->validate([
+            'expo_push_token' => 'required|string|max:255',
+        ]);
+
+        $user = Auth::user();
+        $user->expo_push_token = $request->expo_push_token;
+        $user->save();
+
+        return json_message_response(__('message.updated'));
     }
 
     public function forgetPassword(Request $request)

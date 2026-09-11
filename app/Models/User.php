@@ -22,7 +22,7 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
      *
      * @var array
      */
-    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'is_subscribe', 'is_personal_client', 'timezone','last_notification_seen', 'apple_user_identifier', 'two_factor_enabled', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at' ];
+    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'expo_push_token', 'is_subscribe', 'is_personal_client', 'timezone','last_notification_seen', 'apple_user_identifier', 'two_factor_enabled', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at' ];
 
     /**
      * The attributes that should be hidden for arrays.
@@ -296,7 +296,7 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
 
     public function tags()
     {
-        return $this->belongsToMany(ClientTag::class, 'client_tag_assignments', 'client_id', 'tag_id');
+        return $this->belongsToMany(ClientTag::class, 'client_tag_assignments', 'client_id', 'client_tag_id');
     }
 
     public function authoredTasks()

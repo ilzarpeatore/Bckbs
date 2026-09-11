@@ -121,6 +121,8 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('delete-user-account', [ API\UserController::class, 'deleteUserAccount']);
     Route::get('logout',[ API\UserController::class, 'logout']);
     Route::post('logout-all-devices', [ API\UserController::class, 'logoutAllDevices']);
+    // AÑADIDO 2026-09-11: registro del token de Expo Push (ver ExpoPushChannel).
+    Route::post('update-push-token', [ API\UserController::class, 'updatePushToken']);
 
     Route::get('assign-diet-list', [ API\AssignUserController::class, 'getAssignDiet' ]);
     Route::get('assign-workout-list', [ API\AssignUserController::class, 'getAssignWorkout' ]);

@@ -8,6 +8,7 @@ use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Notifications\Notification;
 use NotificationChannels\OneSignal\OneSignalChannel;
 use NotificationChannels\OneSignal\OneSignalMessage;
+use App\Notifications\Channels\ExpoPushChannel;
 use Illuminate\Support\Facades\Log;
 
 class CommonNotification extends Notification
@@ -35,10 +36,17 @@ class CommonNotification extends Notification
      */
     public function via($notifiable)
     {
-        $notifications = []; 
+        $notifications = [];
 
         if( $notifiable->player_id != null ) {
             array_push($notifications, OneSignalChannel::class);
+        }
+
+        // AÑADIDO 2026-09-11: Expo Push (ver ExpoPushChannel) -- decision de
+        // usar el servicio de push de Expo en vez de terminar de integrar
+        // OneSignal, que llevaba con credenciales vacias sin usarse nunca.
+        if( $notifiable->expo_push_token != null ) {
+            array_push($notifications, ExpoPushChannel::class);
         }
 
         // Log::info('notifiable-'.$notifiable);
@@ -62,7 +70,7 @@ class CommonNotification extends Notification
 
             return OneSignalMessage::create()
                 ->setSubject($this->subject)
-                ->setBody($msg) 
+                ->setBody($msg)
                 ->setData('id',$this->data['id'])
                 ->setData('type',$type)
                 ->setIosAttachment($this->data['image'])
@@ -70,12 +78,45 @@ class CommonNotification extends Notification
         } else {
         return OneSignalMessage::create()
             ->setSubject($this->subject)
-            ->setBody($msg) 
+            ->setBody($msg)
             ->setData('id',$this->data['id'])
             ->setData('posting_id', $this->data['posting_id'] ?? null)
             ->setData('type',$type);
         }
     }
+
+    /**
+     * AÑADIDO 2026-09-11 -- mismo contenido que toOneSignal() (subject/body/
+     * type/id/posting_id/imagen), en el formato que espera la API de Expo
+     * (https://exp.host/--/api/v2/push/send): {to, title, body, data, sound}
+     * mas image_url/image de forma directa (Expo no distingue iOS/Android
+     * attachment como OneSignal, usa 'richContent'/'mutable-content' via
+     * plugins del cliente -- fuera de alcance de este cambio, el payload de
+     * imagen queda disponible en 'data' para que el cliente decida mostrarla).
+     */
+    public function toExpoPush($notifiable)
+    {
+        $msg = strip_tags($this->notification_message);
+        if ($msg === '') {
+            $msg = __('message.default_notification_body');
+        }
+
+        $type = $this->data['type'] ?? 'new_workout';
+
+        return [
+            'to'    => $notifiable->expo_push_token,
+            'title' => $this->subject,
+            'body'  => $msg,
+            'sound' => 'default',
+            'data'  => [
+                'id'          => $this->data['id'] ?? null,
+                'posting_id'  => $this->data['posting_id'] ?? null,
+                'type'        => $type,
+                'image'       => $this->data['image'] ?? null,
+            ],
+        ];
+    }
+
     /**
      * Get the mail representation of the notification.
      *
