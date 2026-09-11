@@ -653,6 +653,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('reports/revenue', [ReportController::class, 'revenue']);
     Route::get('reports/transactions', [ReportController::class, 'transactions']);
     Route::get('users/{user}/billing', [ReportController::class, 'clientBilling']);
+    // AÑADIDO: Motor de Auto-Regulación de Carga (Fase 4) -- visibilidad de
+    // readiness/ACWR real en el admin (item 10, docs/PENDIENTE_BACKEND_ADMIN.md).
+    Route::get('users/{user}/readiness', [ReportController::class, 'clientReadiness']);
     Route::get('revenue-summary', [ReportController::class, 'revenueSummary']);
 
     // AÑADIDO: Panel de Excepciones del Coach -- espejo admin del

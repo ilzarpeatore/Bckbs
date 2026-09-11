@@ -7,6 +7,7 @@ use App\Models\Plan;
 use App\Models\PlanSubscription;
 use App\Models\PlanFeature;
 use App\Models\PlanSubscriptionUsage;
+use App\Models\ReadinessScore;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -380,6 +381,45 @@ class ReportController extends Controller
             'ltv_eur' => $ltvCents ? round($ltvCents / 100, 2) : 0,
         ]]);
     }
+
+    /**
+     * Motor de Auto-Regulación de Carga (Fase 4, readiness score, documento
+     * §4.1) -- historial y último dato de un cliente concreto, para que el
+     * coach/admin vea Recovery/Strain reales desde ambos admin panels (item
+     * 10 de docs/PENDIENTE_BACKEND_ADMIN.md). ReadinessCalculationService y
+     * el cron diario (readiness:calculate, 06:00) ya calculan y guardan esto
+     * en producción -- este endpoint solo lee, no recalcula nada.
+     */
+    public function clientReadiness(Request $request, $userId)
+    {
+        $days = (int) $request->get('days', 30);
+        $days = max(1, min($days, 90));
+
+        $history = ReadinessScore::where('client_id', $userId)
+            ->orderBy('date', 'desc')
+            ->limit($days)
+            ->get([
+                'date', 'combined_score', 'band', 'acwr',
+                'hrv_z_score', 'sueno_z_score', 'subjetivo_score', 'calculated_at',
+            ])
+            ->map(fn ($s) => [
+                'date' => $s->date->toDateString(),
+                'combined_score' => $s->combined_score,
+                'band' => $s->band,
+                'acwr' => $s->acwr,
+                'hrv_z_score' => $s->hrv_z_score,
+                'sueno_z_score' => $s->sueno_z_score,
+                'subjetivo_score' => $s->subjetivo_score,
+                'calculated_at' => $s->calculated_at?->toIso8601String(),
+            ])
+            ->values();
+
+        return json_custom_response(['data' => [
+            'latest' => $history->first(),
+            'history' => $history,
+        ]]);
+    }
+
     public function coachingMetrics()
     {
         // FIX (Fase 0 del plan de cierre del Motor): User::role(['coach'])
