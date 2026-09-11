@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\Posting;
+use App\Models\Comment;
+use App\Models\CommentReply;
 use App\Http\Resources\PostingResource;
 use Illuminate\Http\Request;
 
@@ -100,5 +102,38 @@ class PostingController extends BaseController
         $posting->delete();
 
         return json_message_response('Posting deleted.');
+    }
+
+    /**
+     * Moderacion de comentarios como staff (item 6, auditoria de migracion
+     * 2026-09-11). Reutiliza el mismo scope Comment::canBeDeletedBy() que
+     * ya usa CommunityController (Blade) -- ese scope YA permite borrar
+     * cualquier comentario cuando el usuario autenticado hasRole('admin'),
+     * asi que no hace falta logica nueva, solo exponerlo via /admin.
+     */
+    public function destroyComment(Request $request, $id)
+    {
+        $comment = Comment::canBeDeletedBy()->where('id', $id)->first();
+
+        if (!$comment) {
+            return json_message_response('Comentario no encontrado.', 404);
+        }
+
+        $comment->delete();
+
+        return json_message_response('Comentario eliminado.');
+    }
+
+    public function destroyCommentReply(Request $request, $id)
+    {
+        $reply = CommentReply::canBeDeletedBy()->where('id', $id)->first();
+
+        if (!$reply) {
+            return json_message_response('Respuesta no encontrada.', 404);
+        }
+
+        $reply->delete();
+
+        return json_message_response('Respuesta eliminada.');
     }
 }

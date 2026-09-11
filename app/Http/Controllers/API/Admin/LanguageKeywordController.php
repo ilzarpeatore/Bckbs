@@ -3,8 +3,11 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\LanguageWithKeyword;
+use App\Exports\LanguageWithKeywordExport;
+use App\Imports\ImportLanguageWithKeyword;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
 
 class LanguageKeywordController extends BaseController
 {
@@ -69,5 +72,25 @@ class LanguageKeywordController extends BaseController
             DB::rollBack();
             return json_message_response('Failed to update keywords.', 500);
         }
+    }
+
+    /**
+     * Import/export de traducciones (item 8, auditoria de migracion
+     * 2026-09-11) -- mismas clases Export/Import que ya usa
+     * LanguageWithKeywordListController (Blade), solo expuestas via /admin.
+     */
+    public function export(Request $request)
+    {
+        return Excel::download(new LanguageWithKeywordExport, 'language-with-keyword-' . date('Ymd_H_i_s') . '.csv', \Maatwebsite\Excel\Excel::CSV);
+    }
+
+    public function import(Request $request)
+    {
+        $request->validate(['language_with_keyword' => 'required|file|mimes:csv,txt']);
+
+        $path = $request->file('language_with_keyword')->store('files');
+        Excel::import(new ImportLanguageWithKeyword, $path);
+
+        return json_message_response('Traducciones importadas.');
     }
 }

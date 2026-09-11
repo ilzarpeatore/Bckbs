@@ -508,6 +508,8 @@ use App\Http\Controllers\API\Admin\DietController as AdminDietController;
 use App\Http\Controllers\API\Admin\ExerciseController as AdminExerciseController;
 use App\Http\Controllers\API\Admin\WorkoutController as AdminWorkoutController;
 use App\Http\Controllers\API\Admin\RecipeController as AdminRecipeController;
+use App\Http\Controllers\API\Admin\SystemSettingsController;
+use App\Http\Controllers\API\Admin\LanguageFileController;
 use App\Http\Controllers\API\Admin\RecipeCategoryController as AdminRecipeCategoryController;
 use App\Http\Controllers\API\Admin\RecipeTagController as AdminRecipeTagController;
 use App\Http\Controllers\API\Admin\IngredientController as AdminIngredientController;
@@ -565,6 +567,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('dashboard', [DashboardController::class, 'index']);
 
     // Users
+    // AÑADIDO: export de informe de usuarios (item 8, auditoria de migracion
+    // 2026-09-11) -- debe ir ANTES del apiResource, si no 'report' choca con
+    // el {user} de users/{user} (show).
+    Route::get('users/report', [AdminUserController::class, 'report']);
     Route::apiResource('users', AdminUserController::class);
     Route::get('users-graph', [AdminUserController::class, 'graph']);
 
@@ -604,6 +610,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
 
     // Recipes
     Route::apiResource('recipes', AdminRecipeController::class);
+    // AÑADIDO: reordenar pasos (item 7, auditoria de migracion 2026-09-11).
+    Route::post('recipes/{recipe}/steps/reorder', [AdminRecipeController::class, 'reorderSteps']);
     Route::apiResource('recipe-categories', AdminRecipeCategoryController::class);
     Route::apiResource('recipe-tags', AdminRecipeTagController::class);
 
@@ -725,19 +733,51 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
     // no existía ninguna vía admin para borrar un post moderado.
     Route::post('admin-posting-delete', [PostingController::class, 'destroyReported']);
+    // AÑADIDO: moderacion de comentarios como staff (item 6, auditoria de
+    // migracion 2026-09-11) -- reutiliza Comment/CommentReply::canBeDeletedBy(),
+    // que ya permite borrado admin, solo faltaba exponerlo via /admin.
+    Route::post('postings/comments/{id}', [PostingController::class, 'destroyComment']);
+    Route::post('postings/comment-replies/{id}', [PostingController::class, 'destroyCommentReply']);
 
     // Languages
     Route::apiResource('languages', LanguageController::class);
     Route::get('language-keywords', [LanguageKeywordController::class, 'index']);
     Route::post('language-keywords/bulk-update', [LanguageKeywordController::class, 'bulkUpdate']);
+    // AÑADIDO: import/export de traducciones (item 8, auditoria de migracion 2026-09-11).
+    Route::get('language-keywords/export', [LanguageKeywordController::class, 'export']);
+    Route::post('language-keywords/import', [LanguageKeywordController::class, 'import']);
     Route::apiResource('screens', ScreenController::class);
     Route::apiResource('default-keywords', DefaultKeywordController::class);
+    // AÑADIDO: editor de archivos de idioma crudos (item 2, auditoria de migracion 2026-09-11).
+    Route::get('lang-files', [LanguageFileController::class, 'index']);
+    Route::get('lang-files/{lang}/{file}', [LanguageFileController::class, 'show']);
+    Route::post('lang-files/{lang}/{file}', [LanguageFileController::class, 'update']);
 
     // Security
     Route::apiResource('roles', RoleController::class);
     Route::get('permissions', [PermissionController::class, 'index']);
+    // AÑADIDO: crear/borrar permisos (item 3, auditoria de migracion 2026-09-11).
+    Route::post('permissions', [PermissionController::class, 'store']);
+    Route::delete('permissions/{id}', [PermissionController::class, 'destroy']);
     Route::get('admin-login-history', [AdminLoginHistoryController::class, 'index']);
     Route::apiResource('admin-login-devices', AdminLoginDeviceController::class)->only(['index', 'destroy']);
+
+    // AÑADIDO: paginas de configuracion que solo existian en el Blade viejo
+    // (item 1, 4, 5, 8 de la auditoria de migracion 2026-09-11) -- misma
+    // logica/modelos que SettingController (Blade), solo como JSON.
+    Route::get('system-settings/env', [SystemSettingsController::class, 'envSettings']);
+    Route::post('system-settings/env', [SystemSettingsController::class, 'updateEnvSettings']);
+    Route::get('system-settings/legal', [SystemSettingsController::class, 'termsAndPrivacy']);
+    Route::post('system-settings/legal/terms', [SystemSettingsController::class, 'updateTermsCondition']);
+    Route::post('system-settings/legal/privacy', [SystemSettingsController::class, 'updatePrivacyPolicy']);
+    Route::get('system-settings/payment-gateway/{type}', [SystemSettingsController::class, 'paymentGateway']);
+    Route::post('system-settings/payment-gateway/{type}', [SystemSettingsController::class, 'updatePaymentGateway']);
+    Route::get('system-settings/subscription', [SystemSettingsController::class, 'subscriptionSetting']);
+    Route::post('system-settings/subscription', [SystemSettingsController::class, 'updateSubscriptionSetting']);
+    Route::get('system-settings/login-enable', [SystemSettingsController::class, 'loginEnableSetting']);
+    Route::post('system-settings/login-enable', [SystemSettingsController::class, 'updateLoginEnableSetting']);
+    Route::get('system-settings/mail-alerts', [SystemSettingsController::class, 'mailAlertSettings']);
+    Route::post('system-settings/mail-alerts', [SystemSettingsController::class, 'updateMailAlertSettings']);
 
     // 2FA + Auditoría (panel React)
     Route::get('2fa/status', [TwoFactorController::class, 'status']);

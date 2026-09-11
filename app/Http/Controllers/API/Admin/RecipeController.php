@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\Admin;
 
 use App\Models\Recipe;
+use App\Models\RecipeStep;
 use App\Http\Resources\RecipeResource;
 use Illuminate\Http\Request;
 
@@ -116,5 +117,21 @@ class RecipeController extends BaseController
         if ($request->has('tags')) {
             $item->tags()->sync($request->tags);
         }
+    }
+
+    /**
+     * Reordenar pasos de una receta (item 7, auditoria de migracion
+     * 2026-09-11) -- misma logica que RecipeController::reorderSteps
+     * (Blade): un array ordenado de IDs, sequence = posicion + 1.
+     */
+    public function reorderSteps(Request $request, $recipeId)
+    {
+        $request->validate(['ids' => 'required|array']);
+
+        foreach ($request->ids as $key => $stepId) {
+            RecipeStep::where('id', $stepId)->where('recipe_id', $recipeId)->update(['sequence' => $key + 1]);
+        }
+
+        return json_custom_response(['message' => 'Orden de pasos actualizado.']);
     }
 }

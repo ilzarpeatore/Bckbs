@@ -5,8 +5,11 @@ namespace App\Http\Controllers\API\Admin;
 use App\Models\User;
 use App\Http\Resources\UserResource;
 use App\Services\WelcomeMailService;
+use App\Exports\UserReportExport;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Maatwebsite\Excel\Facades\Excel;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class UserController extends BaseController
 {
@@ -152,5 +155,40 @@ class UserController extends BaseController
             'pagination' => json_pagination_response($graphs),
             'data'       => $graphs,
         ]);
+    }
+
+    /**
+     * Export de informe de usuarios (item 8, auditoria de migracion
+     * 2026-09-11) -- mismo UserReportExport que ya usa
+     * UserController::downloadUserReport/downloadUserReportPdf (Blade).
+     */
+    public function report(Request $request)
+    {
+        $fileType = $request->get('format', 'xlsx');
+        $userData = User::userReport()->get();
+        $export = new UserReportExport($userData, $request);
+
+        if ($fileType === 'pdf') {
+            $collection = $export->collection();
+            $mappedData = $collection->map([$export, 'map']);
+            $headings = $export->headings();
+
+            $pdf = Pdf::loadView('users.user-report', [
+                'headings'   => $headings,
+                'mappedData' => $mappedData,
+            ])->setPaper('a4', 'landscape');
+
+            return $pdf->download('user-report.pdf');
+        }
+
+        $format = match (strtolower($fileType)) {
+            'csv'   => \Maatwebsite\Excel\Excel::CSV,
+            'xls'   => \Maatwebsite\Excel\Excel::XLS,
+            'ods'   => \Maatwebsite\Excel\Excel::ODS,
+            'html'  => \Maatwebsite\Excel\Excel::HTML,
+            default => \Maatwebsite\Excel\Excel::XLSX,
+        };
+
+        return Excel::download($export, 'user-report_' . now()->format('Y-m-d') . '.' . $fileType, $format);
     }
 }

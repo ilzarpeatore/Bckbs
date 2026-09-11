@@ -19,4 +19,4 @@ yarn-error.log
 *.sql
 temp_*.php
 diag_*.php
-admin/
+/admin/
