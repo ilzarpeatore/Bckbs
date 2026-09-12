@@ -548,6 +548,7 @@ use App\Http\Controllers\API\Admin\ReportController;
 use App\Http\Controllers\API\Admin\TwoFactorController;
 use App\Http\Controllers\API\Admin\AuditLogController;
 use App\Http\Controllers\API\Admin\ExerciseSubstitutionController;
+use App\Http\Controllers\API\Admin\NextSessionTargetController;
 
 // Public admin routes (login)
 Route::prefix('admin')->group(function () {
@@ -720,6 +721,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
 
     // ═══ Motor de Auto-Regulación de Carga: feed de logros (admin) ═══════
     Route::get('achievement-events', [API\AchievementEventController::class, 'adminIndex']);
+
+    // ═══ Motor de Auto-Regulación de Carga: decisiones de próxima sesión ═
+    Route::get('next-session-targets', [NextSessionTargetController::class, 'index']);
 
     // Códigos de invitación de cliente personal (Niveles de acceso, 2026-07-30)
     Route::get('personal-client-invites', [PersonalClientInviteController::class, 'index']);
