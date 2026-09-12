@@ -547,6 +547,7 @@ use App\Http\Controllers\API\Admin\PlanSubscriptionController as AdminPlanSubscr
 use App\Http\Controllers\API\Admin\ReportController;
 use App\Http\Controllers\API\Admin\TwoFactorController;
 use App\Http\Controllers\API\Admin\AuditLogController;
+use App\Http\Controllers\API\Admin\ExerciseSubstitutionController;
 
 // Public admin routes (login)
 Route::prefix('admin')->group(function () {
@@ -710,6 +711,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('session-progression/rules/{id}/simulate', [API\SessionProgressionRuleController::class, 'adminSimulate']);
     Route::get('session-progression/rules/{id}/shadow-evaluations', [API\SessionProgressionRuleController::class, 'adminShadowEvaluations']);
     Route::get('session-progression/rules/{id}/audit', [API\SessionProgressionRuleController::class, 'adminAudit']);
+
+    // ═══ Motor de Auto-Regulación de Carga: sustituciones de ejercicio ═══
+    Route::get('exercise-substitutions', [ExerciseSubstitutionController::class, 'index']);
+    Route::post('exercise-substitutions', [ExerciseSubstitutionController::class, 'store']);
+    Route::put('exercise-substitutions/{id}', [ExerciseSubstitutionController::class, 'update']);
+    Route::delete('exercise-substitutions/{id}', [ExerciseSubstitutionController::class, 'destroy']);
+
+    // ═══ Motor de Auto-Regulación de Carga: feed de logros (admin) ═══════
+    Route::get('achievement-events', [API\AchievementEventController::class, 'adminIndex']);
 
     // Códigos de invitación de cliente personal (Niveles de acceso, 2026-07-30)
     Route::get('personal-client-invites', [PersonalClientInviteController::class, 'index']);

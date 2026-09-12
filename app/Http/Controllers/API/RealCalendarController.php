@@ -229,9 +229,20 @@ class RealCalendarController extends Controller
                 ];
             }
 
+            // AÑADIDO: exponer is_deload por semana (ya marcable vía
+            // POST /admin/training-program-mark-week-deload) para que el
+            // panel pueda pintarlo en el grid. true solo si la semana
+            // tiene al menos una asignación y TODAS están marcadas.
+            $week_assignments = $assignments
+                ->filter(fn ($group, $key) => str_starts_with($key, $week.'-'))
+                ->flatten();
+            $is_deload = $week_assignments->isNotEmpty()
+                && $week_assignments->every(fn ($a) => $a->is_deload === true);
+
             $weeks[] = [
                 'week_number'     => $week,
                 'days'            => $days,
+                'is_deload'       => $is_deload,
             ];
         }
 

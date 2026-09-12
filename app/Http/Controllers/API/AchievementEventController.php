@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Enums\AchievementEventType;
 use App\Http\Controllers\Controller;
 use App\Models\AchievementEvent;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rules\Enum;
 
 /**
  * Motor de Auto-Regulación de Carga — Fase 3 (documento §3.2, tarea #20).
@@ -46,6 +49,44 @@ class AchievementEventController extends Controller
         $event->save();
 
         return json_custom_response(['data' => $event]);
+    }
+
+    /**
+     * GET /admin/achievement-events — visión admin/coach del feed de
+     * logros (Motor de Auto-Regulación de Carga, Fase 3 §3.2). Sin gate de
+     * paid-tier (a diferencia de index() arriba): esto es una herramienta
+     * de auditoría de staff, no la vista transitoria del propio cliente.
+     */
+    public function adminIndex(Request $request)
+    {
+        $request->validate([
+            'client_id' => 'nullable|exists:users,id',
+            'type'      => ['nullable', 'string', new Enum(AchievementEventType::class)],
+            'from'      => 'nullable|date',
+            'to'        => 'nullable|date',
+        ]);
+
+        $query = AchievementEvent::query();
+
+        if ($request->filled('client_id')) {
+            $query->where('client_id', $request->input('client_id'));
+        }
+        if ($request->filled('type')) {
+            $query->where('type', $request->input('type'));
+        }
+        if ($request->filled('from')) {
+            $query->whereDate('created_at', '>=', $request->input('from'));
+        }
+        if ($request->filled('to')) {
+            $query->where('created_at', '<=', Carbon::parse($request->input('to'))->endOfDay());
+        }
+
+        $events = $query->with(['client:id,first_name,last_name,email', 'exercise:id,title'])
+            ->orderByDesc('created_at')
+            ->limit(200)
+            ->get();
+
+        return json_custom_response(['data' => $events]);
     }
 
     /**
