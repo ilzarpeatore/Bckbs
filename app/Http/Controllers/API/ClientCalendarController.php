@@ -12,7 +12,6 @@ use App\Models\Exercise;
 use App\Models\WorkoutTemplate;
 use App\Models\PersonalRecord;
 use App\Models\NextSessionTarget;
-use App\Enums\TargetStatus;
 use App\Services\CalendarDateMapper;
 use App\Services\WorkoutSessionStatsService;
 use App\Services\MuscleVolumeService;
@@ -29,17 +28,6 @@ use Illuminate\Support\Facades\DB;
 class ClientCalendarController extends Controller
 {
     use HasYoutubeThumbnail;
-
-    /**
-     * Motor de Auto-Regulación de Carga — ventana en días durante la cual
-     * una sugerencia ya resuelta ('aplicado') se sigue mostrando en el
-     * calendario/preview como "ajustada por el motor". Pasada la ventana
-     * deja de destacarse (ya es simplemente la carga prescrita normal) pero
-     * el NextSessionTarget en sí no se borra -- solo deja de filtrar aquí.
-     * Las 'pendiente' (esperando aprobación del coach) se muestran siempre,
-     * sin ventana, hasta que se resuelvan.
-     */
-    private const LOAD_SUGGESTION_VISIBLE_DAYS = 14;
 
     /**
      * AÑADIDO: resuelve un program_day_assignment_id comprobando que
@@ -72,9 +60,8 @@ class ClientCalendarController extends Controller
 
     /**
      * Motor de Auto-Regulación de Carga — set de exercise_id del cliente
-     * autenticado con una sugerencia relevante para mostrar en calendario:
-     * 'pendiente' (esperando aprobación del coach, siempre) o 'aplicado'
-     * reciente (dentro de LOAD_SUGGESTION_VISIBLE_DAYS). Vacío directamente
+     * autenticado con una sugerencia relevante para mostrar en calendario
+     * (ver NextSessionTarget::scopeRelevantForClient). Vacío directamente
      * para clientes free, sin consultar NextSessionTarget -- mismo gate de
      * tier que el resto del motor (Gate::allows('paid-tier')), comprobado
      * una sola vez aquí y reutilizado tanto por getMyMonth() (badge por
@@ -86,16 +73,7 @@ class ClientCalendarController extends Controller
             return collect();
         }
 
-        return NextSessionTarget::where('client_id', $clientId)
-            ->where(function ($q) {
-                $q->where('status', TargetStatus::PENDIENTE->value)
-                    ->orWhere(function ($q2) {
-                        $q2->where('status', TargetStatus::APLICADO->value)
-                            ->where('resolved_at', '>=', now()->subDays(self::LOAD_SUGGESTION_VISIBLE_DAYS));
-                    });
-            })
-            ->pluck('exercise_id')
-            ->unique();
+        return NextSessionTarget::relevantForClient($clientId)->pluck('exercise_id')->unique();
     }
 
     /**
@@ -257,15 +235,8 @@ class ClientCalendarController extends Controller
         // regla) para pintar el detalle real en la ficha del ejercicio.
         $loadSuggestions = collect();
         if (Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
-            $loadSuggestions = NextSessionTarget::where('client_id', $client_id)
+            $loadSuggestions = NextSessionTarget::relevantForClient($client_id)
                 ->whereIn('exercise_id', $allExerciseIds)
-                ->where(function ($q) {
-                    $q->where('status', TargetStatus::PENDIENTE->value)
-                        ->orWhere(function ($q2) {
-                            $q2->where('status', TargetStatus::APLICADO->value)
-                                ->where('resolved_at', '>=', now()->subDays(self::LOAD_SUGGESTION_VISIBLE_DAYS));
-                        });
-                })
                 ->with('rule')
                 ->orderByDesc('generated_at')
                 ->get()
@@ -328,6 +299,7 @@ class ClientCalendarController extends Controller
                         'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
                         'sequence'        => $ex->sequence,
                         'load_suggestion' => $suggestion ? [
+                            'id'              => $suggestion->id,
                             'status'          => $suggestion->status->value,
                             'proposed_weight' => $suggestion->proposed_weight,
                             'proposed_reps'   => $suggestion->proposed_reps,
