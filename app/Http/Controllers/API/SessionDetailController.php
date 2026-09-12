@@ -135,13 +135,36 @@ class SessionDetailController extends Controller
             }
         }
 
+        // Última vez que el cliente registró CADA ejercicio, para que el
+        // coach pueda comparar/ajustar la carga aunque esta sesión concreta
+        // todavía esté "Programada" (sin log propio) — mismo campo
+        // `last_performance` que ya devuelve WorkoutTemplateController::
+        // getDetail al editar una plantilla para un cliente. Se excluyen
+        // los logs de ESTA MISMA sesión para no mostrarse a sí misma como
+        // "última vez" cuando la sesión ya está completada.
+        $lastPerformances = ClientExerciseLog::where('client_id', $request->client_id)
+            ->whereIn('exercise_id', $allExerciseIds)
+            ->where(function ($q) use ($isStandalone, $request, $sessionDate) {
+                if ($isStandalone) {
+                    $q->whereNotNull('program_day_assignment_id')
+                        ->orWhereDate('performed_date', '!=', $sessionDate);
+                } else {
+                    $q->where('program_day_assignment_id', '!=', $request->program_day_assignment_id)
+                        ->orWhereNull('program_day_assignment_id');
+                }
+            })
+            ->orderByDesc('id')
+            ->get()
+            ->unique('exercise_id')
+            ->keyBy('exercise_id');
+
         $total_sets = 0;
         $total_volume = 0;
         $total_reps = 0;
         $total_prs = 0;
 
-        $blocks = $workoutTemplate->blocks->map(function ($block) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
-            $exercises = $block->exercises->map(function ($ex) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
+        $blocks = $workoutTemplate->blocks->map(function ($block) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, $lastPerformances, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
+            $exercises = $block->exercises->map(function ($ex) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, $lastPerformances, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
                 $override = $overrides->get($ex->id);
                 $effective_prescribed = array_merge($ex->prescribed ?? [], $override->prescribed_override ?? []);
                 $notes = $override->notes ?? null;
@@ -168,6 +191,9 @@ class SessionDetailController extends Controller
                     'rule_name'       => optional($suggestion->rule)->name,
                 ] : null;
 
+                $last_log = $lastPerformances->get($ex->exercise_id);
+                $last_performance = $last_log ? ['sets' => $last_log->logged_sets] : null;
+
                 if (!$log) {
                     return [
                         'exercise_id'                  => $ex->exercise_id,
@@ -182,6 +208,7 @@ class SessionDetailController extends Controller
                         'logged'                       => false,
                         'sets'                         => [],
                         'load_suggestion'              => $load_suggestion,
+                        'last_performance'             => $last_performance,
                     ];
                 }
 
@@ -228,6 +255,7 @@ class SessionDetailController extends Controller
                     'prs_this_session' => $prs_today,
                     'exercise_volume'  => round(collect($sets_detail)->sum('volume'), 1),
                     'load_suggestion'  => $load_suggestion,
+                    'last_performance' => $last_performance,
                 ];
             });
 
