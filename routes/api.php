@@ -45,7 +45,9 @@ Route::middleware('throttle:10,1')->group(function () {
 // ambos en vez de descartar uno a ciegas. Revisar Stripe Dashboard y
 // unificar cuando se confirme cuál está realmente en uso.
 Route::post('webhooks/stripe', [API\StripeWebhookController::class, 'handle']);
-Route::get('user-detail',[ API\UserController::class, 'userDetail']);
+// SEGURIDAD (auditoría 2026-09-13): sin auth:sanctum era un IDOR público --
+// ver comentario en UserController::userDetail() para el detalle.
+Route::middleware('auth:sanctum')->get('user-detail',[ API\UserController::class, 'userDetail']);
 Route::get('get-appsetting', [ API\UserController::class, 'getAppSetting'] );
 Route::get('language-table-list',[API\LanguageTableController::class, 'getList']);
 Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrient']);
@@ -346,7 +348,11 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::get('form-assigned-calendar', [API\FormController::class, 'getAssignedCalendar']);
     Route::get('form-detail', [API\FormController::class, 'getDetail']);
     Route::post('form-submit', [API\FormController::class, 'submit']);
-    Route::post('form-feedback', [API\FormController::class, 'leaveFeedback']);
+    // SEGURIDAD (auditoría 2026-09-13): eliminada 'form-feedback' -- duplicado
+    // sin protección de admin-form-feedback (Admin\FormController, tras
+    // admin.api). Cualquier usuario normal podía dejar coach_feedback en el
+    // check-in de otro cliente pasando su submission_id. Sin uso real en la
+    // app móvil (solo el admin usa admin-form-feedback).
 
     // ═══ V2: Habits — Client API ═══════════════════════════════════════
     Route::get('habit-my-list', [API\ClientHabitController::class, 'getMyList']);
@@ -555,8 +561,10 @@ Route::prefix('admin')->group(function () {
     Route::post('login', [AuthController::class, 'login'])->middleware('throttle:10,1');
 });
 
-// Estado de suscripción de un cliente (app Flutter / consulta puntual)
-Route::get('client/subscription', [ReportController::class, 'clientSubscription']);
+// Estado de suscripción de un cliente (app Flutter / consulta puntual).
+// SEGURIDAD (auditoría 2026-09-13): sin auth:sanctum era un IDOR público --
+// ver comentario en ReportController::clientSubscription() para el detalle.
+Route::middleware('auth:sanctum')->get('client/subscription', [ReportController::class, 'clientSubscription']);
 
 // Protected admin routes (auth:sanctum + admin role)
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(function () {

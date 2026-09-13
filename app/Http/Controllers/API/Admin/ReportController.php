@@ -556,20 +556,16 @@ class ReportController extends Controller
     // ═══ CLIENT SUBSCRIPTION STATUS ═════════════════════════════════
     public function clientSubscription(Request $request)
     {
+        // SEGURIDAD (auditoría 2026-09-13): ruta sin auth:sanctum + el
+        // fallback a ?client_id= permitía a cualquiera sin token leer plan,
+        // precio y fechas de facturación de cualquier usuario. Sin uso real
+        // detectado de ese fallback (ni app móvil ni admin lo mandan), así
+        // que se exige usuario autenticado (ruta ahora protegida con
+        // auth:sanctum, ver routes/api.php).
         $user = $request->user();
 
         if (!$user) {
-            $clientId = $request->get('client_id');
-
-            if (!$clientId) {
-                return json_message_response('Cliente no identificado.', 401);
-            }
-
-            $user = User::find($clientId);
-        }
-
-        if (!$user) {
-            return json_custom_response(['data' => null]);
+            return json_message_response('Cliente no identificado.', 401);
         }
 
         $subscription = PlanSubscription::with('plan')

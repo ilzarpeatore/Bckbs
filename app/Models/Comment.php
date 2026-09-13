@@ -28,11 +28,11 @@ class Comment extends Model
 
     public function scopeMyComment($query)
     {
+        // SEGURIDAD (auditoría 2026-09-13): antes confiaba en un
+        // request('user_id') mandado por el propio cliente -- cualquiera
+        // podía editar/reasignar el comentario de otro usuario pasando su
+        // user_id en el body. Se ignora, solo cuenta el usuario autenticado.
         $user = auth()->user();
-
-        if( request('user_id') ) {
-            return $query->where('user_id', request('user_id'));
-        }
 
         if( isset($user) && $user->hasRole(['user']) ) {
             $query = $query->where('user_id', $user->id);

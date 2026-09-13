@@ -263,7 +263,14 @@ class UserController extends Controller
 
     public function userDetail(Request $request)
     {
-        $id = $request->id;
+        // SEGURIDAD (auditoría 2026-09-13): ruta sin auth:sanctum + $id
+        // arbitrario del request -- cualquiera sin token podía enumerar
+        // email/teléfono/suscripción de cualquier usuario por ID. Único
+        // uso real confirmado (AuthContext.tsx) es refrescar el propio
+        // perfil tras login, así que se ignora $request->id y se usa
+        // siempre el usuario autenticado (ruta ahora protegida con
+        // auth:sanctum, ver routes/api.php).
+        $id = auth()->id();
 
         $user = User::where('id',$id)->where('user_type', 'user')->first();
 
@@ -589,7 +596,12 @@ class UserController extends Controller
 
     public function updateUserStatus(Request $request)
     {
-        $user_id = $request->id ?? auth()->user()->id;
+        // SEGURIDAD (auditoría 2026-09-13): antes se aceptaba $request->id
+        // arbitrario -- cualquier usuario autenticado podía banear/reactivar
+        // a cualquier otro. Sin uso real detectado del id ajeno (ni app
+        // móvil ni admin lo mandan), así que se opera siempre sobre el
+        // propio usuario autenticado.
+        $user_id = auth()->user()->id;
 
         $user = User::where('id',$user_id)->first();
 

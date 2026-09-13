@@ -78,15 +78,18 @@ class CommentController extends Controller
         $status_code = 400;
 
         if( $posting != null ) {
-            $data = $request->all();
-
             $comment = Comment::myComment()->where('id', request('id'))->where('posting_id', $posting->id)->first();
-            
+
             $message = __('message.not_found_entry', ['name' => __('message.comment') ]);
             $status_code = 400;
 
             if( $comment != null ) {
-                $comment->fill($data)->update();
+                // SEGURIDAD (auditoría 2026-09-13): antes hacía
+                // fill($request->all()) -- 'user_id' es fillable, así que
+                // incluso con myComment() ya corregido, el autor real podía
+                // reasignar su propio comentario a otro user_id. Solo el
+                // texto es editable.
+                $comment->update(['comment' => $request->input('comment')]);
             }
             $message = null;
             $status_code = 200;
