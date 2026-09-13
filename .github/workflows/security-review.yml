@@ -1,0 +1,25 @@
+name: Claude Code Security Review
+
+# NOTE: requires an ANTHROPIC_API_KEY secret in this repo's GitHub settings
+# (Settings -> Secrets and variables -> Actions), enabled for both the
+# Claude API and Claude Code usage. Without it this job will fail.
+permissions:
+  pull-requests: write # needed for leaving PR comments
+  contents: read
+
+on:
+  pull_request:
+
+jobs:
+  security-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 2
+
+      - uses: anthropics/claude-code-security-review@main
+        with:
+          comment-pr: true
+          claude-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
