@@ -18,6 +18,9 @@ class EquipmentResource extends JsonResource
             'id'            => $this->id,
             'title'         => $this->title,
             'status'        => $this->status,
+            // Añadido (auditoría 2026-09-13): el panel no podía mostrar ni
+            // editar load_type porque el resource no lo devolvía.
+            'load_type'     => $this->load_type,
             'equipment_image'   => getSingleMedia($this, 'equipment_image',null),
             'created_at'    => $this->created_at,
             'updated_at'    => $this->updated_at,

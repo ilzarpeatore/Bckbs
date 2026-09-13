@@ -23,7 +23,11 @@ class LanguageKeywordController extends BaseController
 
     public function index(Request $request)
     {
-        $query = LanguageWithKeyword::with(['language', 'keyword', 'screen']);
+        // FIX (auditoría 2026-09-13): 'language'/'keyword' no existen como
+        // relaciones en LanguageWithKeyword (se llaman 'languagelist'/
+        // 'defaultkeyword') -- con()/with() con un nombre inválido lanza
+        // RelationNotFoundException, este endpoint devolvía 500 siempre.
+        $query = LanguageWithKeyword::with(['languagelist', 'defaultkeyword', 'screen']);
 
         if ($request->filled('language_id')) {
             $query->where('language_id', $request->language_id);
