@@ -11,6 +11,7 @@ use App\Models\WorkoutSessionReview;
 use App\Models\Exercise;
 use App\Models\WorkoutTemplate;
 use App\Models\PersonalRecord;
+use App\Models\NextSessionTarget;
 use App\Services\CalendarDateMapper;
 use App\Services\WorkoutSessionStatsService;
 use App\Services\MuscleVolumeService;
@@ -58,6 +59,24 @@ class ClientCalendarController extends Controller
     }
 
     /**
+     * Motor de Auto-Regulación de Carga — set de exercise_id del cliente
+     * autenticado con una sugerencia relevante para mostrar en calendario
+     * (ver NextSessionTarget::scopeRelevantForClient). Vacío directamente
+     * para clientes free, sin consultar NextSessionTarget -- mismo gate de
+     * tier que el resto del motor (Gate::allows('paid-tier')), comprobado
+     * una sola vez aquí y reutilizado tanto por getMyMonth() (badge por
+     * entrenamiento) como por getDayDetail() (detalle por ejercicio).
+     */
+    private function loadSuggestionExerciseIds(int $clientId): \Illuminate\Support\Collection
+    {
+        if (!Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
+            return collect();
+        }
+
+        return NextSessionTarget::relevantForClient($clientId)->pluck('exercise_id')->unique();
+    }
+
+    /**
      * ACTUALIZADO: ahora combina TODOS los programas activos del
      * cliente (antes solo servía el más reciente) — mismo criterio que
      * ClientProfileCalendarController::getMergedMonth en el panel Admin,
@@ -87,6 +106,11 @@ class ClientCalendarController extends Controller
                 'in_month' => $d->month == $month,
                 'workouts' => collect(),
             ]);
+
+        // Motor de Auto-Regulación de Carga: exercise_id del cliente con
+        // sugerencia relevante (una sola consulta para todo el mes/todos
+        // los programas, no por asignación) -- ver loadSuggestionExerciseIds().
+        $suggestionExerciseIds = $this->loadSuggestionExerciseIds($client_id);
 
         foreach ($client_assignments as $client_assignment) {
             $program = $client_assignment->trainingProgram;
@@ -118,6 +142,22 @@ class ClientCalendarController extends Controller
                 ->groupBy('program_day_assignment_id')
                 ->map->count();
 
+            // Motor de Auto-Regulación de Carga: qué workout_template_id de
+            // este programa contienen al menos un exercise_id con
+            // sugerencia -- una sola consulta por programa (no por día ni
+            // por asignación), solo si hay alguna sugerencia real que
+            // buscar.
+            $templatesWithSuggestion = collect();
+            if ($suggestionExerciseIds->isNotEmpty() && !empty($templateIds)) {
+                $templatesWithSuggestion = \App\Models\WorkoutTemplateExercise::whereIn('workout_template_blocks.workout_template_id', $templateIds)
+                    ->join('workout_template_blocks', 'workout_template_exercises.workout_template_block_id', '=', 'workout_template_blocks.id')
+                    ->whereIn('workout_template_exercises.exercise_id', $suggestionExerciseIds)
+                    ->select('workout_template_blocks.workout_template_id as wt_id')
+                    ->distinct()
+                    ->pluck('wt_id')
+                    ->flip();
+            }
+
             foreach ($grid_dates as $date) {
                 $wd = $mapper->toWeekAndDay($start_date, $date);
                 if ($wd['week_number'] < 1 || $wd['week_number'] > $program->num_weeks) continue;
@@ -135,6 +175,13 @@ class ClientCalendarController extends Controller
                         'assignment_id' => $a->id, // = program_day_assignment_id, se usa para pedir el detalle del día
                         'id'            => $a->workout_template_id,
                         'title'         => optional($a->workoutTemplate)->title,
+                        // Motor de Auto-Regulación de Carga: true si algún
+                        // ejercicio de este entrenamiento tiene una
+                        // sugerencia de carga pendiente o recién aplicada --
+                        // el detalle real (peso/reps propuestos) se pide
+                        // aparte en getDayDetail() cuando el cliente abre el
+                        // entrenamiento.
+                        'has_load_suggestion' => $templatesWithSuggestion->has($a->workout_template_id),
                     ]);
                 }
             }
@@ -181,9 +228,25 @@ class ClientCalendarController extends Controller
             ->unique('exercise_id')
             ->keyBy('exercise_id');
 
+        // Motor de Auto-Regulación de Carga: sugerencia mas reciente por
+        // ejercicio de ESTE entrenamiento -- reutiliza el mismo criterio
+        // (pendiente siempre, aplicado dentro de la ventana) que
+        // getMyMonth(), aqui con el valor completo (peso/reps propuestos,
+        // regla) para pintar el detalle real en la ficha del ejercicio.
+        $loadSuggestions = collect();
+        if (Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
+            $loadSuggestions = NextSessionTarget::relevantForClient($client_id)
+                ->whereIn('exercise_id', $allExerciseIds)
+                ->with('rule')
+                ->orderByDesc('generated_at')
+                ->get()
+                ->unique('exercise_id')
+                ->keyBy('exercise_id');
+        }
+
         $totalExercisesBefore = $assignment->workoutTemplate->blocks->sum(fn ($b) => $b->exercises->count());
 
-        $blocks = $assignment->workoutTemplate->blocks->map(function ($block) use ($overrides, $logs) {
+        $blocks = $assignment->workoutTemplate->blocks->map(function ($block) use ($overrides, $logs, $loadSuggestions) {
             return [
                 'block_id' => $block->id,
                 'title'    => $block->title,
@@ -194,7 +257,7 @@ class ClientCalendarController extends Controller
                 // adaptativa aprobada -- no se le muestra a este cliente,
                 // aunque otros clientes con el mismo workout_template lo
                 // sigan viendo intacto.
-                'exercises' => $block->exercises->reject(fn ($ex) => (bool) ($overrides->get($ex->id)->hidden ?? false))->map(function ($ex) use ($overrides, $logs) {
+                'exercises' => $block->exercises->reject(fn ($ex) => (bool) ($overrides->get($ex->id)->hidden ?? false))->map(function ($ex) use ($overrides, $logs, $loadSuggestions) {
                     $override = $overrides->get($ex->id);
                     // Defensivo: contenido creado fuera del panel admin normal
                     // (import directo, datos legacy) puede dejar 'prescribed'
@@ -212,6 +275,14 @@ class ClientCalendarController extends Controller
                         ? $this->youtubeThumbnail($exercise->video_url)
                         : getSingleMedia($exercise, 'exercise_image', null);
 
+                    // Motor de Auto-Regulación de Carga: null si no hay
+                    // ninguna sugerencia relevante para este ejercicio (caso
+                    // normal). 'status' distingue "el motor ya la aplicó /
+                    // el coach la aprobó" (aplicado) de "esperando revisión
+                    // del coach" (pendiente) -- el frontend usa esto para
+                    // pintar dos estados visuales distintos.
+                    $suggestion = $loadSuggestions->get($ex->exercise_id);
+
                     return [
                         'id'              => $ex->id,
                         'exercise_id'     => $ex->exercise_id,
@@ -227,6 +298,14 @@ class ClientCalendarController extends Controller
                         'enabled_metrics' => $ex->enabled_metrics ?? [],
                         'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
                         'sequence'        => $ex->sequence,
+                        'load_suggestion' => $suggestion ? [
+                            'id'              => $suggestion->id,
+                            'status'          => $suggestion->status->value,
+                            'proposed_weight' => $suggestion->proposed_weight,
+                            'proposed_reps'   => $suggestion->proposed_reps,
+                            'resolved_at'     => optional($suggestion->resolved_at)->toIso8601String(),
+                            'rule_name'       => optional($suggestion->rule)->name,
+                        ] : null,
                     ];
                 })->values(),
             ];
