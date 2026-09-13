@@ -61,7 +61,17 @@ class CommentReplyController extends Controller
             $data['user_id'] = $user->id;
 
             if ($request->filled('id')) {
-                $commentReply = CommentReply::where('id', $request->id)->first();
+                // SEGURIDAD (revision 2026-09-13, IDOR): antes buscaba la reply
+                // por id sin comprobar propiedad -- cualquier usuario autenticado
+                // podia editar la respuesta de OTRO usuario pasando su id. Se
+                // reutiliza CommentReply::scopeMyCommentReply(), mismo criterio
+                // que ya usa deleteCommentReply() (canBeDeletedBy) y
+                // CommentController::updateComment() (myComment()).
+                $commentReply = CommentReply::myCommentReply()->where('id', $request->id)->first();
+                if ($commentReply == null) {
+                    return json_message_response(__('message.not_found_entry', ['name' => __('message.comment_reply')]), 400);
+                }
+                unset($data['user_id']);
                 $commentReply->fill($data)->update();
             } else {
                 CommentReply::create($data);

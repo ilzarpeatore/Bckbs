@@ -202,13 +202,33 @@ class FormController extends Controller
         }
     }
 
-    /** El coach deja feedback sobre una submission concreta. */
+    /**
+     * El coach deja feedback sobre una submission concreta.
+     *
+     * SEGURIDAD (revision 2026-09-13, IDOR): esta ruta vive en el grupo
+     * auth:sanctum generico (no /admin), asi que cualquier usuario
+     * autenticado -- no solo coaches -- podia mandar cualquier
+     * submission_id y escribir coach_feedback en el check-in de OTRO
+     * cliente que ni siquiera es suyo. Se exige que el caller sea el coach
+     * del cliente dueño de esa submission (o admin), mismo criterio
+     * coach_id/client_id === auth()->id() usado en el resto del proyecto
+     * (SessionInterpretationController::exerciseMetrics, etc.).
+     */
     public function leaveFeedback(Request $request)
     {
-        $submission = FormSubmission::find($request->submission_id);
+        $submission = FormSubmission::with('formAssignment.client')->find($request->submission_id);
 
         if ($submission == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Submission']));
+        }
+
+        $authUser = $request->user();
+        $client = $submission->formAssignment?->client;
+        $isCoach = $authUser && $client && (int) $client->coach_id === (int) $authUser->id;
+        $isAdmin = $authUser && $authUser->hasRole('admin');
+
+        if (!$isCoach && !$isAdmin) {
+            return json_message_response(__('message.permission_denied_for_account'), 403);
         }
 
         $submission->update(['coach_feedback' => $request->coach_feedback]);
