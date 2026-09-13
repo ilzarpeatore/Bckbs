@@ -263,11 +263,16 @@ class UserController extends Controller
 
     public function userDetail(Request $request)
     {
-        $id = $request->id;
+        // SEGURIDAD (revision 2026-09-13): esta ruta era publica (sin
+        // auth:sanctum, ver routes/api.php) y cogia el `id` directamente
+        // del request -- cualquiera podia leer nombre, email, telefono,
+        // genero, perfil y suscripcion de CUALQUIER usuario probando IDs
+        // (IDOR + PII expuesta sin autenticar). Ahora exige sesion y
+        // siempre devuelve el propio usuario autenticado, igual que ya
+        // hace updateProfile() (ver CRIT-1 en el historial de auditoria).
+        $user = $request->user();
 
-        $user = User::where('id',$id)->where('user_type', 'user')->first();
-
-        if(empty($user)) {
+        if(empty($user) || $user->user_type !== 'user') {
             $message = __('message.not_found_entry', ['name' => __('message.user') ]);
             return json_message_response($message,400);
         }

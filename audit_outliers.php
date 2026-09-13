@@ -1,4 +1,14 @@
 <?php
+// SEGURIDAD (revision 2026-09-13): script de mantenimiento puntual, pensado
+// para ejecutarse por CLI (php audit_outliers.php). Si por un error de despliegue
+// quedara accesible via HTTP (p.ej. document root apuntando a la raiz del
+// repo en vez de a public/), esto evita que cualquiera lo dispare desde el
+// navegador -- varios de estos scripts leen o modifican datos sin ningun
+// control de acceso propio.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden: CLI only.');
+}
 require __DIR__ . '/vendor/autoload.php';
 $app = require_once __DIR__ . '/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();

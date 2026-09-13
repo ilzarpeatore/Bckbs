@@ -79,8 +79,14 @@ class ReportController extends Controller
             $data = $query->selectRaw("DATE(created_at) as label, COUNT(*) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         } else {
-            $data = $query->selectRaw("{$groupBy} as label, COUNT(*) as value")
-                ->groupBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
+            // SEGURIDAD (revision 2026-09-13): $groupBy viene de
+            // ?group_by= sin validar y se interpolaba directo en el SELECT
+            // (SQL injection). Solo 'month'/'day' tenian una rama segura
+            // con selectRaw de string fijo -- cualquier otro valor cae
+            // aqui, que ahora reusa la misma expresion segura ('day') en
+            // vez de interpolar la entrada del usuario.
+            $data = $query->selectRaw("DATE(created_at) as label, COUNT(*) as value")
+                ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         }
 
         $total = $query->count();
@@ -554,22 +560,18 @@ class ReportController extends Controller
     }
 
     // ═══ CLIENT SUBSCRIPTION STATUS ═════════════════════════════════
+    // SEGURIDAD (revision 2026-09-13): esta ruta no llevaba middleware de
+    // auth, y el fallback `client_id` de query string permitia a CUALQUIER
+    // llamada sin autenticar leer el estado de suscripcion de cualquier
+    // usuario (IDOR + broken auth) simplemente probando IDs. Ahora exige
+    // auth:sanctum (ver routes/api.php) y solo devuelve la suscripcion del
+    // propio usuario autenticado.
     public function clientSubscription(Request $request)
     {
         $user = $request->user();
 
         if (!$user) {
-            $clientId = $request->get('client_id');
-
-            if (!$clientId) {
-                return json_message_response('Cliente no identificado.', 401);
-            }
-
-            $user = User::find($clientId);
-        }
-
-        if (!$user) {
-            return json_custom_response(['data' => null]);
+            return json_message_response('Cliente no identificado.', 401);
         }
 
         $subscription = PlanSubscription::with('plan')

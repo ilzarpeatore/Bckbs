@@ -45,7 +45,9 @@ Route::middleware('throttle:10,1')->group(function () {
 // ambos en vez de descartar uno a ciegas. Revisar Stripe Dashboard y
 // unificar cuando se confirme cuál está realmente en uso.
 Route::post('webhooks/stripe', [API\StripeWebhookController::class, 'handle']);
-Route::get('user-detail',[ API\UserController::class, 'userDetail']);
+// SEGURIDAD (revision 2026-09-13): sin auth:sanctum, ?id= dejaba leer el
+// perfil de cualquier usuario (IDOR). Ver UserController::userDetail.
+Route::get('user-detail',[ API\UserController::class, 'userDetail'])->middleware('auth:sanctum');
 Route::get('get-appsetting', [ API\UserController::class, 'getAppSetting'] );
 Route::get('language-table-list',[API\LanguageTableController::class, 'getList']);
 Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrient']);
@@ -556,7 +558,10 @@ Route::prefix('admin')->group(function () {
 });
 
 // Estado de suscripción de un cliente (app Flutter / consulta puntual)
-Route::get('client/subscription', [ReportController::class, 'clientSubscription']);
+// SEGURIDAD (revision 2026-09-13): sin auth:sanctum aqui, cualquiera podia
+// consultar la suscripcion de OTRO usuario via ?client_id=N (IDOR). Ver
+// ReportController::clientSubscription.
+Route::get('client/subscription', [ReportController::class, 'clientSubscription'])->middleware('auth:sanctum');
 
 // Protected admin routes (auth:sanctum + admin role)
 Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(function () {
