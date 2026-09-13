@@ -15,7 +15,7 @@ class Equipment extends Model implements HasMedia
     use HasFactory, InteractsWithMedia;
     use HasSlug;
 
-    protected $fillable = [ 'title', 'slug', 'status' ];
+    protected $fillable = [ 'title', 'slug', 'status', 'load_type' ];
 
     public function getSlugOptions() : SlugOptions
     {

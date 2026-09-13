@@ -280,7 +280,16 @@ class WorkoutTemplateController extends Controller
         }
 
         if ($request->has('enabled_metrics')) {
-            $updateData['enabled_metrics'] = $request->enabled_metrics;
+            $metrics = (array) $request->enabled_metrics;
+            if (!in_array('rir', $metrics, true) && !in_array('rpe', $metrics, true)) {
+                return json_message_response('enabled_metrics debe incluir "rir" o "rpe" (sensación subjetiva obligatoria).', 422);
+            }
+            $updateData['enabled_metrics'] = $metrics;
+        } elseif (!$request->filled('id') || !WorkoutTemplateExercise::find($request->id)?->enabled_metrics) {
+            // Ejercicio nuevo (o existente sin métricas todavía) sin
+            // enabled_metrics explícito -- valor por defecto que ya
+            // incluye sensación subjetiva, nunca queda sin ella.
+            $updateData['enabled_metrics'] = ['reps', 'carga', 'descanso', 'rir'];
         }
 
         if ($request->has('notes')) {

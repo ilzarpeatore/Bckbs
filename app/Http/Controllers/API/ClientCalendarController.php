@@ -366,6 +366,27 @@ class ClientCalendarController extends Controller
             return collect($set)->only($allowed_keys)->toArray();
         })->toArray();
 
+        // RIR/RPE obligatorio (uno u otro) al registrar una serie
+        // completada -- solo se exige si el ejercicio tiene alguno de los
+        // dos habilitado en enabled_metrics (si todavía no se ha
+        // reetiquetado ninguna plantilla vieja, no bloquea nada nuevo).
+        $intensityEnabled = in_array('rir', $allowed_keys, true) || in_array('rpe', $allowed_keys, true);
+        if ($intensityEnabled) {
+            foreach ($clean_sets as $index => $set) {
+                $hasReps = isset($set['reps']) && $set['reps'] !== '' && $set['reps'] !== null;
+                $hasCarga = isset($set['carga']) && $set['carga'] !== '' && $set['carga'] !== null;
+                $hasRir = isset($set['rir']) && $set['rir'] !== '' && $set['rir'] !== null;
+                $hasRpe = isset($set['rpe']) && $set['rpe'] !== '' && $set['rpe'] !== null;
+
+                if ($hasReps && $hasCarga && !$hasRir && !$hasRpe) {
+                    return json_message_response(
+                        "La serie " . ($index + 1) . " necesita RIR o RPE para poder guardarse.",
+                        422
+                    );
+                }
+            }
+        }
+
         $log = ClientExerciseLog::create([
             'client_id'                     => auth('sanctum')->id(),
             'workout_template_exercise_id'  => $request->workout_template_exercise_id,

@@ -490,12 +490,6 @@ final class ProgramsImporter
         if (($ex['rest_sec'] ?? null) !== null) {
             $metrics[] = 'descanso';
         }
-        if (($ex['rir_min'] ?? null) !== null || ($ex['rir_max'] ?? null) !== null) {
-            $metrics[] = 'rir';
-        }
-        if (($ex['rpe_min'] ?? null) !== null || ($ex['rpe_max'] ?? null) !== null) {
-            $metrics[] = 'rpe';
-        }
         if (($ex['tempo'] ?? null) !== null) {
             $metrics[] = 'tempo';
         }
@@ -503,7 +497,16 @@ final class ProgramsImporter
             $metrics[] = 'duracion';
         }
 
-        return $metrics !== [] ? $metrics : ['reps', 'carga', 'descanso', 'rir', 'rpe'];
+        // RIR/RPE es obligatorio (uno u otro) al registrar cualquier serie
+        // -- ya no depende de si wger trae rir_min/rpe_min, que casi nunca
+        // vienen y dejaban el ejercicio sin forma de reportar sensación
+        // subjetiva (motor de auto-regulación bloqueado permanentemente en
+        // "sin_dato_suficiente"). Usa rpe si el origen lo especifica, si no
+        // rir por defecto.
+        $hasRpeSource = ($ex['rpe_min'] ?? null) !== null || ($ex['rpe_max'] ?? null) !== null;
+        $metrics[] = $hasRpeSource ? 'rpe' : 'rir';
+
+        return $metrics;
     }
 
     private function templateHash(array $day): string
