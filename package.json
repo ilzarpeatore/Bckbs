@@ -23,7 +23,7 @@
         "select2": "^4.1.0-rc.0",
         "smooth-scrollbar": "^8.6.2",
         "sweetalert2": "^10.0.2",
-        "swiper": "^6.5.7",
+        "swiper": "^14.2.0",
         "waypoints": "^4.0.1"
     },
     "devDependencies": {
