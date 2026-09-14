@@ -69,6 +69,18 @@ class Kernel extends ConsoleKernel
         // ahora) - el comando en si comprueba AppSetting->backup_enabled y
         // ->backup_frequency, el toggle real vive en /app-settings.
         $schedule->command('backup:run')->dailyAt('03:00');
+        // Red de seguridad para exercise_id roto en workout_template_exercises
+        // (ver app/Console/Commands/CheckProgramsIntegrityCommand.php y
+        // docs/AGENTE_IMPORTADOR.md) -- solo REPORTA, sin --fix: reparar
+        // automáticamente sin revisión humana puede sustituir un ejercicio
+        // por otro no equivalente (ver commit 92b060f). El servidor corre en
+        // UTC; ->timezone() aquí asegura que sean siempre las 4:00 hora
+        // española de verdad, con cambio de horario de verano/invierno
+        // incluido.
+        $schedule->command('programs:check-integrity')
+            ->weeklyOn(0, '04:00')
+            ->timezone('Europe/Madrid')
+            ->appendOutputTo(storage_path('logs/programs-check-integrity.log'));
         $time = SettingData ('QUOTE', 'QUOTE_TIME') ?? '05:00';
         $timezone = SettingData ('string', 'timezone') ?? config('app.timezone');
         
