@@ -18,7 +18,15 @@ class WorkoutTemplateController extends Controller
     use HasYoutubeThumbnail;
     public function getList(Request $request)
     {
+        // No se listan aquí las plantillas que ya pertenecen a un día de un
+        // training_program (import o generador de semanas): un programa de
+        // N semanas × M sesiones/semana genera hasta N×M plantillas (una
+        // por combinación única de progresión), y mezclarlas con las
+        // plantillas sueltas que el coach guarda para reutilizar hacía esta
+        // lista inmanejable. Para verlas agrupadas por programa/semana, ver
+        // TrainingProgramController::getTemplates().
         $workouts = WorkoutTemplate::where('coach_id', auth()->id())
+            ->whereDoesntHave('programDayAssignments')
             ->with('blocks.exercises')
             ->select('id', 'coach_id', 'title', 'description', 'is_exclusive', 'created_at')
             ->orderByDesc('created_at')

@@ -345,4 +345,56 @@ class TrainingProgramController extends Controller
 
         return json_message_response($updated.' días actualizados');
     }
+
+    /**
+     * Índice de las sesiones (workout_templates) de un programa creado por
+     * import o por el generador de semanas, agrupadas por semana/día.
+     *
+     * getDetail() no sirve para esto en un programa así: lee
+     * $program->workout->workoutDay, que es la ruta LEGACY (tabla
+     * `workouts`/`workout_days`, por `sequence`) -- un programa creado vía
+     * ProgramsImporter tiene workout_id NULL y usa program_day_assignments
+     * (semana/día explícitos) apuntando a workout_templates, así que
+     * getDetail() devolvería workout_days vacío para él.
+     *
+     * No se duplica aquí la lógica de bloques/ejercicios de
+     * WorkoutTemplateController::getDetail() -- este endpoint solo da el
+     * índice (qué workout_template_id hay en cada semana/día); para ver o
+     * editar el contenido de una sesión concreta se sigue llamando a
+     * workout-template-detail con ese id, exactamente igual que para una
+     * plantilla suelta. Es la contrapartida de que getList() ya no las
+     * incluya (ver WorkoutTemplateController::getList()).
+     */
+    public function getTemplates(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:training_programs,id',
+        ]);
+
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->id);
+        if ($program == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
+        }
+
+        $assignments = ProgramDayAssignment::with('workoutTemplate:id,title')
+            ->where('training_program_id', $program->id)
+            ->orderBy('week_number')
+            ->orderBy('day_of_week')
+            ->get();
+
+        $weeks = $assignments->groupBy('week_number')->map(function ($days, $weekNumber) {
+            return [
+                'week_number' => (int) $weekNumber,
+                'days'        => $days->map(fn ($a) => [
+                    'day_of_week'         => $a->day_of_week,
+                    'is_rest'             => $a->is_rest,
+                    'is_deload'           => (bool) $a->is_deload,
+                    'workout_template_id' => $a->workout_template_id,
+                    'title'               => optional($a->workoutTemplate)->title,
+                ])->values(),
+            ];
+        })->values();
+
+        return json_custom_response(['data' => $weeks]);
+    }
 }
