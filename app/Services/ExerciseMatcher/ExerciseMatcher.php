@@ -215,11 +215,23 @@ final class ExerciseMatcher
         };
     }
 
-    /** Signaturas de BD precalculadas (cacheadas 1 hora). */
+    /**
+     * Signaturas de BD precalculadas (cacheadas 1 hora).
+     *
+     * IMPORTANTE: no usar withTrashed() aquí. Un ejercicio soft-deleted
+     * (ej. limpieza de duplicados del catálogo) no debe ser candidato de
+     * match -- si lo es, un match de nivel A (título exacto) contra un
+     * ejercicio borrado gana a cualquier match de nivel B-E contra uno
+     * activo, y el import guarda un exercise_id que la app no puede
+     * resolver (aparece "roto"/vacío aunque la fila exista). Bug real
+     * encontrado en el primer import end-to-end (programs:import excel,
+     * 2026-09-14): 4 ejercicios de un mismo archivo cayeron en 13
+     * ejercicios borrados el 2026-09-01 en una limpieza del catálogo.
+     */
     private function loadDbSignatures(): array
     {
         return Cache::remember('exercise_matcher_db_signatures_v1', 3600, function () {
-            $exercises = Exercise::withTrashed()->get();
+            $exercises = Exercise::all();
 
             // map equipment id => título
             $equipment = Equipment::pluck('title', 'id')->all();
