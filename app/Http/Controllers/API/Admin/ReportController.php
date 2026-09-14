@@ -611,6 +611,12 @@ class ReportController extends Controller
     }
 
     // ═══ CLIENT SUBSCRIPTION STATUS ═════════════════════════════════
+    // SEGURIDAD (revision 2026-09-13): esta ruta no llevaba middleware de
+    // auth, y el fallback `client_id` de query string permitia a CUALQUIER
+    // llamada sin autenticar leer el estado de suscripcion de cualquier
+    // usuario (IDOR + broken auth) simplemente probando IDs. Ahora exige
+    // auth:sanctum (ver routes/api.php) y solo devuelve la suscripcion del
+    // propio usuario autenticado.
     public function clientSubscription(Request $request)
     {
         // SEGURIDAD (auditoría 2026-09-13): ruta sin auth:sanctum + el

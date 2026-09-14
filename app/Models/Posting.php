@@ -26,10 +26,13 @@ class Posting extends Model implements HasMedia
     {
         $user = auth()->user();
 
-        if( request('user_id') ) {
-            return $query->where('user_id', request('user_id'));
-        }
-
+        // SEGURIDAD (revision 2026-09-13): no queda ningun caller de este scope
+        // hoy (PostingController::updatePostData/deletePostdata/removePostMedia
+        // ya usan un check explicito isOwner/isAdmin, ver comentarios ahi), pero
+        // se elimina igualmente el override por request('user_id') -- mismo bug
+        // ya encontrado y corregido en Comment::scopeMyComment(): dejaba que
+        // cualquier caller decidiera de que usuario queria ver "sus" posts,
+        // solo con mandar ese user_id en la request.
         if( isset($user) && $user->hasRole(['user']) ) {
             $query = $query->where('user_id', $user->id);
         }

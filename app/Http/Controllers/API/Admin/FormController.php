@@ -212,9 +212,29 @@ class FormController extends Controller
         ]);
 
         $submission = FormSubmission::with('formAssignment.client')->findOrFail($request->submission_id);
+        $client = $submission->formAssignment?->client;
+
+        // SEGURIDAD (revision 2026-09-13): admin.api solo exige el rol Spatie
+        // 'admin', que en este sistema NO es exclusivo de admins reales --
+        // tanto SubAdminController::store() (user_type 'sub_admin', el alta
+        // real de staff desde el panel) como el seeder de demo (user_type
+        // 'coach') lo asignan por igual, y hoy nada mas en el backend
+        // distingue "admin/sub_admin con acceso total" de "coach restringido
+        // a sus propios clientes" -- cualquier coach podia dejar feedback en
+        // el check-in de un cliente ajeno (de OTRO coach), no solo en los
+        // suyos. Se deja pasar sin restriccion a 'admin'/'sub_admin' (mismo
+        // acceso que ya tienen hoy en el resto de rutas admin.api, cero
+        // regresion) y solo se exige ownership cuando user_type es 'coach'.
+        $actor = $request->user();
+        $isStaffAdmin = in_array($actor->user_type, ['admin', 'sub_admin'], true);
+        $isAssignedCoach = $client && (int) $client->coach_id === (int) $actor->id;
+
+        if (!$isStaffAdmin && !$isAssignedCoach) {
+            return json_message_response(__('message.permission_denied_for_account'), 403);
+        }
+
         $submission->update(['coach_feedback' => $request->coach_feedback]);
 
-        $client = $submission->formAssignment?->client;
         if ($client) {
             $client->notify(new CommonNotification('coach_feedback', [
                 'id'      => $submission->id,
