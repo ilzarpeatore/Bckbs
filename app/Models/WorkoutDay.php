@@ -47,9 +47,21 @@ class WorkoutDay extends Model implements HasMedia
         return (int) $this->sequence + 1;
     }
 
+    /**
+     * Optimizacion (2026-09-14): antes esto SIEMPRE volvia a consultar
+     * blocks()/workoutDayExercise() con queries nuevas, aunque el caller ya
+     * las hubiera precargado -- N+1 real en
+     * TrainingProgramController::getDetail() (2 queries extra POR DIA del
+     * programa; en un programa de 3 meses, 120-180 queries de mas en una
+     * sola carga de pantalla). Acceder a la relacion como propiedad
+     * ($this->blocks en vez de $this->blocks()->get()) usa la coleccion ya
+     * cargada si el caller hizo ->load(['blocks.exercises.exercise',
+     * 'workoutDayExercise.exercise']), y si no la precargo, Eloquent hace
+     * lazy-load normal de una sola vez -- no rompe a ningun otro caller.
+     */
     public function getFullDayWithBlocks()
     {
-        $blocks = $this->blocks()->with(['exercises.exercise'])->get()->map(function ($block) {
+        $blocks = $this->blocks->map(function ($block) {
             return [
                 'block_id'  => $block->id,
                 'title'     => $block->title,
@@ -58,11 +70,10 @@ class WorkoutDay extends Model implements HasMedia
             ];
         });
 
-        $unassigned = $this->workoutDayExercise()
+        $unassigned = $this->workoutDayExercise
             ->whereNull('workout_day_block_id')
-            ->orderBy('sequence')
-            ->with('exercise')
-            ->get();
+            ->sortBy('sequence')
+            ->values();
 
         if ($unassigned->isNotEmpty()) {
             $blocks->push([

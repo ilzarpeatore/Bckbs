@@ -84,20 +84,33 @@ class WorkoutSessionStatsService
         $repsUpDetails = [];
         $betterRpeDetails = [];
 
-        foreach ($exerciseIds as $exerciseId) {
-            $todayLog = ClientExerciseLog::where('client_id', $userId)
-                ->where('exercise_id', $exerciseId)
-                ->whereDate('performed_date', $today)
-                ->orderByDesc('created_at')
-                ->first();
+        // Optimizacion (2026-09-14): antes esto eran 2 queries POR EJERCICIO
+        // de la sesion (una para $todayLog, otra para $recentLogs) dentro del
+        // foreach de abajo -- con ~5-10 ejercicios por sesion, 10-20 queries
+        // extra cada vez que un cliente termina un entreno. Se batchea en 2
+        // queries totales (todas iguales de rapidas por los indices
+        // cel_session_lookup/cel_exercise_lookup ya existentes) y se agrupa
+        // en PHP por exercise_id -- incluso con mas de TREND_WINDOW logs
+        // antiguos por ejercicio en el batch, se recorta con ->take() igual
+        // que antes hacia el ->limit() de la query.
+        $todayLogsByExercise = ClientExerciseLog::where('client_id', $userId)
+            ->whereIn('exercise_id', $exerciseIds)
+            ->whereDate('performed_date', $today)
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('exercise_id');
 
-            $recentLogs = ClientExerciseLog::where('client_id', $userId)
-                ->where('exercise_id', $exerciseId)
-                ->where('performed_date', '<', $today)
-                ->orderByDesc('performed_date')
-                ->orderByDesc('created_at')
-                ->limit(self::TREND_WINDOW)
-                ->get();
+        $recentLogsByExercise = ClientExerciseLog::where('client_id', $userId)
+            ->whereIn('exercise_id', $exerciseIds)
+            ->where('performed_date', '<', $today)
+            ->orderByDesc('performed_date')
+            ->orderByDesc('created_at')
+            ->get()
+            ->groupBy('exercise_id');
+
+        foreach ($exerciseIds as $exerciseId) {
+            $todayLog = $todayLogsByExercise->get($exerciseId, collect())->first();
+            $recentLogs = $recentLogsByExercise->get($exerciseId, collect())->take(self::TREND_WINDOW);
 
             if (!$todayLog || $recentLogs->isEmpty()) {
                 continue; // sin sesion anterior de este ejercicio, nada que comparar

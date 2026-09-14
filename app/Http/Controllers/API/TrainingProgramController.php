@@ -71,7 +71,17 @@ class TrainingProgramController extends Controller
         // cualquier coach con cuenta de panel podia leer/editar/borrar el
         // programa de OTRO coach. store()/assignClient() ademas no comprobaban
         // que client_id perteneciera al roster de este coach (users.coach_id).
-        $program = TrainingProgram::with(['workout.workoutDay.workoutDayExercise'])
+        // Optimizacion (2026-09-14): se anade 'workout.workoutDay.blocks.exercises.exercise'
+        // y '...workoutDayExercise.exercise' al eager load de arriba para que
+        // WorkoutDay::getFullDayWithBlocks() (llamado por dia mas abajo) no
+        // tenga que volver a consultar blocks/workoutDayExercise POR CADA DIA
+        // del programa -- antes eran 2 queries extra por dia (120-180 de mas
+        // en un programa de 3 meses), ahora solo las de este with().
+        $program = TrainingProgram::with([
+                'workout.workoutDay.workoutDayExercise',
+                'workout.workoutDay.blocks.exercises.exercise',
+                'workout.workoutDay.workoutDayExercise.exercise',
+            ])
             ->where('id', $request->id)
             ->where('coach_id', auth('sanctum')->id())
             ->first();
