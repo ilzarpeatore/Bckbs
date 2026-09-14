@@ -104,4 +104,28 @@ final class FlexArray
 
         return [min($nums), max($nums)];
     }
+
+    /**
+     * Como repsRange pero en coma flotante y permitiendo 0 (para RIR/RPE,
+     * que sí admiten valores como "7.5" o "0" -- "hasta el fallo").
+     * "7" -> [7.0,7.0]; "7-8" -> [7.0,8.0]; "7,5" -> [7.5,7.5].
+     */
+    public static function floatRange(string|int|float|null $value): array
+    {
+        if ($value === null || $value === '') {
+            return [null, null];
+        }
+        $s = str_replace(',', '.', trim((string) $value));
+        $s = preg_replace('/[^0-9.\-– ]/', '', $s) ?? $s;
+        $s = str_replace(['–', '—'], '-', $s);
+        $parts = preg_split('/[\s\-]+/', $s) ?: [];
+        $parts = array_values(array_filter($parts, fn ($p) => $p !== '' && $p !== '.'));
+        $nums = array_map('floatval', $parts);
+
+        if ($nums === []) {
+            return [null, null];
+        }
+
+        return [min($nums), max($nums)];
+    }
 }
