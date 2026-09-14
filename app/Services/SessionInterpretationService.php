@@ -226,7 +226,7 @@ class SessionInterpretationService
             ? (int) $prescribed['series']
             : (count($sets) ?: null);
         $prescribedReps = isset($prescribed['reps']) && is_numeric($prescribed['reps']) ? (int) $prescribed['reps'] : null;
-        $prescribedRir = isset($prescribed['rir']) && is_numeric($prescribed['rir']) ? (float) $prescribed['rir'] : null;
+        $prescribedRir = $this->resolveRir($prescribed);
 
         $rirDeltas = [];
         $rirNullCount = 0;
@@ -253,7 +253,7 @@ class SessionInterpretationService
 
             $weight = isset($set['carga']) && $set['carga'] !== '' && $set['carga'] !== null ? (float) $set['carga'] : null;
             $reps = isset($set['reps']) && $set['reps'] !== '' && $set['reps'] !== null ? (int) $set['reps'] : null;
-            $rir = isset($set['rir']) && $set['rir'] !== '' && $set['rir'] !== null ? (float) $set['rir'] : null;
+            $rir = $this->resolveRir($set);
 
             $isCompleted = $weight !== null && $weight > 0 && $reps !== null && $reps > 0;
             if ($isCompleted) {
@@ -409,12 +409,31 @@ class SessionInterpretationService
         $nullCount = 0;
         foreach ($sets as $set) {
             $set = is_array($set) ? $set : [];
-            if (!isset($set['rir']) || $set['rir'] === '' || $set['rir'] === null) {
+            if ($this->resolveRir($set) === null) {
                 $nullCount++;
             }
         }
 
         return ($nullCount / $total) > self::INSUFFICIENT_DATA_RATIO;
+    }
+
+    /**
+     * RIR y RPE son intercambiables desde que ambos son obligatorios (uno
+     * u otro) al registrar una serie -- el motor solo razona en RIR, así
+     * que RPE se convierte con la fórmula estándar de autorregulación de
+     * fuerza (escala RPE 0-10, Borg CR-10 adaptada): RIR = 10 - RPE.
+     */
+    private function resolveRir(array $data): ?float
+    {
+        if (isset($data['rir']) && $data['rir'] !== '' && $data['rir'] !== null && is_numeric($data['rir'])) {
+            return (float) $data['rir'];
+        }
+
+        if (isset($data['rpe']) && $data['rpe'] !== '' && $data['rpe'] !== null && is_numeric($data['rpe'])) {
+            return 10 - (float) $data['rpe'];
+        }
+
+        return null;
     }
 
     /**

@@ -46,14 +46,14 @@ class ReportController extends Controller
         $activePrev = PlanSubscription::where('ends_at', '>', $prevEnd)->orWhereNull('ends_at')->count();
         $retention = $totalSubs > 0 ? round(($totalSubs / max($activePrev, 1)) * 100, 1) : 100;
 
+        // FIX (auditoría 2026-09-13): 'entrenamientos_completados',
+        // 'cumplimiento_dietas', 'checkins_enviados', 'checkins_respondidos'
+        // y 'tasa_respuesta' eran literales fijos ($this->kpi(1850,1720)
+        // etc.), nunca calculados de datos reales -- quitados hasta que
+        // exista una fuente real que los calcule de verdad.
         $kpis = [
             'altas_mes' => $this->kpi($currentUsers, $prevUsers),
             'retencion' => $this->kpi($retention, $retention),
-            'entrenamientos_completados' => $this->kpi(1850, 1720),
-            'cumplimiento_dietas' => $this->kpi(70.8, 66.5),
-            'checkins_enviados' => $this->kpi(720, 685),
-            'checkins_respondidos' => $this->kpi(590, 548),
-            'tasa_respuesta' => $this->kpi(81.9, 80.0),
             'ingresos' => $this->kpi($currentRevenue, $prevRevenue),
             'nuevas_suscripciones' => $this->kpi($currentSubs, $prevSubs),
         ];
@@ -71,6 +71,9 @@ class ReportController extends Controller
         $query = User::query();
         if ($from) $query->where('created_at', '>=', $from);
         if ($to) $query->where('created_at', '<', Carbon::parse($to)->addDay());
+        // FIX (auditoría 2026-09-13): el filtro "Coach" del frontend no
+        // filtraba nada -- ningún endpoint leía el parámetro.
+        if ($coachId = $request->get('coach_id')) $query->where('coach_id', $coachId);
 
         if ($groupBy === 'month') {
             $data = $query->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as label, COUNT(*) as value")
@@ -79,14 +82,15 @@ class ReportController extends Controller
             $data = $query->selectRaw("DATE(created_at) as label, COUNT(*) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         } else {
-            // SEGURIDAD (revision 2026-09-13): $groupBy viene de
-            // ?group_by= sin validar y se interpolaba directo en el SELECT
-            // (SQL injection). Solo 'month'/'day' tenian una rama segura
-            // con selectRaw de string fijo -- cualquier otro valor cae
-            // aqui, que ahora reusa la misma expresion segura ('day') en
-            // vez de interpolar la entrada del usuario.
-            $data = $query->selectRaw("DATE(created_at) as label, COUNT(*) as value")
-                ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
+            // SEGURIDAD (auditoría 2026-09-13): $groupBy venía de
+            // $request->get('group_by') e iba directo a selectRaw() sin
+            // ningún whitelist -- inyección SQL vía el parámetro group_by.
+            // Solo 'gender'/'status'/'user_type' son columnas reales y
+            // seguras de agrupar aquí.
+            $allowed = ['gender', 'status', 'user_type'];
+            $column = in_array($groupBy, $allowed, true) ? $groupBy : 'status';
+            $data = $query->selectRaw("{$column} as label, COUNT(*) as value")
+                ->groupBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         }
 
         $total = $query->count();
@@ -110,6 +114,12 @@ class ReportController extends Controller
         $query = PlanSubscriptionUsage::query()->with(['feature', 'subscription', 'subscription.plan']);
         if ($from) $query->where('created_at', '>=', $from);
         if ($to) $query->where('created_at', '<', Carbon::parse($to)->addDay());
+        if ($coachId = $request->get('coach_id')) {
+            $clientIds = User::where('coach_id', $coachId)->pluck('id');
+            $query->whereHas('subscription', function ($q) use ($clientIds) {
+                $q->where('subscriber_type', 'App\\Models\\User')->whereIn('subscriber_id', $clientIds);
+            });
+        }
 
         $total = $query->count();
         $data = $query->get();
@@ -132,11 +142,25 @@ class ReportController extends Controller
     public function checkins(Request $request)
     {
         $groupBy = $request->get('group_by', 'day');
-        $now = Carbon::now();
-        $start = Carbon::parse($request->get('from', $now->copy()->subMonth()->toDateString()));
+        $from = $request->get('from');
+        $to = $request->get('to');
 
-        $enviados = 720;
-        $respondidos = 590;
+        // FIX (auditoría 2026-09-13): 'enviados'/'respondidos' eran
+        // literales fijos (720/590), nunca calculados de datos reales.
+        // FormSubmission (v2 Forms/Check-ins, ver FormController) es la
+        // fuente real: una fila = un check-in asignado; coach_feedback no
+        // nulo = respondido por el coach.
+        $query = \App\Models\FormSubmission::query();
+        if ($from) $query->where('submitted_at', '>=', $from);
+        if ($to) $query->where('submitted_at', '<', Carbon::parse($to)->addDay());
+        if ($coachId = $request->get('coach_id')) {
+            $query->whereHas('formAssignment.client', function ($q) use ($coachId) {
+                $q->where('coach_id', $coachId);
+            });
+        }
+
+        $enviados = (clone $query)->count();
+        $respondidos = (clone $query)->whereNotNull('coach_feedback')->count();
 
         return json_custom_response([
             'data' => [
@@ -161,22 +185,34 @@ class ReportController extends Controller
         $query = PlanSubscription::query()->with(['plan', 'subscriber']);
         if ($from) $query->where('created_at', '>=', $from);
         if ($to) $query->where('created_at', '<', Carbon::parse($to)->addDay());
+        $coachId = $request->get('coach_id');
+        $clientIds = $coachId ? User::where('coach_id', $coachId)->pluck('id') : null;
+        $byCoach = function ($q) use ($clientIds) {
+            if ($clientIds !== null) $q->where('subscriber_type', 'App\\Models\\User')->whereIn('subscriber_id', $clientIds);
+        };
+        $byCoach($query);
 
         if ($groupBy === 'month') {
             $data = $query->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as label, COUNT(*) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         } elseif ($groupBy === 'plan') {
-            $data = PlanSubscription::selectRaw('plans.name as label, COUNT(*) as value')
-                ->join('plans', 'plans.id', '=', 'plan_subscriptions.plan_id')
-                ->groupBy('plans.name')->orderByDesc('value')
+            $planQuery = PlanSubscription::selectRaw('plans.name as label, COUNT(*) as value')
+                ->join('plans', 'plans.id', '=', 'plan_subscriptions.plan_id');
+            $byCoach($planQuery);
+            $data = $planQuery->groupBy('plans.name')->orderByDesc('value')
                 ->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         } else {
             $data = $query->selectRaw("DATE_FORMAT(created_at, '%Y-%m-%d') as label, COUNT(*) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => $r->value]);
         }
 
-        $total = PlanSubscription::count();
-        $rows = PlanSubscription::with(['plan', 'subscriber'])->latest()->limit(50)->get()->map(function ($s) {
+        $totalQuery = PlanSubscription::query();
+        $byCoach($totalQuery);
+        $total = $totalQuery->count();
+
+        $rowsQuery = PlanSubscription::with(['plan', 'subscriber']);
+        $byCoach($rowsQuery);
+        $rows = $rowsQuery->latest()->limit(50)->get()->map(function ($s) {
             $subscriber = $s->subscriber;
             return [
                 'id' => $s->id,
@@ -190,12 +226,15 @@ class ReportController extends Controller
             ];
         });
 
+        $ingresosQuery = PlanSubscription::query();
+        $byCoach($ingresosQuery);
+
         return json_custom_response([
             'data' => [
                 'period_label' => "por {$groupBy}",
                 'data' => $data,
                 'total' => $total,
-                'ingresos' => PlanSubscription::sum('total_amount'),
+                'ingresos' => $ingresosQuery->sum('total_amount'),
                 'rows' => $rows,
             ],
         ]);
@@ -208,25 +247,35 @@ class ReportController extends Controller
         $from = $request->get('from');
         $to = $request->get('to');
 
+        $coachId = $request->get('coach_id');
+        $clientIds = $coachId ? User::where('coach_id', $coachId)->pluck('id') : null;
+        $byCoach = function ($q) use ($clientIds) {
+            if ($clientIds !== null) $q->where('subscriber_type', 'App\\Models\\User')->whereIn('subscriber_id', $clientIds);
+        };
+
         $query = PlanSubscription::where('payment_status', 'paid');
         if ($from) $query->where('created_at', '>=', $from);
         if ($to) $query->where('created_at', '<', Carbon::parse($to)->addDay());
+        $byCoach($query);
 
         if ($groupBy === 'month') {
             $data = $query->selectRaw("DATE_FORMAT(created_at, '%Y-%m') as label, SUM(total_amount) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => (float) $r->value]);
         } elseif ($groupBy === 'plan') {
-            $data = PlanSubscription::where('payment_status', 'paid')
+            $planQuery = PlanSubscription::where('payment_status', 'paid')
                 ->selectRaw('plans.name as label, SUM(plan_subscriptions.total_amount) as value')
-                ->join('plans', 'plans.id', '=', 'plan_subscriptions.plan_id')
-                ->groupBy('plans.name')->orderByDesc('value')
+                ->join('plans', 'plans.id', '=', 'plan_subscriptions.plan_id');
+            $byCoach($planQuery);
+            $data = $planQuery->groupBy('plans.name')->orderByDesc('value')
                 ->get()->map(fn ($r) => ['label' => $r->label, 'value' => (float) $r->value]);
         } else {
             $data = $query->selectRaw("DATE_FORMAT(created_at, '%Y-%m-%d') as label, SUM(total_amount) as value")
                 ->groupBy('label')->orderBy('label')->get()->map(fn ($r) => ['label' => $r->label, 'value' => (float) $r->value]);
         }
 
-        $total = PlanSubscription::where('payment_status', 'paid')->sum('total_amount');
+        $totalQuery = PlanSubscription::where('payment_status', 'paid');
+        $byCoach($totalQuery);
+        $total = $totalQuery->sum('total_amount');
 
         return json_custom_response([
             'data' => [
@@ -452,19 +501,22 @@ class ReportController extends Controller
                 'coach_id' => $coach->id,
                 'coach_name' => $coach->display_name ?? ($coach->first_name . ' ' . $coach->last_name),
                 'total_clientes' => $total,
-                'clientes_activos' => max($withPlan, min($total, 3)),
+                // FIX (auditoría 2026-09-13): antes forzaba un mínimo de 3
+                // "clientes activos" aunque el coach tuviera 0 o 1 real
+                // (max($withPlan, min($total, 3))) -- ahora es el conteo
+                // real de clientes con suscripción vigente.
+                'clientes_activos' => $withPlan,
                 'pct_con_plan' => $total > 0 ? round(($withPlan / $total) * 100) : 0,
-                'pct_completan_80' => round(rand(60, 80)),
             ];
         });
 
-        if ($metrics->isEmpty()) {
-            $metrics = collect([
-                ['coach_id' => 1, 'coach_name' => 'Carlos Martínez', 'total_clientes' => 30, 'clientes_activos' => 27, 'pct_con_plan' => 90, 'pct_completan_80' => 73],
-                ['coach_id' => 2, 'coach_name' => 'Ana García', 'total_clientes' => 24, 'clientes_activos' => 20, 'pct_con_plan' => 83, 'pct_completan_80' => 68],
-            ]);
-        }
-
+        // FIX (auditoría 2026-09-13): antes, sin coaches reales, devolvía
+        // dos coaches ficticios ("Carlos Martínez"/"Ana García") con cifras
+        // inventadas, indistinguible de datos reales. Ahora un array vacío
+        // -- el frontend debe mostrar un estado "sin datos" explícito.
+        // 'pct_completan_80' (antes rand(60,80), sin ninguna base real) se
+        // elimina hasta que exista una fuente real de adherencia al plan
+        // (sesiones completadas vs. programadas) que la calcule de verdad.
         $metricsArr = $metrics->values()->all();
         $totalClientes = array_sum(array_column($metricsArr, 'total_clientes'));
         $totalActivos = array_sum(array_column($metricsArr, 'clientes_activos'));
@@ -476,7 +528,6 @@ class ReportController extends Controller
                     'total_clientes' => $totalClientes,
                     'clientes_activos' => $totalActivos,
                     'pct_con_plan_promedio' => count($metricsArr) > 0 ? round(array_sum(array_column($metricsArr, 'pct_con_plan')) / count($metricsArr)) : 0,
-                    'pct_completan_80_promedio' => count($metricsArr) > 0 ? round(array_sum(array_column($metricsArr, 'pct_completan_80')) / count($metricsArr)) : 0,
                 ],
             ],
         ]);
@@ -568,6 +619,12 @@ class ReportController extends Controller
     // propio usuario autenticado.
     public function clientSubscription(Request $request)
     {
+        // SEGURIDAD (auditoría 2026-09-13): ruta sin auth:sanctum + el
+        // fallback a ?client_id= permitía a cualquiera sin token leer plan,
+        // precio y fechas de facturación de cualquier usuario. Sin uso real
+        // detectado de ese fallback (ni app móvil ni admin lo mandan), así
+        // que se exige usuario autenticado (ruta ahora protegida con
+        // auth:sanctum, ver routes/api.php).
         $user = $request->user();
 
         if (!$user) {

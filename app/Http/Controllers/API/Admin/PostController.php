@@ -37,13 +37,22 @@ class PostController extends BaseController
 
     protected function afterSave($item, Request $request): void
     {
+        // PostResource::toArray() prioriza la colección 'post_image' sobre
+        // 'image' si ambas existen (getFirstMediaUrl('post_image') primero).
+        // Los posts sembrados el 2026-08-20 ya traían 'post_image' -- subir
+        // una portada nueva a 'image' quedaba invisible en la API porque
+        // 'post_image' seguía ahí tapándola. Se limpia siempre la otra
+        // colección para que solo exista una imagen de portada activa a la
+        // vez, sea cual sea el campo por el que llegó.
         if ($request->hasFile('image')) {
             $item->clearMediaCollection('image');
+            $item->clearMediaCollection('post_image');
             $item->addMedia($request->file('image'))->toMediaCollection('image');
         }
 
         if ($request->hasFile('post_image')) {
             $item->clearMediaCollection('post_image');
+            $item->clearMediaCollection('image');
             $item->addMedia($request->file('post_image'))->toMediaCollection('post_image');
         }
     }
@@ -61,6 +70,9 @@ class PostController extends BaseController
         ]);
 
         $item->clearMediaCollection('image');
+        // Ver comentario en afterSave() -- 'post_image' shadows 'image' en
+        // PostResource, así que hay que limpiarla aquí también.
+        $item->clearMediaCollection('post_image');
         $item->addMedia($request->file('image'))->toMediaCollection('image');
 
         $resourceClass = $this->getResourceClass();

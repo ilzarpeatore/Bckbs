@@ -273,22 +273,58 @@ class IdorRegressionTest extends TestCase
         $this->assertSame('edited by owner', $reply->fresh()->comment);
     }
 
-    // ═══ POST /api/form-feedback (missing coach-ownership check) ═══════
+    // ═══ POST /api/form-feedback ═════════════════════════════════════════
+    //
+    // The public, unauthenticated-friendly 'form-feedback' route was removed
+    // entirely (routes/api.php) as a duplicate of the properly-gated
+    // 'admin-form-feedback' route -- assert the old path is really gone.
 
-    public function test_form_feedback_requires_being_the_clients_coach(): void
+    public function test_public_form_feedback_route_no_longer_exists(): void
     {
+        $client = $this->makeUser(['email' => 'client@example.test']);
+        $submission = FormSubmission::create([
+            'form_assignment_id' => FormAssignment::create([
+                'form_id'   => Form::create(['coach_id' => $client->id, 'title' => 'Weekly Check-in'])->id,
+                'client_id' => $client->id,
+                'active'    => true,
+            ])->id,
+            'submitted_at' => now(),
+        ]);
+
+        Sanctum::actingAs($client, ['*']);
+        $response = $this->postJson('/api/form-feedback', [
+            'submission_id'  => $submission->id,
+            'coach_feedback' => 'attacker feedback',
+        ]);
+        $response->assertStatus(404);
+    }
+
+    // ═══ POST /api/admin-form-feedback (missing coach-ownership check) ═══
+    //
+    // admin.api only requires hasRole('admin'), which in this system is NOT
+    // exclusive to real admins/sub-admins -- a 'coach' user_type account can
+    // carry it too (see FitnessDataSeeder::seedDemoClients), and nothing
+    // else server-side scoped feedback to the client's own coach.
+
+    public function test_admin_form_feedback_requires_being_the_clients_coach(): void
+    {
+        Role::findOrCreate('admin', 'web');
+
         $coach = $this->makeUser(['email' => 'coach@example.test', 'user_type' => 'coach']);
+        $coach->assignRole('admin'); // mirrors how 'coach' accounts are actually provisioned today
+        $otherCoach = $this->makeUser(['email' => 'other-coach@example.test', 'user_type' => 'coach']);
+        $otherCoach->assignRole('admin');
         $client = $this->makeUser(['email' => 'client@example.test', 'coach_id' => $coach->id]);
-        $stranger = $this->makeUser(['email' => 'stranger@example.test']);
 
         $form = Form::create(['coach_id' => $coach->id, 'title' => 'Weekly Check-in']);
         $assignment = FormAssignment::create(['form_id' => $form->id, 'client_id' => $client->id, 'active' => true]);
         $submission = FormSubmission::create(['form_assignment_id' => $assignment->id, 'submitted_at' => now()]);
 
-        // A random authenticated user (not the client's coach, not an admin)
-        // must not be able to leave feedback on someone else's submission.
-        Sanctum::actingAs($stranger, ['*']);
-        $response = $this->postJson('/api/form-feedback', [
+        // A coach who is NOT this client's assigned coach must not be able
+        // to leave feedback on someone else's submission, even though they
+        // pass the admin.api role gate.
+        Sanctum::actingAs($otherCoach, ['*']);
+        $response = $this->postJson('/api/admin/admin-form-feedback', [
             'submission_id'  => $submission->id,
             'coach_feedback' => 'attacker feedback',
         ]);
@@ -297,11 +333,33 @@ class IdorRegressionTest extends TestCase
 
         // The client's real coach can.
         Sanctum::actingAs($coach, ['*']);
-        $response = $this->postJson('/api/form-feedback', [
+        $response = $this->postJson('/api/admin/admin-form-feedback', [
             'submission_id'  => $submission->id,
             'coach_feedback' => 'great job this week',
         ]);
         $response->assertStatus(200);
         $this->assertSame('great job this week', $submission->fresh()->coach_feedback);
+    }
+
+    public function test_admin_form_feedback_allows_real_admin_on_any_client(): void
+    {
+        Role::findOrCreate('admin', 'web');
+
+        $admin = $this->makeUser(['email' => 'admin@example.test', 'user_type' => 'admin']);
+        $admin->assignRole('admin');
+        $coach = $this->makeUser(['email' => 'coach2@example.test', 'user_type' => 'coach']);
+        $client = $this->makeUser(['email' => 'client2@example.test', 'coach_id' => $coach->id]);
+
+        $form = Form::create(['coach_id' => $coach->id, 'title' => 'Weekly Check-in']);
+        $assignment = FormAssignment::create(['form_id' => $form->id, 'client_id' => $client->id, 'active' => true]);
+        $submission = FormSubmission::create(['form_assignment_id' => $assignment->id, 'submitted_at' => now()]);
+
+        Sanctum::actingAs($admin, ['*']);
+        $response = $this->postJson('/api/admin/admin-form-feedback', [
+            'submission_id'  => $submission->id,
+            'coach_feedback' => 'admin feedback',
+        ]);
+        $response->assertStatus(200);
+        $this->assertSame('admin feedback', $submission->fresh()->coach_feedback);
     }
 }

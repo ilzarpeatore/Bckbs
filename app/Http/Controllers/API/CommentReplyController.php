@@ -55,29 +55,29 @@ class CommentReplyController extends Controller
 
         if( $comment != null ) {
 
-            $data = $request->all();
-
             $user = auth()->user();
-            $data['user_id'] = $user->id;
 
             if ($request->filled('id')) {
-                // SEGURIDAD (revision 2026-09-13, IDOR): antes buscaba la reply
-                // por id sin comprobar propiedad -- cualquier usuario autenticado
-                // podia editar la respuesta de OTRO usuario pasando su id. Se
-                // reutiliza CommentReply::scopeMyCommentReply(), mismo criterio
-                // que ya usa deleteCommentReply() (canBeDeletedBy) y
-                // CommentController::updateComment() (myComment()).
+                // SEGURIDAD (auditoría 2026-09-13): antes buscaba por id sin
+                // ninguna comprobación de propiedad, y hacía
+                // fill($request->all()) incluyendo 'user_id' -- cualquiera
+                // podía editar y reasignar la respuesta de otro usuario.
+                // myCommentReply() ya restringe a las respuestas propias
+                // (mismo scope que usa deleteCommentReply vía
+                // canBeDeletedBy), y solo el texto es editable.
                 $commentReply = CommentReply::myCommentReply()->where('id', $request->id)->first();
+
                 if ($commentReply == null) {
-                    return json_message_response(__('message.not_found_entry', ['name' => __('message.comment_reply')]), 400);
+                    return json_message_response(__('message.not_found_entry', ['name' => __('message.comment_reply') ]), 400);
                 }
-                unset($data['user_id']);
-                $commentReply->fill($data)->update();
+
+                $commentReply->update(['comment' => $request->input('comment')]);
             } else {
+                $data = $request->all();
+                $data['user_id'] = $user->id;
                 CommentReply::create($data);
             }
 
-            // CommentReply::updateOrCreate(['id' => request('id') ], $data);
             $message = null;
             $status_code = 200;
 

@@ -65,12 +65,19 @@ class AuthController extends Controller
 
         $response = [
             'data' => [
-                'id'          => $user->id,
-                'name'        => $user->display_name ?? $user->first_name . ' ' . $user->last_name,
-                'email'       => $user->email,
-                'user_type'   => $user->user_type,
-                'status'      => $user->status,
-                'permissions' => $permissions,
+                'id'           => $user->id,
+                'name'         => $user->display_name ?? $user->first_name . ' ' . $user->last_name,
+                // Añadidos (auditoría 2026-09-13, /pages/user-profile
+                // pasa de mock a real): updateProfile() ya los acepta, pero
+                // me() no los devolvía, así que el formulario no podía
+                // precargarlos.
+                'first_name'   => $user->first_name,
+                'last_name'    => $user->last_name,
+                'phone_number' => $user->phone_number,
+                'email'        => $user->email,
+                'user_type'    => $user->user_type,
+                'status'       => $user->status,
+                'permissions'  => $permissions,
             ],
         ];
 

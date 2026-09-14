@@ -101,6 +101,17 @@ class SectionTemplateController extends Controller
 
         $order = SectionTemplateExercise::where('section_template_id', $request->section_template_id)->max('sequence') ?? 0;
 
+        $metrics = (array) ($request->enabled_metrics ?? []);
+        if ($metrics !== [] && !in_array('rir', $metrics, true) && !in_array('rpe', $metrics, true)) {
+            return json_message_response('enabled_metrics debe incluir "rir" o "rpe" (sensación subjetiva obligatoria).', 422);
+        }
+        if ($metrics === []) {
+            // Sin métricas explícitas -- valor por defecto que ya incluye
+            // sensación subjetiva, nunca queda sin ella (antes se guardaba
+            // vacío del todo, ver SectionsView.tsx).
+            $metrics = ['reps', 'carga', 'descanso', 'rir'];
+        }
+
         $exercise = SectionTemplateExercise::updateOrCreate(
             [
                 'id' => $request->id ?? null,
@@ -110,7 +121,7 @@ class SectionTemplateController extends Controller
                 'exercise_id'          => $request->exercise_id,
                 'sequence'             => $request->sequence ?? ($order + 1),
                 'prescribed'           => $request->prescribed ?? [],
-                'enabled_metrics'      => $request->enabled_metrics ?? [],
+                'enabled_metrics'      => $metrics,
             ]
         );
 

@@ -263,16 +263,18 @@ class UserController extends Controller
 
     public function userDetail(Request $request)
     {
-        // SEGURIDAD (revision 2026-09-13): esta ruta era publica (sin
-        // auth:sanctum, ver routes/api.php) y cogia el `id` directamente
-        // del request -- cualquiera podia leer nombre, email, telefono,
-        // genero, perfil y suscripcion de CUALQUIER usuario probando IDs
-        // (IDOR + PII expuesta sin autenticar). Ahora exige sesion y
-        // siempre devuelve el propio usuario autenticado, igual que ya
-        // hace updateProfile() (ver CRIT-1 en el historial de auditoria).
-        $user = $request->user();
+        // SEGURIDAD (auditoría 2026-09-13): ruta sin auth:sanctum + $id
+        // arbitrario del request -- cualquiera sin token podía enumerar
+        // email/teléfono/suscripción de cualquier usuario por ID. Único
+        // uso real confirmado (AuthContext.tsx) es refrescar el propio
+        // perfil tras login, así que se ignora $request->id y se usa
+        // siempre el usuario autenticado (ruta ahora protegida con
+        // auth:sanctum, ver routes/api.php).
+        $id = auth()->id();
 
-        if(empty($user) || $user->user_type !== 'user') {
+        $user = User::where('id',$id)->where('user_type', 'user')->first();
+
+        if(empty($user)) {
             $message = __('message.not_found_entry', ['name' => __('message.user') ]);
             return json_message_response($message,400);
         }
@@ -594,7 +596,12 @@ class UserController extends Controller
 
     public function updateUserStatus(Request $request)
     {
-        $user_id = $request->id ?? auth()->user()->id;
+        // SEGURIDAD (auditoría 2026-09-13): antes se aceptaba $request->id
+        // arbitrario -- cualquier usuario autenticado podía banear/reactivar
+        // a cualquier otro. Sin uso real detectado del id ajeno (ni app
+        // móvil ni admin lo mandan), así que se opera siempre sobre el
+        // propio usuario autenticado.
+        $user_id = auth()->user()->id;
 
         $user = User::where('id',$user_id)->first();
 

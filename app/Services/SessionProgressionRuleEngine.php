@@ -27,6 +27,7 @@ use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\Concerns\ComputesLinearSlope;
 use App\Services\CoachExceptionFeedService;
+use App\Support\DumbbellLoadTable;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -825,7 +826,16 @@ class SessionProgressionRuleEngine
      */
     private function applyRounding(float $value, int $exerciseId, \App\Enums\RoundingMode $fallbackRounding): float
     {
-        $incrementKg = Exercise::find($exerciseId)?->increment_kg;
+        $exercise = Exercise::find($exerciseId);
+
+        // Mancuernas no siguen un incremento uniforme (rastrillera real:
+        // 1kg hasta 15kg, luego 2.5kg hasta 50kg) -- se resuelven antes que
+        // `increment_kg` con su propia tabla de snapping.
+        if ($exercise?->equipment?->load_type === 'dumbbell') {
+            return DumbbellLoadTable::snap($value);
+        }
+
+        $incrementKg = $exercise?->increment_kg;
 
         if ($incrementKg !== null && (float) $incrementKg > 0) {
             return round($value / $incrementKg) * $incrementKg;

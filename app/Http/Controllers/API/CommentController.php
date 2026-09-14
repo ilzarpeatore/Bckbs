@@ -78,12 +78,6 @@ class CommentController extends Controller
         $status_code = 400;
 
         if( $posting != null ) {
-            $data = $request->all();
-            // SEGURIDAD (revision 2026-09-13): no dejar que 'user_id'/'id' lleguen
-            // al fill() -- ambos son fillable en el modelo, y de otro modo un
-            // caller podria reasignar la propiedad del comentario al actualizarlo.
-            unset($data['user_id'], $data['id']);
-
             $comment = Comment::myComment()->where('id', request('id'))->where('posting_id', $posting->id)->first();
 
             $message = __('message.not_found_entry', ['name' => __('message.comment') ]);
@@ -95,7 +89,12 @@ class CommentController extends Controller
             // "exito" sin haber tocado nada -- ahora sigue devolviendo el 400
             // "not found" ya calculado justo encima cuando no hay comentario.
             if( $comment != null ) {
-                $comment->fill($data)->update();
+                // SEGURIDAD (auditoría 2026-09-13): antes hacía
+                // fill($request->all()) -- 'user_id' es fillable, así que
+                // incluso con myComment() ya corregido, el autor real podía
+                // reasignar su propio comentario a otro user_id. Solo el
+                // texto es editable.
+                $comment->update(['comment' => $request->input('comment')]);
                 $message = null;
                 $status_code = 200;
             }

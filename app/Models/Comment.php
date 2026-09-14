@@ -28,17 +28,12 @@ class Comment extends Model
 
     public function scopeMyComment($query)
     {
+        // SEGURIDAD (auditoría 2026-09-13): antes confiaba en un
+        // request('user_id') mandado por el propio cliente -- cualquiera
+        // podía editar/reasignar el comentario de otro usuario pasando su
+        // user_id en el body. Se ignora, solo cuenta el usuario autenticado.
         $user = auth()->user();
 
-        // SEGURIDAD (revision 2026-09-13, IDOR): este scope se usa para
-        // resolver "es este MI comentario" antes de permitir editarlo
-        // (CommentController::updateComment, CommunityController::editCommentReply).
-        // Antes, si el caller mandaba un `user_id` en la request, el scope
-        // filtraba por ESE user_id en vez de por el usuario autenticado --
-        // cualquier usuario podia editar el comentario de OTRO pasando su
-        // user_id + el id del comentario ajeno. Se elimina ese override:
-        // solo el propio auth()->id() (o ningun filtro para admin) decide
-        // el alcance, igual que ya hace CommentReply::scopeMyCommentReply().
         if( isset($user) && $user->hasRole(['user']) ) {
             $query = $query->where('user_id', $user->id);
         }
