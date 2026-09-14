@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\ProgramsImport\Adapters\CsvWorkoutAdapter;
+use App\Services\ProgramsImport\Adapters\ExcelWorkoutAdapter;
 use App\Services\ProgramsImport\Adapters\OpenWeightAdapter;
 use App\Services\ProgramsImport\Adapters\WgerAdapter;
 use App\Services\ProgramsImport\ProgramsImporter;
@@ -11,44 +12,55 @@ use Illuminate\Support\Facades\Cache;
 
 /**
  * Importa programas de entrenamiento desde fuentes externas (Hevy, Strong,
- * JEFIT vía CSV; openweight y wger vía JSON) a training_programs +
- * program_day_assignments + workout_templates, resolviendo ejercicios con el
- * matcher A-E y creando los que no matcheen.
+ * JEFIT vía CSV; openweight y wger vía JSON; plantilla propia vía Excel) a
+ * training_programs + program_day_assignments + workout_templates,
+ * resolviendo ejercicios con el matcher A-E y creando los que no matcheen.
  *
  *   php artisan programs:import hevy database/data/programs/hevy.example.csv --dry-run
  *   php artisan programs:import openweight storage/imports/programa.json --num-weeks=12
+ *   php artisan programs:import excel database/data/programs/excel.example.xlsx --dry-run
+ *
+ * `excel` es distinto de las demás fuentes: el propio archivo ya trae TODAS
+ * las semanas explícitas (columna `semana` por fila), así que por defecto
+ * NO se extrapola a --num-weeks=12 como con hevy/strong/jefit/wger -- se
+ * usa el nº de semanas que traiga el archivo, salvo que pases --num-weeks
+ * explícitamente para forzar otro valor.
  */
 class ImportProgramsCommand extends Command
 {
     protected $signature = 'programs:import
-        {source : Fuente: hevy | strong | jefit | openweight | wger}
-        {file : Ruta al archivo (CSV para hevy/strong/jefit; JSON para openweight/wger)}
+        {source : Fuente: hevy | strong | jefit | openweight | wger | excel}
+        {file : Ruta al archivo (CSV para hevy/strong/jefit; JSON para openweight/wger; XLSX para excel)}
         {--dry-run : Solo vista previa, no escribe en BD}
         {--report= : Ruta del CSV de reporte de ejercicios (por defecto database/data/programs/reports/)}
         {--threshold=0.72 : Confianza mínima del matcher (0-1)}
-        {--num-weeks=12 : Semanas objetivo del programa}
-        {--progression=auto : auto | none (progresión semana a semana)}
+        {--num-weeks= : Semanas objetivo del programa (por defecto: 12 salvo excel, que usa las semanas del propio archivo)}
+        {--progression=auto : auto | none (progresión semana a semana; sin efecto si num-weeks no supera las semanas de la fuente)}
         {--coach-id=1 : Coach asignado a las plantillas/programas}
         {--no-create : No crear ejercicios sin match (solo reportarlos)}
         {--force : Reimportar aunque ya exista (source, source_id)}
         {--free : Marcar el programa como is_free_accessible}';
 
-    protected $description = 'Importa programas de entrenamiento (Hevy/Strong/JEFIT/openweight/wger) a la BD';
+    protected $description = 'Importa programas de entrenamiento (Hevy/Strong/JEFIT/openweight/wger/Excel) a la BD';
 
     public function handle(): int
     {
         $source = strtolower((string) $this->argument('source'));
         $file = (string) $this->argument('file');
 
+        $numWeeksOpt = $this->option('num-weeks');
+        $numWeeks = $numWeeksOpt !== null ? (int) $numWeeksOpt : ($source === 'excel' ? 0 : 12);
+
         $adapter = match ($source) {
             'hevy', 'strong', 'jefit' => new CsvWorkoutAdapter($source),
             'openweight'              => new OpenWeightAdapter(),
-            'wger'                    => new WgerAdapter((int) $this->option('num-weeks')),
+            'wger'                    => new WgerAdapter($numWeeks),
+            'excel'                   => new ExcelWorkoutAdapter(),
             default                   => null,
         };
 
         if ($adapter === null) {
-            $this->error("Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger.");
+            $this->error("Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger|excel.");
             return self::FAILURE;
         }
 
@@ -75,7 +87,7 @@ class ImportProgramsCommand extends Command
 
         $importer = new ProgramsImporter(
             coachId: (int) $this->option('coach-id'),
-            numWeeks: (int) $this->option('num-weeks'),
+            numWeeks: $numWeeks,
             progressionMode: (string) $this->option('progression'),
             threshold: (float) $this->option('threshold'),
             autoCreate: !$this->option('no-create'),
