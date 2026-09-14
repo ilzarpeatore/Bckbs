@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "apimatic/core",
-            "version": "0.3.17",
+            "version": "0.3.18",
             "source": {
                 "type": "git",
                 "url": "https://github.com/apimatic/core-lib-php.git",
-                "reference": "a48a583f686ee3786432b976c795a2817ec095b3"
+                "reference": "7e3d2de97de6df8aa1c66293c92573b6984e3f50"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/apimatic/core-lib-php/zipball/a48a583f686ee3786432b976c795a2817ec095b3",
-                "reference": "a48a583f686ee3786432b976c795a2817ec095b3",
+                "url": "https://api.github.com/repos/apimatic/core-lib-php/zipball/7e3d2de97de6df8aa1c66293c92573b6984e3f50",
+                "reference": "7e3d2de97de6df8aa1c66293c92573b6984e3f50",
                 "shasum": ""
             },
             "require": {
@@ -57,9 +57,9 @@
             ],
             "support": {
                 "issues": "https://github.com/apimatic/core-lib-php/issues",
-                "source": "https://github.com/apimatic/core-lib-php/tree/0.3.17"
+                "source": "https://github.com/apimatic/core-lib-php/tree/0.3.18"
             },
-            "time": "2026-01-27T05:14:10+00:00"
+            "time": "2026-08-20T09:44:05+00:00"
         },
         {
             "name": "apimatic/core-interfaces",
@@ -160,16 +160,16 @@
         },
         {
             "name": "apimatic/unirest-php",
-            "version": "4.0.7",
+            "version": "4.0.8",
             "source": {
                 "type": "git",
                 "url": "https://github.com/apimatic/unirest-php.git",
-                "reference": "bdfd5f27c105772682c88ed671683f1bd93f4a3c"
+                "reference": "e1828d2f5fa53528b2576775eb1dce824176bf73"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/apimatic/unirest-php/zipball/bdfd5f27c105772682c88ed671683f1bd93f4a3c",
-                "reference": "bdfd5f27c105772682c88ed671683f1bd93f4a3c",
+                "url": "https://api.github.com/repos/apimatic/unirest-php/zipball/e1828d2f5fa53528b2576775eb1dce824176bf73",
+                "reference": "e1828d2f5fa53528b2576775eb1dce824176bf73",
                 "shasum": ""
             },
             "require": {
@@ -179,6 +179,7 @@
                 "php": "^7.2 || ^8.0"
             },
             "require-dev": {
+                "ext-zlib": "*",
                 "phan/phan": "5.4.2",
                 "phpunit/phpunit": "^7.5 || ^8.5 || ^9.5",
                 "squizlabs/php_codesniffer": "^3.5"
@@ -219,9 +220,9 @@
             "support": {
                 "email": "opensource@apimatic.io",
                 "issues": "https://github.com/apimatic/unirest-php/issues",
-                "source": "https://github.com/apimatic/unirest-php/tree/4.0.7"
+                "source": "https://github.com/apimatic/unirest-php/tree/4.0.8"
             },
-            "time": "2025-06-17T09:09:48+00:00"
+            "time": "2026-08-20T09:44:17+00:00"
         },
         {
             "name": "barryvdh/laravel-dompdf",
@@ -4784,20 +4785,20 @@
         },
         {
             "name": "paypal/paypal-server-sdk",
-            "version": "2.2.0",
+            "version": "2.4.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/paypal/PayPal-PHP-Server-SDK.git",
-                "reference": "a57716159366aa13e7e1448dcf608077935aae94"
+                "reference": "b6be767b759ac3e3ad1d32dde7143a0927f5892b"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/paypal/PayPal-PHP-Server-SDK/zipball/a57716159366aa13e7e1448dcf608077935aae94",
-                "reference": "a57716159366aa13e7e1448dcf608077935aae94",
+                "url": "https://api.github.com/repos/paypal/PayPal-PHP-Server-SDK/zipball/b6be767b759ac3e3ad1d32dde7143a0927f5892b",
+                "reference": "b6be767b759ac3e3ad1d32dde7143a0927f5892b",
                 "shasum": ""
             },
             "require": {
-                "apimatic/core": "~0.3.16",
+                "apimatic/core": "~0.3.17",
                 "apimatic/core-interfaces": "~0.1.5",
                 "apimatic/unirest-php": "^4.0.6",
                 "ext-curl": "*",
@@ -4821,10 +4822,9 @@
             "description": "PayPal's SDK for interacting with the REST APIs",
             "homepage": "https://github.com/paypal/PayPal-PHP-Server-SDK",
             "support": {
-                "issues": "https://github.com/paypal/PayPal-PHP-Server-SDK/issues",
-                "source": "https://github.com/paypal/PayPal-PHP-Server-SDK/tree/2.2.0"
+                "source": "https://github.com/paypal/PayPal-PHP-Server-SDK/tree/2.4.0"
             },
-            "time": "2026-01-21T22:02:20+00:00"
+            "time": "2026-08-21T15:05:45+00:00"
         },
         {
             "name": "php-jsonpointer/php-jsonpointer",
@@ -8200,16 +8200,16 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.37.0",
+            "version": "v1.38.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
-                "reference": "6a21eb99c6973357967f6ce3708cd55a6bec6315"
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/6a21eb99c6973357967f6ce3708cd55a6bec6315",
-                "reference": "6a21eb99c6973357967f6ce3708cd55a6bec6315",
+                "url": "https://api.github.com/repos/symfony/polyfill-mbstring/zipball/d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
+                "reference": "d3d318bad5e7a1bfbd026009c8bfb8d8f99ae6b6",
                 "shasum": ""
             },
             "require": {
@@ -8261,7 +8261,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.37.0"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.38.2"
             },
             "funding": [
                 {
@@ -8281,7 +8281,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-04-10T17:25:58+00:00"
+            "time": "2026-05-27T06:59:30+00:00"
         },
         {
             "name": "symfony/polyfill-php80",
@@ -8369,16 +8369,16 @@
         },
         {
             "name": "symfony/polyfill-php83",
-            "version": "v1.37.0",
+            "version": "v1.41.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-php83.git",
-                "reference": "3600c2cb22399e25bb226e4a135ce91eeb2a6149"
+                "reference": "5ea99087fb99c273a9b9236ed4c31e78b16103c6"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-php83/zipball/3600c2cb22399e25bb226e4a135ce91eeb2a6149",
-                "reference": "3600c2cb22399e25bb226e4a135ce91eeb2a6149",
+                "url": "https://api.github.com/repos/symfony/polyfill-php83/zipball/5ea99087fb99c273a9b9236ed4c31e78b16103c6",
+                "reference": "5ea99087fb99c273a9b9236ed4c31e78b16103c6",
                 "shasum": ""
             },
             "require": {
@@ -8425,7 +8425,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-php83/tree/v1.37.0"
+                "source": "https://github.com/symfony/polyfill-php83/tree/v1.41.0"
             },
             "funding": [
                 {
@@ -8445,7 +8445,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-04-10T17:25:58+00:00"
+            "time": "2026-07-01T12:47:55+00:00"
         },
         {
             "name": "symfony/polyfill-php85",
@@ -12527,5 +12527,5 @@
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
