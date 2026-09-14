@@ -122,23 +122,21 @@ Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta
 
 ## 6. Estado actual del código (a fecha de este documento)
 
-- Rama `feature/excel-program-import`: contiene `ExcelWorkoutAdapter` + `EXCEL_FORMAT.md`. **Todavía no mergeada a `main`.**
-- `main`: ya tiene el fix de `ExerciseMatcher` (bug de soft-delete) y `programs:check-integrity`, pero NO tiene el adaptador Excel — `programs:import excel` falla en `main` hasta que se mergee la rama.
-- Probado end-to-end con éxito una vez: `Mesociclo_1_TONI_Septiembre.xlsx` → `training_program #48`, 3 semanas, 48 ejercicios, asignado a `demo@bestronger.app`.
+- **`main` ya tiene todo mergeado** (2026-09-15, commit `e918b4b`): `ExcelWorkoutAdapter`, `EXCEL_FORMAT.md`, `excel.example.xlsx`, el fix de `ExerciseMatcher` (bug de soft-delete) y `programs:check-integrity`. `programs:import excel <archivo>` funciona directamente en `main`, sin cambiar de rama. La rama `feature/excel-program-import` sigue existiendo en el remoto pero ya está fusionada — no hace falta usarla.
+- Probado end-to-end con éxito una vez: `Mesociclo_1_TONI_Septiembre.xlsx` → `training_program #48`, 3 semanas, 48 ejercicios, asignado a `demo@bestronger.app`. Verificado con `--dry-run` y `check-integrity` de nuevo tras el merge, sin regresiones.
 - No existe todavía ningún comando/endpoint para el paso de asignar un programa a un cliente — se hizo a mano con un script puntual.
 
 ---
 
 ## 7. Qué le falta al sistema para que un agente lo pueda operar solo
 
-Orden de prioridad, de lo que más desbloquea a lo que menos:
+Orden de prioridad, de lo que más desbloquea a lo que menos (el merge a `main` ya no es un bloqueante, se completó):
 
-1. **Mergear `feature/excel-program-import` a `main`.** Sin esto nada de lo demás tiene sentido.
-2. **Salida estructurada (JSON) del dry-run y del import real.** Hoy `programs:import` imprime texto pensado para un humano en terminal. Un agente necesita parsear: lista de ejercicios por nivel de confianza, cuáles se crearían nuevos, cuáles semanas/días se generaron, ids resultantes.
-3. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON.
-4. **Comando/endpoint de asignación a cliente** (`programs:assign-client <program_id> <email> --start-date=`) — hoy no existe.
-5. **`check-integrity` automático** tras cada import real, no manual.
-6. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción.
+1. **Salida estructurada (JSON) del dry-run y del import real.** Hoy `programs:import` imprime texto pensado para un humano en terminal. Un agente necesita parsear: lista de ejercicios por nivel de confianza, cuáles se crearían nuevos, cuáles semanas/días se generaron, ids resultantes.
+2. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON.
+3. **Comando/endpoint de asignación a cliente** (`programs:assign-client <program_id> <email> --start-date=`) — hoy no existe.
+4. **`check-integrity` automático** tras cada import real, no manual.
+5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción.
 
 ---
 
@@ -182,7 +180,7 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 | Formato del Excel (para el agente generador) | `database/data/programs/EXCEL_FORMAT.md` |
 | Ejemplo de Excel funcionando | `database/data/programs/excel.example.xlsx` |
 | Esquema canónico interno | `database/data/programs/canonical.example.json` |
-| Adaptador Excel | `app/Services/ProgramsImport/Adapters/ExcelWorkoutAdapter.php` (rama `feature/excel-program-import`) |
+| Adaptador Excel | `app/Services/ProgramsImport/Adapters/ExcelWorkoutAdapter.php` (en `main`) |
 | Importador (motor central) | `app/Services/ProgramsImport/ProgramsImporter.php` |
 | Matcher de ejercicios | `app/Services/ExerciseMatcher/ExerciseMatcher.php` |
 | Comando de import | `app/Console/Commands/ImportProgramsCommand.php` |
