@@ -6,6 +6,7 @@ use App\Services\ProgramsImport\Adapters\CsvWorkoutAdapter;
 use App\Services\ProgramsImport\Adapters\ExcelWorkoutAdapter;
 use App\Services\ProgramsImport\Adapters\OpenWeightAdapter;
 use App\Services\ProgramsImport\Adapters\WgerAdapter;
+use App\Services\ProgramsImport\ImportJsonReport;
 use App\Services\ProgramsImport\ProgramsImporter;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -19,12 +20,21 @@ use Illuminate\Support\Facades\Cache;
  *   php artisan programs:import hevy database/data/programs/hevy.example.csv --dry-run
  *   php artisan programs:import openweight storage/imports/programa.json --num-weeks=12
  *   php artisan programs:import excel database/data/programs/excel.example.xlsx --dry-run
+ *   php artisan programs:import excel database/data/programs/excel.example.xlsx --dry-run --json
  *
  * `excel` es distinto de las demás fuentes: el propio archivo ya trae TODAS
  * las semanas explícitas (columna `semana` por fila), así que por defecto
  * NO se extrapola a --num-weeks=12 como con hevy/strong/jefit/wger -- se
  * usa el nº de semanas que traiga el archivo, salvo que pases --num-weeks
  * explícitamente para forzar otro valor.
+ *
+ * `--json` (ver docs/AGENTE_IMPORTADOR.md, sección 7): en vez del texto
+ * pensado para consola humana, imprime un único JSON por stdout (ver
+ * App\Services\ProgramsImport\ImportJsonReport) con los resultados, las
+ * estadísticas, el reporte de ejercicios y `review_required` — la lista
+ * aplanada de ejercicios con match ambiguo (nivel C/D/E) o auto-creados
+ * que un agente automatizado debe mostrar a un humano antes de proceder
+ * a un import real. No cambia el comportamiento del import en sí.
  */
 class ImportProgramsCommand extends Command
 {
@@ -39,7 +49,8 @@ class ImportProgramsCommand extends Command
         {--coach-id=1 : Coach asignado a las plantillas/programas}
         {--no-create : No crear ejercicios sin match (solo reportarlos)}
         {--force : Reimportar aunque ya exista (source, source_id)}
-        {--free : Marcar el programa como is_free_accessible}';
+        {--free : Marcar el programa como is_free_accessible}
+        {--json : Salida JSON estructurada por stdout en vez de texto para humano (ver ImportJsonReport)}';
 
     protected $description = 'Importa programas de entrenamiento (Hevy/Strong/JEFIT/openweight/wger/Excel) a la BD';
 
@@ -47,6 +58,7 @@ class ImportProgramsCommand extends Command
     {
         $source = strtolower((string) $this->argument('source'));
         $file = (string) $this->argument('file');
+        $jsonOutput = (bool) $this->option('json');
 
         $numWeeksOpt = $this->option('num-weeks');
         $numWeeks = $numWeeksOpt !== null ? (int) $numWeeksOpt : ($source === 'excel' ? 0 : 12);
@@ -60,27 +72,28 @@ class ImportProgramsCommand extends Command
         };
 
         if ($adapter === null) {
-            $this->error("Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger|excel.");
-            return self::FAILURE;
+            return $this->fail($jsonOutput, "Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger|excel.");
         }
 
         if (!is_file($file)) {
-            $this->error("Archivo no encontrado: {$file}");
-            return self::FAILURE;
+            return $this->fail($jsonOutput, "Archivo no encontrado: {$file}");
         }
 
         $dryRun = (bool) $this->option('dry-run');
-        $this->info("Fuente: {$source} | archivo: {$file}" . ($dryRun ? ' | DRY-RUN' : ''));
+        if (!$jsonOutput) {
+            $this->info("Fuente: {$source} | archivo: {$file}" . ($dryRun ? ' | DRY-RUN' : ''));
+        }
 
         try {
             $canonical = $adapter->convert($file);
         } catch (\Throwable $e) {
-            $this->error('Error parseando la fuente: ' . $e->getMessage());
-            return self::FAILURE;
+            return $this->fail($jsonOutput, 'Error parseando la fuente: ' . $e->getMessage());
         }
 
         $programCount = count($canonical['programs'] ?? []);
-        $this->line("Programas detectados: {$programCount}");
+        if (!$jsonOutput) {
+            $this->line("Programas detectados: {$programCount}");
+        }
 
         // limpiar caché de firmas del matcher para reflejar ejercicios nuevos
         Cache::forget('exercise_matcher_db_signatures_v1');
@@ -99,14 +112,38 @@ class ImportProgramsCommand extends Command
         try {
             $result = $importer->import($canonical);
         } catch (\Throwable $e) {
-            $this->error('Error importando: ' . $e->getMessage());
-            return self::FAILURE;
+            return $this->fail($jsonOutput, 'Error importando: ' . $e->getMessage());
+        }
+
+        $reportCsvPath = $this->persistReport($importer->report(), $source);
+
+        if ($jsonOutput) {
+            $payload = ImportJsonReport::buildPayload($source, $file, $dryRun, $programCount, $result, $importer->report(), $reportCsvPath);
+            $this->line(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+            return self::SUCCESS;
         }
 
         $this->renderResults($result, $dryRun);
-        $this->writeReport($importer->report(), $source);
+        if ($reportCsvPath === null) {
+            $this->line('Reporte: sin ejercicios creados/no-matcheados.');
+        } else {
+            $this->info("Reporte de ejercicios: {$reportCsvPath} (" . count($importer->report()) . ' filas)');
+        }
 
         return self::SUCCESS;
+    }
+
+    /** Reporta un fallo en el formato que corresponda ($jsonOutput) y devuelve el código de salida. */
+    private function fail(bool $jsonOutput, string $message): int
+    {
+        if ($jsonOutput) {
+            $this->line(json_encode(ImportJsonReport::buildError($message), JSON_UNESCAPED_UNICODE));
+        } else {
+            $this->error($message);
+        }
+
+        return self::FAILURE;
     }
 
     private function renderResults(array $result, bool $dryRun): void
@@ -162,11 +199,11 @@ class ImportProgramsCommand extends Command
         }
     }
 
-    private function writeReport(array $report, string $source): void
+    /** Escribe el CSV de ejercicios creados/no-matcheados y devuelve su ruta (null si no había nada que reportar). */
+    private function persistReport(array $report, string $source): ?string
     {
         if ($report === []) {
-            $this->line('Reporte: sin ejercicios creados/no-matcheados.');
-            return;
+            return null;
         }
 
         $path = $this->option('report');
@@ -180,8 +217,10 @@ class ImportProgramsCommand extends Command
 
         $fh = fopen((string) $path, 'w');
         if ($fh === false) {
-            $this->warn("No se pudo escribir el reporte en {$path}");
-            return;
+            if (!$this->option('json')) {
+                $this->warn("No se pudo escribir el reporte en {$path}");
+            }
+            return null;
         }
         fputcsv($fh, ['source_exercise', 'exercise_id', 'resolved_title', 'candidates', 'action']);
         foreach ($report as $row) {
@@ -189,6 +228,6 @@ class ImportProgramsCommand extends Command
         }
         fclose($fh);
 
-        $this->info("Reporte de ejercicios: {$path} (" . count($report) . ' filas)');
+        return (string) $path;
     }
 }

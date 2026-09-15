@@ -67,15 +67,16 @@ ProgramsImporter::import()             app/Services/ProgramsImport/ProgramsImpor
 ### Comando actual (única forma de disparar el import hoy)
 
 ```
-php artisan programs:import excel <ruta.xlsx> --dry-run   # solo vista previa, no escribe nada
-php artisan programs:import excel <ruta.xlsx>              # escribe de verdad
+php artisan programs:import excel <ruta.xlsx> --dry-run          # solo vista previa, no escribe nada
+php artisan programs:import excel <ruta.xlsx>                     # escribe de verdad
+php artisan programs:import excel <ruta.xlsx> --dry-run --json    # igual, pero salida JSON (ver más abajo)
 ```
 
 Flags relevantes de `programs:import` (`app/Console/Commands/ImportProgramsCommand.php`):
 
 | Flag | Default | Qué hace |
 |---|---|---|
-| `--dry-run` | off | No escribe en BD, solo muestra preview (primeras 2 semanas) |
+| `--dry-run` | off | No escribe en BD, solo muestra preview (primeras 2 semanas en modo humano; todas en modo `--json`) |
 | `--num-weeks` | auto para `excel` (usa las semanas que traiga el archivo); `12` para el resto de fuentes | Fuerza un nº de semanas distinto |
 | `--threshold` | `0.72` | Confianza mínima del matcher (0-1) |
 | `--coach-id` | `1` | Coach dueño de la plantilla creada |
@@ -83,8 +84,39 @@ Flags relevantes de `programs:import` (`app/Console/Commands/ImportProgramsComma
 | `--force` | off | Reimporta aunque ya exista el mismo (source, source_id) |
 | `--free` | off | Marca el programa como `is_free_accessible` |
 | `--report=` | `database/data/programs/reports/` | Ruta del CSV de ejercicios creados/no-matcheados |
+| `--json` | off | Salida JSON estructurada por stdout en vez de texto para humano — ver más abajo |
 
-**No hay endpoint HTTP.** Solo CLI. El output es texto para consola humana, no JSON — esto es lo primero que un agente automatizado necesitaría que cambiara (ver sección 7).
+**No hay endpoint HTTP todavía.** Solo CLI (sección 7, punto 2 sigue pendiente). Pero el punto 1 de la sección 7 (salida JSON) **ya está resuelto**: `--json` imprime un único objeto JSON por stdout, construido por `App\Services\ProgramsImport\ImportJsonReport` a partir de las mismas estructuras que ya devolvía `ProgramsImporter::import()` — no se tocó el motor de import, solo la capa de presentación del comando.
+
+Forma del JSON:
+
+```json
+{
+  "ok": true,
+  "source": "excel",
+  "file": "database/data/programs/excel.example.xlsx",
+  "dry_run": true,
+  "programs_detected": 1,
+  "results": [ /* igual que ProgramsImporter::import()['results'], sin truncar semanas */ ],
+  "stats": { /* igual que ProgramsImporter::import()['stats'] */ },
+  "review_required": [
+    {
+      "program": "Mesociclo 1 TONI Septiembre",
+      "week": 1,
+      "day_of_week": 1,
+      "source_exercise": "Curl concentrado raro",
+      "level": "D",
+      "confidence": 0.61,
+      "matched_title": "Curl de bíceps con mancuernas",
+      "matched_exercise_id": 899
+    }
+  ],
+  "report": [ /* igual que ProgramsImporter::report() */ ],
+  "report_csv_path": "database/data/programs/reports/excel-20260915-101500-report.csv"
+}
+```
+
+`review_required` es la pieza nueva que no existía en ninguna estructura previa: aplana todas las semanas/días/ejercicios del preview y se queda solo con los que tienen nivel C/D/E o se crearían (`level: "created"`) — exactamente el criterio del paso 3 del flujo de la sección 8. Si `review_required` está vacío tras un `--dry-run`, todos los ejercicios matchearon en nivel A/B y el agente puede proceder sin pausa; si no, cada entrada es una decisión concreta que debe ver un humano antes del import real. Solo tiene contenido en modo `--dry-run` — un import real no captura el nivel de match por ejercicio, solo ids agregados, así que un `--json` sin `--dry-run` siempre devuelve `review_required: []` (se asume que la revisión ya ocurrió en el dry-run previo). En error (`--json` incluido), el JSON es `{"ok": false, "error": "..."}`. Código y pruebas: `app/Services/ProgramsImport/ImportJsonReport.php` + `tests/Unit/ImportJsonReportTest.php` (pruebas puras, sin BD).
 
 ---
 
@@ -132,11 +164,11 @@ Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta
 
 Orden de prioridad, de lo que más desbloquea a lo que menos (el merge a `main` ya no es un bloqueante, se completó):
 
-1. **Salida estructurada (JSON) del dry-run y del import real.** Hoy `programs:import` imprime texto pensado para un humano en terminal. Un agente necesita parsear: lista de ejercicios por nivel de confianza, cuáles se crearían nuevos, cuáles semanas/días se generaron, ids resultantes.
+1. ~~**Salida estructurada (JSON) del dry-run y del import real.**~~ **Resuelto (2026-09-15):** `--json` en `programs:import` (ver sección 3). Incluye `review_required`, la lista ya filtrada de ejercicios con match nivel C/D/E o auto-creados — el agente ya no necesita parsear texto de terminal ni reimplementar la lógica de "qué es ambiguo".
 2. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON.
 3. **Comando/endpoint de asignación a cliente** (`programs:assign-client <program_id> <email> --start-date=`) — hoy no existe.
 4. **`check-integrity` automático** tras cada import real, no manual.
-5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción.
+5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción. Parcialmente cubierto por `review_required` en `--json` (ya separa A/B de C/D/E/creado); falta que el propio comando pueda auto-aprobar sin flag manual cuando todo es A/B.
 
 ---
 
@@ -150,21 +182,25 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 
 ```
 1. Recibe un .xlsx (ya en el formato de EXCEL_FORMAT.md)
-2. Ejecuta dry-run (vía endpoint HTTP cuando exista, o CLI + SSH mientras no exista)
-3. Analiza el resultado:
-   a. ¿Alguna fila con match nivel C/D/E o "CREAR NUEVO"?
-      → sí: lista esos casos concretos y pide aprobación humana explícita
-        antes de seguir (no continúa solo)
+2. Ejecuta dry-run con --json (vía endpoint HTTP cuando exista, o CLI + SSH
+   mientras no exista) → programs:import excel <archivo> --dry-run --json
+3. Analiza el JSON (ya no hace falta parsear texto):
+   a. ¿review_required no está vacío (match nivel C/D/E o "CREAR NUEVO")?
+      → sí: lista esos casos concretos (ya vienen con week/day/nombre/nivel/
+        confianza/candidato) y pide aprobación humana explícita antes de
+        seguir (no continúa solo)
       → no (todo nivel A/B): puede proceder sin pausa
-   b. ¿num_weeks del archivo coincide con lo esperado? ¿hay semanas vacías
-      por error, no por diseño?
-4. Import real (sin --dry-run), solo tras el paso 3
+   b. ¿programs_detected y las semanas de results[].preview.weeks coinciden
+      con lo esperado? ¿hay semanas vacías por error, no por diseño?
+4. Import real (sin --dry-run, con --json), solo tras el paso 3
 5. Si se pidió asignar a un cliente: ejecuta la asignación
    (requiere que exista la pieza #4 de la sección 7)
-6. Corre check-integrity y reporta si algo quedó roto
-7. Devuelve al humano: qué se creó (ids), qué ejercicios se auto-crearon
-   (para que alguien revise el catálogo después), y el resultado de
-   check-integrity
+6. Corre check-integrity y reporta si algo quedó roto (este comando
+   todavía no tiene --json — su salida es corta y su señal relevante es
+   binaria: "Sin referencias rotas" o no, ver sección 5)
+7. Devuelve al humano: qué se creó (ids, de results[].training_program_id),
+   qué ejercicios se auto-crearon (report[], para que alguien revise el
+   catálogo después), y el resultado de check-integrity
 ```
 
 ### Principio de diseño no negociable
@@ -185,3 +221,5 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 | Matcher de ejercicios | `app/Services/ExerciseMatcher/ExerciseMatcher.php` |
 | Comando de import | `app/Console/Commands/ImportProgramsCommand.php` |
 | Comando de integridad | `app/Console/Commands/CheckProgramsIntegrityCommand.php` |
+| Constructor de la salida `--json` (`review_required`, payload, error) | `app/Services/ProgramsImport/ImportJsonReport.php` |
+| Pruebas de la salida `--json` (puras, sin BD) | `tests/Unit/ImportJsonReportTest.php` |
