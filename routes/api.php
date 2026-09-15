@@ -879,6 +879,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('training-program-assignments', [API\TrainingProgramController::class, 'getAssignments']);
     Route::post('training-program-mark-week-deload', [API\TrainingProgramController::class, 'markWeekDeload']);
 
+    // Envuelve programs:import excel para el agente importador -- ver
+    // docs/AGENTE_IMPORTADOR.md (sección 7, punto 2) y ProgramImportController.
+    Route::post('program-import', [API\ProgramImportController::class, 'store']);
+
     // ═══ V2: Program Calendar (abstract weeks) ════════════════════════
     Route::get('program-calendar', [API\ProgramCalendarController::class, 'getCalendar']);
     Route::post('program-calendar-assign-day', [API\ProgramCalendarController::class, 'assignDay']);

@@ -52,6 +52,43 @@ final class ImportJsonReport
     }
 
     /**
+     * Escribe el CSV de ejercicios creados/no-matcheados y devuelve su ruta
+     * (null si no había nada que reportar, o si no se pudo escribir).
+     * Extraído de ImportProgramsCommand para que el comando CLI y el
+     * endpoint HTTP (ProgramImportController) escriban el mismo formato
+     * exacto sin duplicar la lógica.
+     *
+     * @param array<int,array> $report salida de ProgramsImporter::report()
+     */
+    public static function persistReportCsv(array $report, string $source, ?string $explicitPath = null): ?string
+    {
+        if ($report === []) {
+            return null;
+        }
+
+        $path = $explicitPath;
+        if (!$path) {
+            $dir = database_path('data/programs/reports');
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            $path = $dir . '/' . $source . '-' . date('Ymd-His') . '-report.csv';
+        }
+
+        $fh = fopen($path, 'w');
+        if ($fh === false) {
+            return null;
+        }
+        fputcsv($fh, ['source_exercise', 'exercise_id', 'resolved_title', 'candidates', 'action']);
+        foreach ($report as $row) {
+            fputcsv($fh, $row);
+        }
+        fclose($fh);
+
+        return $path;
+    }
+
+    /**
      * Recorre las previsualizaciones de dry-run y extrae, aplanado, cada
      * ejercicio cuyo match no sea de nivel A o B (o que se auto-cree) --
      * exactamente el criterio de "pausa y pide aprobación humana" del

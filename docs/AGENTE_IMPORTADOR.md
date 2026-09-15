@@ -87,7 +87,20 @@ Flags relevantes de `programs:import` (`app/Console/Commands/ImportProgramsComma
 | `--report=` | `database/data/programs/reports/` | Ruta del CSV de ejercicios creados/no-matcheados |
 | `--json` | off | Salida JSON estructurada por stdout en vez de texto para humano — ver más abajo |
 
-**No hay endpoint HTTP todavía.** Solo CLI (sección 7, punto 2 sigue pendiente). Pero el punto 1 de la sección 7 (salida JSON) **ya está resuelto**: `--json` imprime un único objeto JSON por stdout, construido por `App\Services\ProgramsImport\ImportJsonReport` a partir de las mismas estructuras que ya devolvía `ProgramsImporter::import()` — no se tocó el motor de import, solo la capa de presentación del comando.
+El punto 1 de la sección 7 (salida JSON) **ya está resuelto**: `--json` imprime un único objeto JSON por stdout, construido por `App\Services\ProgramsImport\ImportJsonReport` a partir de las mismas estructuras que ya devolvía `ProgramsImporter::import()` — no se tocó el motor de import, solo la capa de presentación del comando.
+
+### Endpoint HTTP (para operar sin SSH)
+
+**Resuelto (2026-09-15):** `POST program-import` (`app/Http/Controllers/API/ProgramImportController.php`, protegido por `auth:sanctum` como sus hermanos `training-program-*`). Envuelve exactamente el mismo `ExcelWorkoutAdapter` + `ProgramsImporter` + `ImportJsonReport` que el comando CLI — no hay dos implementaciones del import, solo dos formas de invocarlo.
+
+```
+POST /api/admin/program-import   (multipart/form-data, header Authorization: Bearer <token de coach>)
+  file        : .xlsx, requerido, máx. 5MB
+  dry_run     : bool, por defecto TRUE -- hace falta pedir explícitamente dry_run=false para escribir
+  threshold, num_weeks, auto_create, force, free : igual que los flags homónimos de programs:import
+```
+
+Devuelve el mismo JSON que `--json` (sección de abajo), con `file` = nombre original del archivo subido. El `coach_id` sale siempre de `auth('sanctum')->id()` — nunca de un parámetro del request, para que un token no pueda escribir en la cuenta de otro coach. El archivo subido se guarda en `storage/app/program-imports/` (disco `local`) antes de procesarlo, igual que el CLI deja el reporte CSV en `database/data/programs/reports/`.
 
 Forma del JSON:
 
@@ -175,12 +188,12 @@ Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta
 Orden de prioridad, de lo que más desbloquea a lo que menos (el merge a `main` ya no es un bloqueante, se completó):
 
 1. ~~**Salida estructurada (JSON) del dry-run y del import real.**~~ **Resuelto (2026-09-15):** `--json` en `programs:import` (ver sección 3). Incluye `review_required`, la lista ya filtrada de ejercicios con match nivel C/D/E o auto-creados — el agente ya no necesita parsear texto de terminal ni reimplementar la lógica de "qué es ambiguo".
-2. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON. **Sigue pendiente** — es el único de los cinco puntos originales sin ninguna forma de resolverse todavía; nótese que la asignación a cliente (punto 3) sí tiene ya un endpoint HTTP (`training-program-assign-client`), así que este punto es específicamente sobre el import en sí.
+2. ~~**Endpoint HTTP** que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH.~~ **Resuelto (2026-09-15):** `POST program-import` (protegido por `auth:sanctum`, igual que sus hermanos `training-program-*`). Recibe el `.xlsx` como `multipart/form-data`, `dry_run=true` por defecto (hace falta pedir explícitamente `dry_run=false` para escribir), devuelve exactamente el mismo JSON que `programs:import --json` (mismo `ImportJsonReport`, sin reimplementar nada). Ver sección 3.
 3. ~~**Comando/endpoint de asignación a cliente.**~~ **Resuelto (2026-09-15), dos veces de hecho:** ya existía un endpoint HTTP (`POST training-program-assign-client`, es lo que usa el panel — este documento decía erróneamente que no existía nada) y ahora también existe `programs:assign-client` para el agente por SSH (ver sección 3), que reutiliza la misma lógica.
 4. **`check-integrity` automático** tras cada import real, no manual. **Parcialmente resuelto:** cron semanal (domingo 4am hora española, sin `--fix`) — ya no depende de que alguien lo lance a mano, pero sigue siendo semanal, no inmediatamente tras cada import.
 5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción. Parcialmente cubierto por `review_required` en `--json` (ya separa A/B de C/D/E/creado); la pausa la sigue imponiendo el propio agente (LLM) siguiendo su system-prompt, no la CLI — el diseño Human-in-the-Loop actual, no un hueco a cerrar necesariamente, pero queda anotado por si en algún momento se decide hacerlo un guardrail duro en código.
 
-Del listado original de 2026-09-14, solo el punto 2 (endpoint HTTP del import) sigue completamente abierto.
+Los cinco puntos originales de 2026-09-14 están ya resueltos, del todo o en parte (el 4 y el 5 quedan con matices anotados arriba, no bloqueantes).
 
 ---
 
@@ -194,8 +207,10 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 
 ```
 1. Recibe un .xlsx (ya en el formato de EXCEL_FORMAT.md)
-2. Ejecuta dry-run con --json (vía endpoint HTTP cuando exista, o CLI + SSH
-   mientras no exista) → programs:import excel <archivo> --dry-run --json
+2. Ejecuta dry-run con JSON — POST program-import (dry_run=true, por
+   defecto) si tiene token de coach vía Sanctum, o si no
+   programs:import excel <archivo> --dry-run --json por SSH. Ambas vías
+   devuelven exactamente el mismo JSON.
 3. Analiza el JSON (ya no hace falta parsear texto):
    a. ¿review_required no está vacío (match nivel C/D/E o "CREAR NUEVO")?
       → sí: lista esos casos concretos (ya vienen con week/day/nombre/nivel/
@@ -204,7 +219,8 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
       → no (todo nivel A/B): puede proceder sin pausa
    b. ¿programs_detected y las semanas de results[].preview.weeks coinciden
       con lo esperado? ¿hay semanas vacías por error, no por diseño?
-4. Import real (sin --dry-run, con --json), solo tras el paso 3
+4. Import real (mismo endpoint/comando, dry_run=false / sin --dry-run),
+   solo tras el paso 3
 5. Si se pidió asignar a un cliente: ejecuta
    programs:assign-client <training_program_id> <email> [--json]
 6. Corre check-integrity y reporta si algo quedó roto (este comando
@@ -234,8 +250,9 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 | Importador (motor central) | `app/Services/ProgramsImport/ProgramsImporter.php` |
 | Matcher de ejercicios | `app/Services/ExerciseMatcher/ExerciseMatcher.php` |
 | Comando de import | `app/Console/Commands/ImportProgramsCommand.php` |
+| Endpoint HTTP de import (sin SSH) | `app/Http/Controllers/API/ProgramImportController.php` (`POST program-import`) |
 | Comando de asignación a cliente | `app/Console/Commands/AssignProgramClientCommand.php` |
 | Endpoint HTTP de asignación (lo usa el panel) | `TrainingProgramController::assignClient()` (`POST training-program-assign-client`) |
 | Comando de integridad (cron semanal, ver `app/Console/Kernel.php`) | `app/Console/Commands/CheckProgramsIntegrityCommand.php` |
-| Constructor de la salida `--json` (`review_required`, payload, error) | `app/Services/ProgramsImport/ImportJsonReport.php` |
+| Constructor de la salida JSON (`review_required`, payload, error, CSV) | `app/Services/ProgramsImport/ImportJsonReport.php` — usado tanto por el comando CLI como por el endpoint HTTP |
 | Pruebas de la salida `--json` (puras, sin BD) | `tests/Unit/ImportJsonReportTest.php` |
