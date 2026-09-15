@@ -183,14 +183,7 @@ Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta
 
 ### Tarea pendiente (2026-09-15)
 
-Todo lo de esta sesión (`--json`, `programs:assign-client`, `POST program-import`, y el hotfix de `fail()`/`reportFailure()`) está en `main`, pero **verificado solo sin base de datos** — lint, `route:list` (1024 rutas de la app entera, sin fatales), `artisan list` y los 15 tests unitarios, que son puros y no tocan BD. No hay entorno con BD disponible fuera del VPS de producción, así que falta:
-
-- Probar `programs:import excel <archivo> --dry-run --json` contra el catálogo real de ejercicios (que el `review_required` salga como se espera con casos reales, no solo con datos de prueba fabricados a mano).
-- Probar `POST program-import` con un token de coach real (Sanctum) — nunca se ha invocado, solo se verificó que la ruta registra bien.
-- Probar `programs:assign-client` contra un cliente y programa reales.
-- Repetir el ciclo completo (`--dry-run` → import real → `assign-client` → `check-integrity`) una vez de punta a punta, como se hizo con Toni el 2026-09-14, para confirmar que las tres piezas nuevas no rompieron el camino que sí está probado.
-
-Requiere acceso a datos del VPS (`bestronger-vps`) para poder ejecutarlo desde una sesión de Claude Code — el usuario se ofreció a pasarlos si hace falta.
+Todo lo de esta sesión (`--json`, `programs:assign-client`, `POST program-import`, y el hotfix de `fail()`/`reportFailure()`) está en `main`, pero **verificado solo sin base de datos** — lint, `route:list` (1024 rutas de la app entera, sin fatales), `artisan list` y los 15 tests unitarios, que son puros y no tocan BD. Requiere acceso a datos del VPS (`bestronger-vps`) para verificarse de punta a punta. Detalle completo (qué probar exactamente y en qué orden) consolidado en `docs/TAREAS_PENDIENTES.md` del repo `ilzarpeatore/AgenticdesignBS`, sección 1.1 — no se repite aquí para no mantener la misma tarea descrita en dos sitios.
 
 ---
 
