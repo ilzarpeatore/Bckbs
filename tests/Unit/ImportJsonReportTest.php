@@ -86,6 +86,45 @@ class ImportJsonReportTest extends TestCase
         );
     }
 
+    public function test_persist_report_csv_writes_expected_rows(): void
+    {
+        $path = sys_get_temp_dir() . '/import-json-report-test-' . uniqid() . '.csv';
+
+        $written = ImportJsonReport::persistReportCsv(
+            [['source_exercise' => 'Hack Squat', 'exercise_id' => 24, 'resolved_title' => 'Prensa de piernas', 'candidates' => null, 'action' => 'crearía (dry-run)']],
+            'excel',
+            $path,
+        );
+
+        $this->assertSame($path, $written);
+        $this->assertFileExists($path);
+        $rows = array_map('str_getcsv', file($path));
+        $this->assertSame(['source_exercise', 'exercise_id', 'resolved_title', 'candidates', 'action'], $rows[0]);
+        $this->assertSame(['Hack Squat', '24', 'Prensa de piernas', '', 'crearía (dry-run)'], $rows[1]);
+
+        unlink($path);
+    }
+
+    public function test_persist_report_csv_returns_null_for_empty_report(): void
+    {
+        $this->assertNull(ImportJsonReport::persistReportCsv([], 'excel', sys_get_temp_dir() . '/should-not-be-created.csv'));
+        $this->assertFileDoesNotExist(sys_get_temp_dir() . '/should-not-be-created.csv');
+    }
+
+    public function test_persist_report_csv_returns_null_when_parent_dir_missing(): void
+    {
+        // fopen() no crea directorios intermedios -- a diferencia de un
+        // directorio sin permisos, esto falla igual aunque el proceso
+        // corra como root (como en este entorno de pruebas).
+        $result = ImportJsonReport::persistReportCsv(
+            [['source_exercise' => 'X', 'exercise_id' => null, 'resolved_title' => null, 'candidates' => null, 'action' => 'sin-match']],
+            'excel',
+            '/import-json-report-test-nonexistent-dir-' . uniqid() . '/report.csv',
+        );
+
+        $this->assertNull($result);
+    }
+
     private function exercise(string $source, string $level, ?float $confidence, ?string $match, ?int $matchId): array
     {
         return [

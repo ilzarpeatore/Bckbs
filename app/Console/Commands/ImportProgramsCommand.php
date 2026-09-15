@@ -202,32 +202,13 @@ class ImportProgramsCommand extends Command
     /** Escribe el CSV de ejercicios creados/no-matcheados y devuelve su ruta (null si no había nada que reportar). */
     private function persistReport(array $report, string $source): ?string
     {
-        if ($report === []) {
-            return null;
+        $explicitPath = $this->option('report');
+        $path = ImportJsonReport::persistReportCsv($report, $source, $explicitPath ? (string) $explicitPath : null);
+
+        if ($path === null && $report !== [] && !$this->option('json')) {
+            $this->warn("No se pudo escribir el reporte en {$explicitPath}");
         }
 
-        $path = $this->option('report');
-        if (!$path) {
-            $dir = database_path('data/programs/reports');
-            if (!is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-            $path = $dir . '/' . $source . '-' . date('Ymd-His') . '-report.csv';
-        }
-
-        $fh = fopen((string) $path, 'w');
-        if ($fh === false) {
-            if (!$this->option('json')) {
-                $this->warn("No se pudo escribir el reporte en {$path}");
-            }
-            return null;
-        }
-        fputcsv($fh, ['source_exercise', 'exercise_id', 'resolved_title', 'candidates', 'action']);
-        foreach ($report as $row) {
-            fputcsv($fh, $row);
-        }
-        fclose($fh);
-
-        return (string) $path;
+        return $path;
     }
 }
