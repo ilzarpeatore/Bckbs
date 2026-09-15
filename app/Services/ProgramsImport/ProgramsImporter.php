@@ -484,9 +484,14 @@ final class ProgramsImporter
         if (($ex['reps_min'] ?? null) !== null || ($ex['reps_max'] ?? null) !== null) {
             $metrics[] = 'reps';
         }
-        if (($ex['load_kg'] ?? null) !== null || ($ex['weight_percent'] ?? null) !== null) {
-            $metrics[] = 'carga';
-        }
+        // Carga: igual que RIR/RPE mas abajo, se activa SIEMPRE, no solo si
+        // la fuente traia un objetivo de carga/porcentaje. Antes, un Excel
+        // sin carga_kg/carga_pct rellenado (p.ej. progresion basada solo en
+        // RIR) dejaba al cliente sin forma de registrar que peso uso en la
+        // app -- no es que faltara un objetivo, es que el campo para
+        // REGISTRAR el peso desaparecia por completo. El cliente necesita
+        // poder anotar la carga real usada tenga o no un objetivo prescrito.
+        $metrics[] = 'carga';
         if (($ex['rest_sec'] ?? null) !== null) {
             $metrics[] = 'descanso';
         }
