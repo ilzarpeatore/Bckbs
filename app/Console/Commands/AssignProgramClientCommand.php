@@ -46,19 +46,19 @@ class AssignProgramClientCommand extends Command
 
         $program = TrainingProgram::where('coach_id', $coachId)->find($programId);
         if ($program === null) {
-            return $this->fail($jsonOutput, "Training program #{$programId} no encontrado para coach_id={$coachId}.");
+            return $this->reportFailure($jsonOutput, "Training program #{$programId} no encontrado para coach_id={$coachId}.");
         }
 
         $client = User::where('email', $email)->where('coach_id', $coachId)->first();
         if ($client === null) {
-            return $this->fail($jsonOutput, "Cliente con email {$email} no encontrado, o no pertenece a coach_id={$coachId}.");
+            return $this->reportFailure($jsonOutput, "Cliente con email {$email} no encontrado, o no pertenece a coach_id={$coachId}.");
         }
 
         $startDateOpt = $this->option('start-date');
         try {
             $startDate = $startDateOpt !== null ? Carbon::parse($startDateOpt) : Carbon::today();
         } catch (\Throwable $e) {
-            return $this->fail($jsonOutput, "Fecha de inicio inválida: {$startDateOpt}");
+            return $this->reportFailure($jsonOutput, "Fecha de inicio inválida: {$startDateOpt}");
         }
 
         $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
@@ -118,7 +118,7 @@ class AssignProgramClientCommand extends Command
         return self::SUCCESS;
     }
 
-    private function fail(bool $jsonOutput, string $message): int
+    private function reportFailure(bool $jsonOutput, string $message): int
     {
         if ($jsonOutput) {
             $this->line(json_encode(['ok' => false, 'error' => $message], JSON_UNESCAPED_UNICODE));

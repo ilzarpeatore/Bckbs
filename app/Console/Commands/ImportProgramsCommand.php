@@ -72,11 +72,11 @@ class ImportProgramsCommand extends Command
         };
 
         if ($adapter === null) {
-            return $this->fail($jsonOutput, "Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger|excel.");
+            return $this->reportFailure($jsonOutput, "Fuente desconocida: {$source}. Usa hevy|strong|jefit|openweight|wger|excel.");
         }
 
         if (!is_file($file)) {
-            return $this->fail($jsonOutput, "Archivo no encontrado: {$file}");
+            return $this->reportFailure($jsonOutput, "Archivo no encontrado: {$file}");
         }
 
         $dryRun = (bool) $this->option('dry-run');
@@ -87,7 +87,7 @@ class ImportProgramsCommand extends Command
         try {
             $canonical = $adapter->convert($file);
         } catch (\Throwable $e) {
-            return $this->fail($jsonOutput, 'Error parseando la fuente: ' . $e->getMessage());
+            return $this->reportFailure($jsonOutput, 'Error parseando la fuente: ' . $e->getMessage());
         }
 
         $programCount = count($canonical['programs'] ?? []);
@@ -112,7 +112,7 @@ class ImportProgramsCommand extends Command
         try {
             $result = $importer->import($canonical);
         } catch (\Throwable $e) {
-            return $this->fail($jsonOutput, 'Error importando: ' . $e->getMessage());
+            return $this->reportFailure($jsonOutput, 'Error importando: ' . $e->getMessage());
         }
 
         $reportCsvPath = $this->persistReport($importer->report(), $source);
@@ -135,7 +135,7 @@ class ImportProgramsCommand extends Command
     }
 
     /** Reporta un fallo en el formato que corresponda ($jsonOutput) y devuelve el código de salida. */
-    private function fail(bool $jsonOutput, string $message): int
+    private function reportFailure(bool $jsonOutput, string $message): int
     {
         if ($jsonOutput) {
             $this->line(json_encode(ImportJsonReport::buildError($message), JSON_UNESCAPED_UNICODE));
