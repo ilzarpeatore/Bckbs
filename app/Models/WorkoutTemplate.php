@@ -36,7 +36,7 @@ class WorkoutTemplate extends Model implements HasMedia
      * que el coach guarda a mano de las "instancias" que un import genera
      * una por cada combinación única de semana×día×progresión -- estas
      * últimas no están pensadas para navegarse en una lista plana (ver
-     * TrainingProgramController::getTemplates() para verlas agrupadas por
+     * RealCalendarController::getWeeksGrid() para verlas agrupadas por
      * programa/semana en su lugar).
      */
     public function programDayAssignments()

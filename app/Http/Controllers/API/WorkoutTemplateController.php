@@ -23,8 +23,10 @@ class WorkoutTemplateController extends Controller
         // N semanas × M sesiones/semana genera hasta N×M plantillas (una
         // por combinación única de progresión), y mezclarlas con las
         // plantillas sueltas que el coach guarda para reutilizar hacía esta
-        // lista inmanejable. Para verlas agrupadas por programa/semana, ver
-        // TrainingProgramController::getTemplates().
+        // lista inmanejable. Para verlas agrupadas por programa/semana, el
+        // panel ya tiene RealCalendarController::getWeeksGrid()
+        // (GET real-calendar-weeks-grid) -- "Calendario del programa" en
+        // TrainingProgramsView.tsx -- no hace falta un endpoint nuevo.
         $workouts = WorkoutTemplate::where('coach_id', auth()->id())
             ->whereDoesntHave('programDayAssignments')
             ->with('blocks.exercises')
