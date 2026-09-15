@@ -277,13 +277,23 @@ class WorkoutTemplateController extends Controller
             }
         }
 
-        $order = WorkoutTemplateExercise::where('workout_template_block_id', $request->workout_template_block_id)->max('sequence') ?? 0;
-
         $updateData = [
             'workout_template_block_id' => $request->workout_template_block_id,
             'exercise_id'                 => $request->exercise_id,
-            'sequence'                    => $request->sequence ?? ($order + 1),
         ];
+
+        if ($request->filled('sequence')) {
+            $updateData['sequence'] = $request->sequence;
+        } elseif (!$request->filled('id')) {
+            // Solo ejercicio nuevo sin sequence explicito va al final del
+            // bloque -- una actualizacion sobre un "id" existente (editar
+            // metricas, sustituir ejercicio...) sin sequence en el payload
+            // NO debe reordenarlo silenciosamente al final (bug real: antes
+            // esto se recalculaba siempre, así que cualquier guardado sin
+            // sequence saltaba el ejercicio al final del bloque).
+            $order = WorkoutTemplateExercise::where('workout_template_block_id', $request->workout_template_block_id)->max('sequence') ?? 0;
+            $updateData['sequence'] = $order + 1;
+        }
 
         if ($request->has('prescribed')) {
             $updateData['prescribed'] = $request->prescribed;
