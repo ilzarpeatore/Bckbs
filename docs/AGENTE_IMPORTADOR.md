@@ -37,7 +37,8 @@ training_programs              ← el programa completo de N semanas (plantilla 
                           └─ enabled_metrics (JSON array)
 
 program_client_assignments     ← asigna un training_program a un client_id concreto, con start_date
-                                   (aparte del import; el import NO hace esto)
+                                   (aparte del import; el import NO hace esto -- ver
+                                   php artisan programs:assign-client, sección 3)
 ```
 
 `training_programs` es una plantilla sin cliente hasta que se crea una fila en `program_client_assignments`. Un mismo programa se puede asignar a varios clientes.
@@ -118,6 +119,16 @@ Forma del JSON:
 
 `review_required` es la pieza nueva que no existía en ninguna estructura previa: aplana todas las semanas/días/ejercicios del preview y se queda solo con los que tienen nivel C/D/E o se crearían (`level: "created"`) — exactamente el criterio del paso 3 del flujo de la sección 8. Si `review_required` está vacío tras un `--dry-run`, todos los ejercicios matchearon en nivel A/B y el agente puede proceder sin pausa; si no, cada entrada es una decisión concreta que debe ver un humano antes del import real. Solo tiene contenido en modo `--dry-run` — un import real no captura el nivel de match por ejercicio, solo ids agregados, así que un `--json` sin `--dry-run` siempre devuelve `review_required: []` (se asume que la revisión ya ocurrió en el dry-run previo). En error (`--json` incluido), el JSON es `{"ok": false, "error": "..."}`. Código y pruebas: `app/Services/ProgramsImport/ImportJsonReport.php` + `tests/Unit/ImportJsonReportTest.php` (pruebas puras, sin BD).
 
+### Asignar el programa a un cliente
+
+**Resuelto (2026-09-15):** el punto 3 de la sección 7 ya no está pendiente. `programs:assign-client` reutiliza exactamente la misma lógica que ya usa el panel (`TrainingProgramController::assignClient()`, ruta HTTP `POST training-program-assign-client`) — misma semántica de renovación (si el cliente ya tenía este programa asignado, actualiza esa fila en vez de duplicarla), mismo cálculo de `fecha_fin`, misma notificación real al cliente — pero sin necesitar un token de coach vía Sanctum, que es como opera hoy el agente (SSH, no HTTP):
+
+```
+php artisan programs:assign-client <training_program_id> <email_cliente> [--start-date=YYYY-MM-DD] [--json]
+```
+
+Si no se pasa `--start-date`, usa hoy. Con `--json`, devuelve `{"ok": true, "renewed": bool, "assignment_id": ..., "start_date": ..., "fecha_fin": ...}` o `{"ok": false, "error": "..."}`. Código: `app/Console/Commands/AssignProgramClientCommand.php`. Sin pruebas dedicadas (igual que `ImportProgramsCommand`/`CheckProgramsIntegrityCommand`: es una capa fina sobre Eloquent + notificación, sin lógica pura que aislar de la BD; este repo no tiene BD de pruebas configurada en este entorno para un test de feature).
+
 ---
 
 ## 4. El formato del archivo Excel
@@ -148,15 +159,14 @@ Umbral por defecto `0.72` (`--threshold`). Si ningún candidato supera el umbral
 
 **Esto ya causó un bug real** (ver `exercisematcher_softdelete_bug` en memoria del proyecto, resuelto 2026-09-14): el matcher incluía ejercicios borrados (soft-delete) como candidatos, y un match "perfecto" (nivel A) contra un ejercicio borrado ganaba a cualquier alternativa activa — el import escribía una referencia rota sin ningún error visible. Ya está arreglado en el código, pero el patrón general sigue siendo el punto más frágil del sistema: **los niveles B-E son coincidencias aproximadas por texto, no semánticas** (ej.: puede confundir un remo unilateral con uno bilateral si el texto es parecido). Un agente automatizado que confíe ciegamente en cualquier match B-E puede introducir errores de prescripción silenciosos.
 
-Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta (y opcionalmente repara) referencias rotas a posteriori — pero no corre automáticamente tras cada import.
+Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta (y opcionalmente repara) referencias rotas a posteriori. **Ya corre automáticamente** vía cron semanal (domingo 4:00 hora española, `app/Console/Kernel.php`, sin `--fix`, log en `storage/logs/programs-check-integrity.log`) — no depende de que alguien se acuerde de lanzarlo a mano, pero sigue siendo semanal, no inmediatamente tras cada import real (ver sección 7, punto 4).
 
 ---
 
 ## 6. Estado actual del código (a fecha de este documento)
 
 - **`main` ya tiene todo mergeado** (2026-09-15, commit `e918b4b`): `ExcelWorkoutAdapter`, `EXCEL_FORMAT.md`, `excel.example.xlsx`, el fix de `ExerciseMatcher` (bug de soft-delete) y `programs:check-integrity`. `programs:import excel <archivo>` funciona directamente en `main`, sin cambiar de rama. La rama `feature/excel-program-import` sigue existiendo en el remoto pero ya está fusionada — no hace falta usarla.
-- Probado end-to-end con éxito una vez: `Mesociclo_1_TONI_Septiembre.xlsx` → `training_program #48`, 3 semanas, 48 ejercicios, asignado a `demo@bestronger.app`. Verificado con `--dry-run` y `check-integrity` de nuevo tras el merge, sin regresiones.
-- No existe todavía ningún comando/endpoint para el paso de asignar un programa a un cliente — se hizo a mano con un script puntual.
+- Probado end-to-end con éxito una vez: `Mesociclo_1_TONI_Septiembre.xlsx` → `training_program #48`, 3 semanas, 48 ejercicios, asignado a `demo@bestronger.app`. Verificado con `--dry-run` y `check-integrity` de nuevo tras el merge, sin regresiones. (En ese momento la asignación se hizo a mano con un script puntual — hoy ya existe `programs:assign-client`, ver sección 3.)
 
 ---
 
@@ -165,10 +175,12 @@ Hay una red de seguridad: `php artisan programs:check-integrity [--fix]` detecta
 Orden de prioridad, de lo que más desbloquea a lo que menos (el merge a `main` ya no es un bloqueante, se completó):
 
 1. ~~**Salida estructurada (JSON) del dry-run y del import real.**~~ **Resuelto (2026-09-15):** `--json` en `programs:import` (ver sección 3). Incluye `review_required`, la lista ya filtrada de ejercicios con match nivel C/D/E o auto-creados — el agente ya no necesita parsear texto de terminal ni reimplementar la lógica de "qué es ambiguo".
-2. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON.
-3. **Comando/endpoint de asignación a cliente** (`programs:assign-client <program_id> <email> --start-date=`) — hoy no existe.
-4. **`check-integrity` automático** tras cada import real, no manual.
-5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción. Parcialmente cubierto por `review_required` en `--json` (ya separa A/B de C/D/E/creado); falta que el propio comando pueda auto-aprobar sin flag manual cuando todo es A/B.
+2. **Endpoint HTTP** (protegido, solo coach/admin) que envuelva el mismo `ProgramsImporter`, para que un agente no necesite SSH. Recibe el `.xlsx`, hace dry-run, devuelve JSON. **Sigue pendiente** — es el único de los cinco puntos originales sin ninguna forma de resolverse todavía; nótese que la asignación a cliente (punto 3) sí tiene ya un endpoint HTTP (`training-program-assign-client`), así que este punto es específicamente sobre el import en sí.
+3. ~~**Comando/endpoint de asignación a cliente.**~~ **Resuelto (2026-09-15), dos veces de hecho:** ya existía un endpoint HTTP (`POST training-program-assign-client`, es lo que usa el panel — este documento decía erróneamente que no existía nada) y ahora también existe `programs:assign-client` para el agente por SSH (ver sección 3), que reutiliza la misma lógica.
+4. **`check-integrity` automático** tras cada import real, no manual. **Parcialmente resuelto:** cron semanal (domingo 4am hora española, sin `--fix`) — ya no depende de que alguien lo lance a mano, pero sigue siendo semanal, no inmediatamente tras cada import.
+5. **Umbral de revisión humana configurable por nivel de confianza**, no solo un corte binario (`--threshold`). Idealmente: los matches A/B se auto-aprueban, los C/D/E o "CREAR NUEVO" se marcan para revisión antes de escribir en producción. Parcialmente cubierto por `review_required` en `--json` (ya separa A/B de C/D/E/creado); la pausa la sigue imponiendo el propio agente (LLM) siguiendo su system-prompt, no la CLI — el diseño Human-in-the-Loop actual, no un hueco a cerrar necesariamente, pero queda anotado por si en algún momento se decide hacerlo un guardrail duro en código.
+
+Del listado original de 2026-09-14, solo el punto 2 (endpoint HTTP del import) sigue completamente abierto.
 
 ---
 
@@ -193,11 +205,13 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
    b. ¿programs_detected y las semanas de results[].preview.weeks coinciden
       con lo esperado? ¿hay semanas vacías por error, no por diseño?
 4. Import real (sin --dry-run, con --json), solo tras el paso 3
-5. Si se pidió asignar a un cliente: ejecuta la asignación
-   (requiere que exista la pieza #4 de la sección 7)
+5. Si se pidió asignar a un cliente: ejecuta
+   programs:assign-client <training_program_id> <email> [--json]
 6. Corre check-integrity y reporta si algo quedó roto (este comando
    todavía no tiene --json — su salida es corta y su señal relevante es
-   binaria: "Sin referencias rotas" o no, ver sección 5)
+   binaria: "Sin referencias rotas" o no, ver sección 5 -- aunque ya
+   corre solo semanalmente vía cron, no hace falta esperar a eso si el
+   agente acaba de escribir algo)
 7. Devuelve al humano: qué se creó (ids, de results[].training_program_id),
    qué ejercicios se auto-crearon (report[], para que alguien revise el
    catálogo después), y el resultado de check-integrity
@@ -220,6 +234,8 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 | Importador (motor central) | `app/Services/ProgramsImport/ProgramsImporter.php` |
 | Matcher de ejercicios | `app/Services/ExerciseMatcher/ExerciseMatcher.php` |
 | Comando de import | `app/Console/Commands/ImportProgramsCommand.php` |
-| Comando de integridad | `app/Console/Commands/CheckProgramsIntegrityCommand.php` |
+| Comando de asignación a cliente | `app/Console/Commands/AssignProgramClientCommand.php` |
+| Endpoint HTTP de asignación (lo usa el panel) | `TrainingProgramController::assignClient()` (`POST training-program-assign-client`) |
+| Comando de integridad (cron semanal, ver `app/Console/Kernel.php`) | `app/Console/Commands/CheckProgramsIntegrityCommand.php` |
 | Constructor de la salida `--json` (`review_required`, payload, error) | `app/Services/ProgramsImport/ImportJsonReport.php` |
 | Pruebas de la salida `--json` (puras, sin BD) | `tests/Unit/ImportJsonReportTest.php` |
