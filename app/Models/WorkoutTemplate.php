@@ -30,6 +30,20 @@ class WorkoutTemplate extends Model implements HasMedia
             ->orderBy('order');
     }
 
+    /**
+     * Días de programa (import o generador) que usan esta plantilla. Sirve
+     * para distinguir, en getList(), las plantillas sueltas/reutilizables
+     * que el coach guarda a mano de las "instancias" que un import genera
+     * una por cada combinación única de semana×día×progresión -- estas
+     * últimas no están pensadas para navegarse en una lista plana (ver
+     * RealCalendarController::getWeeksGrid() para verlas agrupadas por
+     * programa/semana en su lugar).
+     */
+    public function programDayAssignments()
+    {
+        return $this->hasMany(ProgramDayAssignment::class, 'workout_template_id', 'id');
+    }
+
     /** Nº total de ejercicios (para la columna "Exercises" del listado, como en HubFit). */
     public function getExerciseCountAttribute(): int
     {
