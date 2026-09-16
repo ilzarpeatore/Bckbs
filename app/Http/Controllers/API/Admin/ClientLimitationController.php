@@ -28,17 +28,27 @@ class ClientLimitationController extends Controller
         return $this->sendResponse($limitations, 'Client limitations retrieved successfully');
     }
 
+    private const TYPES = 'injury,limitation,medical_condition,allergy,intolerance,aversion,ethical_religious_preference';
+    private const SEVERITIES = 'mild,moderate,severe_anaphylaxis';
+
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'client_id' => 'required|exists:users,id',
-            'type' => 'nullable|string|in:injury,limitation,medical_condition,allergy',
+            'type' => 'nullable|string|in:'.self::TYPES,
+            'severity' => 'nullable|string|in:'.self::SEVERITIES,
             'title' => 'required|string|max:255',
             'description' => 'nullable|string',
             'status' => 'nullable|string|in:active,resolved',
             'date_reported' => 'nullable|date',
             'date_resolved' => 'nullable|date',
         ]);
+
+        if (($validated['type'] ?? null) === 'allergy' && empty($validated['severity'])) {
+            return response()->json([
+                'message' => 'severity is required when type is allergy',
+            ], 422);
+        }
 
         $limitation = ClientLimitation::create($validated);
 
@@ -49,7 +59,8 @@ class ClientLimitationController extends Controller
     {
         $validated = $request->validate([
             'id' => 'required|exists:client_limitations,id',
-            'type' => 'nullable|string|in:injury,limitation,medical_condition,allergy',
+            'type' => 'nullable|string|in:'.self::TYPES,
+            'severity' => 'nullable|string|in:'.self::SEVERITIES,
             'title' => 'sometimes|string|max:255',
             'description' => 'nullable|string',
             'status' => 'nullable|string|in:active,resolved',
@@ -58,6 +69,16 @@ class ClientLimitationController extends Controller
         ]);
 
         $limitation = ClientLimitation::findOrFail($validated['id']);
+
+        $resultingType = $validated['type'] ?? $limitation->type;
+        $resultingSeverity = array_key_exists('severity', $validated) ? $validated['severity'] : $limitation->severity;
+
+        if ($resultingType === 'allergy' && empty($resultingSeverity)) {
+            return response()->json([
+                'message' => 'severity is required when type is allergy',
+            ], 422);
+        }
+
         $limitation->update(collect($validated)->except('id')->filter()->toArray());
 
         return $this->sendResponse($limitation, 'Client limitation updated successfully');
