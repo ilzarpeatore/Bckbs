@@ -251,6 +251,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
         // AÑADIDO: resumen ligero de readiness (stopgap subjetivo, ver ReadinessController::summary()).
         Route::get('readiness-summary', [ API\ReadinessController::class, 'summary' ]);
+        // AÑADIDO (item 1 del roadmap): readiness real (combined_score/band/acwr
+        // de readiness_scores), ver ReadinessController::latest().
+        Route::get('readiness-scores-latest', [ API\ReadinessController::class, 'latest' ]);
 
         // AÑADIDO: rutas para ClientHabitController, que ya estaba
         // implementado (espejo cliente de HabitController) pero nunca se

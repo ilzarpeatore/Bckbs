@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\DailyReadinessCheck;
 use App\Models\ClientFeatureSetting;
+use App\Models\ReadinessScore;
 
 /**
  * Readiness diario obligatorio antes de Workout Preview (sueño, agujetas,
@@ -130,6 +131,64 @@ class ReadinessController extends Controller
                     'energy_level'   => $check->energy_level,
                     'stress_level'   => $check->stress_level,
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * NUEVO (item 1 del roadmap, 2026-09-16) — expone al propio cliente el
+     * `combined_score`/`band`/`acwr` REALES de `readiness_scores` (Motor de
+     * Auto-Regulación, Fase 4 — `ReadinessCalculationService`, job diario
+     * `readiness:calculate`, solo para clientes paid-tier), en vez de la
+     * aproximación 100% subjetiva de `summary()` (arriba) — esa se queda
+     * como fallback en el cliente para cuando esto no tenga datos todavía
+     * (usuario free-tier, o el job diario aún no ha corrido para hoy).
+     * Distinto de `Admin\ReportController::clientReadiness()` (mismo dato,
+     * pero para que el coach consulte a un cliente concreto desde el panel).
+     *
+     * Nota real: `hrv_z_score`/`sueno_z_score` salen siempre `null` en la
+     * práctica — la app (`bsa`) ya no sincroniza datos de wearable
+     * (`helper/health.ts` se eliminó del repo, sin integración de
+     * HealthKit/Health Connect), así que hoy `combined_score` se compone
+     * solo de `subjetivo_score` + `acwr` (ver
+     * `ReadinessCalculationService::combine()`). Documentado aquí para que
+     * no sorprenda si se retoma la integración de salud más adelante.
+     */
+    public function latest(Request $request)
+    {
+        $user = auth('sanctum')->user();
+
+        $score = ReadinessScore::where('client_id', $user->id)
+            ->orderBy('date', 'desc')
+            ->first();
+
+        if (!$score) {
+            return json_custom_response([
+                'data' => [
+                    'has_data'        => false,
+                    'date'            => null,
+                    'combined_score'  => null,
+                    'band'            => null,
+                    'acwr'            => null,
+                    'hrv_z_score'     => null,
+                    'sueno_z_score'   => null,
+                    'subjetivo_score' => null,
+                    'calculated_at'   => null,
+                ],
+            ]);
+        }
+
+        return json_custom_response([
+            'data' => [
+                'has_data'        => true,
+                'date'            => $score->date->toDateString(),
+                'combined_score'  => $score->combined_score,
+                'band'            => $score->band,
+                'acwr'            => $score->acwr,
+                'hrv_z_score'     => $score->hrv_z_score,
+                'sueno_z_score'   => $score->sueno_z_score,
+                'subjetivo_score' => $score->subjetivo_score,
+                'calculated_at'   => $score->calculated_at?->toIso8601String(),
             ],
         ]);
     }
