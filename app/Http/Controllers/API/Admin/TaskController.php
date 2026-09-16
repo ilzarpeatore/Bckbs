@@ -145,9 +145,10 @@ class TaskController extends Controller
 
         $sourceRepo = $request->source_repo;
         $items = $request->items;
+        $authorId = $request->user()->id;
         $seenKeys = [];
 
-        $result = DB::transaction(function () use ($sourceRepo, $items, &$seenKeys) {
+        $result = DB::transaction(function () use ($sourceRepo, $items, $authorId, &$seenKeys) {
             $upserted = [];
 
             foreach ($items as $item) {
@@ -160,7 +161,7 @@ class TaskController extends Controller
                         'source_key'  => $item['source_key'],
                     ],
                     [
-                        'author_id'    => $request->user()->id,
+                        'author_id'    => $authorId,
                         'title'        => $item['title'],
                         'description'  => $item['description'] ?? null,
                         'status'       => $item['status'],
