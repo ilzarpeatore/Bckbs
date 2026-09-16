@@ -1024,4 +1024,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
     Route::get('admin-app-feedback-detail', [API\Admin\AppFeedbackController::class, 'getDetail']);
     Route::post('admin-app-feedback-update', [API\Admin\AppFeedbackController::class, 'update']);
+
+    // ═══ V2: Panel de Tareas del admin (gestion manual + sync de dev desde bsa/docs/ROADMAP.md) ═══
+    Route::get('admin-tasks-list', [API\Admin\AdminTaskController::class, 'getList']);
+    Route::get('admin-tasks-detail', [API\Admin\AdminTaskController::class, 'getDetail']);
+    Route::post('admin-tasks-store', [API\Admin\AdminTaskController::class, 'store']);
+    Route::post('admin-tasks-update', [API\Admin\AdminTaskController::class, 'update']);
+    Route::post('admin-tasks-delete', [API\Admin\AdminTaskController::class, 'destroy']);
+    // Token dedicado (ability `tasks:sync`), usado por Claude Code, no por la UI del panel.
+    Route::post('admin-tasks-sync', [API\Admin\AdminTaskController::class, 'sync']);
 });
