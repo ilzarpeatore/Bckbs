@@ -567,15 +567,26 @@ class ClientExerciseLogObserver
             return;
         }
 
-        $candidateLogs = ClientExerciseLog::whereIn('id', function ($query) use ($log) {
-                $query->select('id')
-                    ->from('client_exercise_logs')
-                    ->where('client_id', $log->client_id)
-                    ->where('exercise_id', $log->exercise_id)
-                    ->where('id', '!=', $log->id)
-                    ->orderByDesc('id')
-                    ->limit(self::PR_REPS_HISTORY_LIMIT);
-            })
+        // FIX (bug real encontrado 2026-09-16 verificando este ítem contra
+        // BD real): MySQL no soporta LIMIT dentro de una subquery usada con
+        // IN ("This version of MySQL doesn't yet support 'LIMIT &
+        // IN/ALL/ANY/SOME subquery'", restricción real de MySQL 8.0.46, no
+        // de versión ni de volumen de datos -- reproducido con una query de
+        // solo lectura, sin depender de ningún dato de prueba). El closure
+        // de whereIn() de abajo generaba exactamente esa subquery inválida,
+        // rompiendo esta función con un 500 en TODO guardado de serie
+        // (weight>0, reps>0) de un cliente con access_tier != 'free'. Se
+        // resuelve las IDs candidatas en una query aparte (pluck) antes de
+        // usarlas en el whereIn principal -- mismo resultado, sin el LIMIT
+        // dentro del IN.
+        $candidateIds = ClientExerciseLog::where('client_id', $log->client_id)
+            ->where('exercise_id', $log->exercise_id)
+            ->where('id', '!=', $log->id)
+            ->orderByDesc('id')
+            ->limit(self::PR_REPS_HISTORY_LIMIT)
+            ->pluck('id');
+
+        $candidateLogs = ClientExerciseLog::whereIn('id', $candidateIds)
             ->where(function ($query) use ($weight) {
                 $query->whereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', CAST(? AS DECIMAL(10,2))))", [$weight])
                     ->orWhereRaw("JSON_CONTAINS(logged_sets, JSON_OBJECT('carga', ?))", [(string) $weight]);
