@@ -969,6 +969,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('task-store', [API\Admin\TaskController::class, 'store']);
     Route::post('task-update', [API\Admin\TaskController::class, 'update']);
     Route::post('task-delete', [API\Admin\TaskController::class, 'destroy']);
+    // Token dedicado (ability `tasks:sync`), usado por Claude Code, no por la UI del panel.
+    Route::post('task-sync', [API\Admin\TaskController::class, 'sync']);
 
     // ═══ V2: Client Feature Settings ══════════════════════════════════
     Route::get('client-feature-settings', [API\ClientFeatureSettingController::class, 'getMySettings']);
