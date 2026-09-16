@@ -52,6 +52,28 @@ final class ImportJsonReport
     }
 
     /**
+     * Payload de rechazo cuando `--confidence-gate` (CLI) / `confidence_gate`
+     * (HTTP) bloquea un import real porque quedan ejercicios de nivel C/D/E o
+     * auto-creados sin revisar (docs/AGENTE_IMPORTADOR.md, sección 7, punto
+     * 5 -- "guardrail duro en código" en vez de que la pausa dependa solo de
+     * que el LLM siga el system-prompt). No se ha escrito nada en BD.
+     *
+     * @param list<array<string,mixed>> $reviewRequired
+     */
+    public static function buildConfidenceGateBlocked(array $reviewRequired): array
+    {
+        return [
+            'ok'    => false,
+            'error' => 'confidence_gate_blocked',
+            'message' => 'Import real bloqueado por confidence-gate: hay '.count($reviewRequired)
+                .' ejercicio(s) con match ambiguo (nivel C/D/E) o auto-creado sin revisar. '
+                .'No se ha escrito nada. Revisa review_required, corrige los nombres de ejercicio '
+                .'o el catálogo, y repite -- o quita el guardrail si asumes el riesgo conscientemente.',
+            'review_required' => $reviewRequired,
+        ];
+    }
+
+    /**
      * Escribe el CSV de ejercicios creados/no-matcheados y devuelve su ruta
      * (null si no había nada que reportar, o si no se pudo escribir).
      * Extraído de ImportProgramsCommand para que el comando CLI y el

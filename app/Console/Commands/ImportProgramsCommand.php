@@ -35,6 +35,18 @@ use Illuminate\Support\Facades\Cache;
  * aplanada de ejercicios con match ambiguo (nivel C/D/E) o auto-creados
  * que un agente automatizado debe mostrar a un humano antes de proceder
  * a un import real. No cambia el comportamiento del import en sí.
+ *
+ * `--confidence-gate` (sección 7, punto 5): antes de un import REAL (no
+ * dry-run), corre en memoria una pasada de solo-lectura (dry-run) del mismo
+ * programa; si algún ejercicio requiere revisión (nivel C/D/E o auto-creado),
+ * aborta sin escribir nada en BD. Convierte en guardrail de código lo que
+ * hasta ahora dependía de que el LLM siguiera el system-prompt. Opcional y
+ * retrocompatible: sin este flag, el comportamiento no cambia.
+ *
+ * `--check-integrity` (sección 7, punto 4): tras un import REAL con éxito,
+ * ejecuta automáticamente `programs:check-integrity` (sin --fix) acotado al
+ * `training_program_id` recién creado, en vez de esperar al cron semanal.
+ * Opcional y retrocompatible.
  */
 class ImportProgramsCommand extends Command
 {
@@ -50,7 +62,9 @@ class ImportProgramsCommand extends Command
         {--no-create : No crear ejercicios sin match (solo reportarlos)}
         {--force : Reimportar aunque ya exista (source, source_id)}
         {--free : Marcar el programa como is_free_accessible}
-        {--json : Salida JSON estructurada por stdout en vez de texto para humano (ver ImportJsonReport)}';
+        {--json : Salida JSON estructurada por stdout en vez de texto para humano (ver ImportJsonReport)}
+        {--confidence-gate : Antes de un import real, corre una pasada en memoria (dry-run) y aborta sin escribir si algún ejercicio requiere revisión (nivel C/D/E o auto-creado). Sin efecto en --dry-run.}
+        {--check-integrity : Tras un import real con éxito, ejecuta programs:check-integrity (sin --fix) inmediatamente en vez de esperar al cron semanal.}';
 
     protected $description = 'Importa programas de entrenamiento (Hevy/Strong/JEFIT/openweight/wger/Excel) a la BD';
 
@@ -98,6 +112,14 @@ class ImportProgramsCommand extends Command
         // limpiar caché de firmas del matcher para reflejar ejercicios nuevos
         Cache::forget('exercise_matcher_db_signatures_v1');
 
+        $confidenceGate = (bool) $this->option('confidence-gate');
+        if ($confidenceGate && !$dryRun) {
+            $blocked = $this->runConfidenceGate($canonical, $numWeeks, $jsonOutput);
+            if ($blocked !== null) {
+                return $blocked;
+            }
+        }
+
         $importer = new ProgramsImporter(
             coachId: (int) $this->option('coach-id'),
             numWeeks: $numWeeks,
@@ -117,8 +139,16 @@ class ImportProgramsCommand extends Command
 
         $reportCsvPath = $this->persistReport($importer->report(), $source);
 
+        $checkIntegrityOutput = null;
+        if ((bool) $this->option('check-integrity')) {
+            $checkIntegrityOutput = $this->runCheckIntegrity($result, $dryRun);
+        }
+
         if ($jsonOutput) {
             $payload = ImportJsonReport::buildPayload($source, $file, $dryRun, $programCount, $result, $importer->report(), $reportCsvPath);
+            if ($checkIntegrityOutput !== null) {
+                $payload['check_integrity_output'] = $checkIntegrityOutput;
+            }
             $this->line(json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 
             return self::SUCCESS;
@@ -131,7 +161,92 @@ class ImportProgramsCommand extends Command
             $this->info("Reporte de ejercicios: {$reportCsvPath} (" . count($importer->report()) . ' filas)');
         }
 
+        if ($checkIntegrityOutput !== null) {
+            $this->newLine();
+            $this->comment('— programs:check-integrity (automático tras import) —');
+            $this->line($checkIntegrityOutput);
+        }
+
         return self::SUCCESS;
+    }
+
+    /**
+     * Corre una pasada dry-run en memoria (sin escribir nada -- ver
+     * ProgramsImporter::previewProgram, que solo lee el matcher) con los
+     * mismos parámetros que el import real, y aborta si algún ejercicio
+     * requiere revisión. Devuelve el código de salida si bloqueó, o null si
+     * puede continuar con el import real.
+     */
+    private function runConfidenceGate(array $canonical, int $numWeeks, bool $jsonOutput): ?int
+    {
+        $gateImporter = new ProgramsImporter(
+            coachId: (int) $this->option('coach-id'),
+            numWeeks: $numWeeks,
+            progressionMode: (string) $this->option('progression'),
+            threshold: (float) $this->option('threshold'),
+            autoCreate: !$this->option('no-create'),
+            dryRun: true,
+            force: (bool) $this->option('force'),
+            freeAccessible: (bool) $this->option('free'),
+        );
+
+        try {
+            $gateResult = $gateImporter->import($canonical);
+        } catch (\Throwable $e) {
+            return $this->reportFailure($jsonOutput, 'Error comprobando confidence-gate: ' . $e->getMessage());
+        }
+
+        $blocking = ImportJsonReport::buildReviewRequired((array) ($gateResult['results'] ?? []));
+        if ($blocking === []) {
+            return null;
+        }
+
+        if ($jsonOutput) {
+            $this->line(json_encode(ImportJsonReport::buildConfidenceGateBlocked($blocking), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        } else {
+            $this->error('Import real bloqueado por --confidence-gate: ' . count($blocking) . ' ejercicio(s) requieren revisión.');
+            foreach ($blocking as $b) {
+                $this->line("  - {$b['source_exercise']} (nivel {$b['level']}, confianza {$b['confidence']})");
+            }
+        }
+
+        return self::FAILURE;
+    }
+
+    /**
+     * Devuelve la salida de programs:check-integrity, o null si no hacía
+     * falta ejecutarlo.
+     *
+     * Deliberadamente NO usa Artisan::call(): `Illuminate\Console\Application
+     * ::call()` guarda el output en `$this->lastOutput` -- una propiedad
+     * compartida en la instancia única de la Application -- y `Artisan::
+     * output()` siempre lee de ahí. Si este comando se invoca a sí mismo vía
+     * Artisan::call() desde dentro de OTRO Artisan::call() (que es
+     * exactamente el caso real: ProgramImportController y los tests llaman
+     * `Artisan::call('programs:import', ...)`), la llamada anidada a
+     * check-integrity pisa ese puntero compartido -- y cuando el llamador
+     * exterior luego hace Artisan::output() para leer el JSON de
+     * programs:import, en realidad recibe (ya vaciado) el buffer de
+     * check-integrity, no el suyo. Resolviendo el comando directamente y
+     * llamando a Command::run() con un output propio se evita tocar ese
+     * estado compartido por completo.
+     */
+    private function runCheckIntegrity(array $result, bool $dryRun): ?string
+    {
+        if ($dryRun) {
+            return null;
+        }
+        $anyCreated = collect((array) ($result['results'] ?? []))->contains(fn ($r) => ($r['status'] ?? null) === 'created');
+        if (!$anyCreated) {
+            return null;
+        }
+
+        $command = $this->getApplication()->find('programs:check-integrity');
+        $input = new \Symfony\Component\Console\Input\ArrayInput(['--coach-id' => (int) $this->option('coach-id')]);
+        $buffer = new \Symfony\Component\Console\Output\BufferedOutput();
+        $command->run($input, $buffer);
+
+        return trim($buffer->fetch());
     }
 
     /** Reporta un fallo en el formato que corresponda ($jsonOutput) y devuelve el código de salida. */
