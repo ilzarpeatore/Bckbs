@@ -28,9 +28,21 @@ class OnboardingController extends Controller
      * ese cribado no podía activarse nunca en producción. Se tratan igual
      * que el resto de banderas de riesgo: cualquiera en true marca
      * flagged_for_review.
+     *
+     * parq_pregnant_or_possible / parq_menstrual_change_or_stress_fracture
+     * (2026-09-16, decisión de producto): solo tienen sentido para un
+     * perfil de mujer (`users.gender`, ya recogido en la etapa 1 del
+     * onboarding -- update-profile -- antes de llegar aquí). Para
+     * hombre/otro/sin especificar no se piden (nullable) ni se muestran en
+     * la app -- esa parte de mostrar/ocultar el campo vive en el
+     * frontend/app, no en este backend. parq_eating_disorder_history SÍ
+     * aplica a cualquier género, se mantiene siempre obligatoria.
      */
     public function parq(Request $request)
     {
+        $user = auth('sanctum')->user();
+        $isFemale = $user->gender === 'female';
+
         $request->validate([
             'parq_heart_condition'            => 'required|boolean',
             'parq_chest_pain_activity'        => 'required|boolean',
@@ -39,15 +51,13 @@ class OnboardingController extends Controller
             'parq_bone_joint_problem'         => 'required|boolean',
             'parq_bp_or_heart_medication'     => 'required|boolean',
             'parq_reason_not_to_exercise'     => 'required|boolean',
-            'parq_pregnant_or_possible'                 => 'required|boolean',
-            'parq_menstrual_change_or_stress_fracture'  => 'required|boolean',
+            'parq_pregnant_or_possible'                 => [$isFemale ? 'required' : 'nullable', 'boolean'],
+            'parq_menstrual_change_or_stress_fracture'  => [$isFemale ? 'required' : 'nullable', 'boolean'],
             'parq_eating_disorder_history'              => 'required|boolean',
             'parq_fitness_level'              => 'required|integer|min:1|max:10',
             'parq_medical_history'            => 'nullable|string',
             'parq_goals'                      => 'required|string',
         ]);
-
-        $user = auth('sanctum')->user();
 
         ParQAnswer::updateOrCreate(
             ['user_id' => $user->id],
@@ -59,8 +69,10 @@ class OnboardingController extends Controller
                 'parq_bone_joint_problem'         => $request->parq_bone_joint_problem,
                 'parq_bp_or_heart_medication'     => $request->parq_bp_or_heart_medication,
                 'parq_reason_not_to_exercise'     => $request->parq_reason_not_to_exercise,
-                'parq_pregnant_or_possible'                => $request->parq_pregnant_or_possible,
-                'parq_menstrual_change_or_stress_fracture' => $request->parq_menstrual_change_or_stress_fracture,
+                // no aplicable a hombre/otro/sin especificar -- se guarda NULL, no false
+                // (false significaría "se le preguntó y dijo que no").
+                'parq_pregnant_or_possible'                => $isFemale ? $request->boolean('parq_pregnant_or_possible') : null,
+                'parq_menstrual_change_or_stress_fracture' => $isFemale ? $request->boolean('parq_menstrual_change_or_stress_fracture') : null,
                 'parq_eating_disorder_history'             => $request->parq_eating_disorder_history,
                 'parq_fitness_level'              => $request->parq_fitness_level,
                 'parq_medical_history'            => $request->parq_medical_history,
@@ -72,8 +84,8 @@ class OnboardingController extends Controller
             || $request->boolean('parq_chest_pain_activity')
             || $request->boolean('parq_chest_pain_rest_last_month')
             || $request->boolean('parq_dizziness_balance')
-            || $request->boolean('parq_pregnant_or_possible')
-            || $request->boolean('parq_menstrual_change_or_stress_fracture')
+            || ($isFemale && $request->boolean('parq_pregnant_or_possible'))
+            || ($isFemale && $request->boolean('parq_menstrual_change_or_stress_fracture'))
             || $request->boolean('parq_eating_disorder_history');
 
         if ($riskAnswered && !$user->flagged_for_review) {

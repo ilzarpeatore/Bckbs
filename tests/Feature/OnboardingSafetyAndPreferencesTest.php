@@ -35,7 +35,7 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
         Role::findOrCreate('user', 'web');
     }
 
-    private function makeUser(): User
+    private function makeUser(?string $gender = null): User
     {
         $user = User::create([
             'first_name' => 'Test',
@@ -46,6 +46,7 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
             'user_type' => 'user',
             'status' => 'active',
             'login_type' => 'manual',
+            'gender' => $gender,
         ]);
         $user->assignRole('user');
 
@@ -72,9 +73,9 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
 
     // ═══ PAR-Q+ -- nuevas preguntas de seguridad ═══════════════════════
 
-    public function test_parq_requires_the_three_new_safety_fields(): void
+    public function test_parq_requires_pregnancy_and_menstrual_fields_for_female_profile(): void
     {
-        $user = $this->makeUser();
+        $user = $this->makeUser('female');
         Sanctum::actingAs($user, ['*']);
 
         $payload = $this->baseParqPayload();
@@ -86,9 +87,44 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
         $this->assertArrayHasKey('parq_pregnant_or_possible', $response->json('errors', []));
     }
 
-    public function test_parq_pregnancy_flag_true_flags_user_for_review(): void
+    public function test_parq_does_not_require_pregnancy_and_menstrual_fields_for_male_profile(): void
     {
-        $user = $this->makeUser();
+        $user = $this->makeUser('male');
+        Sanctum::actingAs($user, ['*']);
+
+        $payload = $this->baseParqPayload();
+        unset($payload['parq_pregnant_or_possible'], $payload['parq_menstrual_change_or_stress_fracture']);
+
+        $response = $this->postJson('/api/v1/onboarding/par-q', $payload);
+
+        $response->assertStatus(200);
+        $answer = ParQAnswer::where('user_id', $user->id)->first();
+        $this->assertNull($answer->parq_pregnant_or_possible);
+        $this->assertNull($answer->parq_menstrual_change_or_stress_fracture);
+    }
+
+    public function test_parq_stores_null_not_false_for_pregnancy_fields_on_male_profile_even_if_sent(): void
+    {
+        // Defensa en profundidad: si el frontend igualmente enviara estos campos
+        // para un hombre (bug de UI), el backend no debe guardar 'false' -- false
+        // significa "se le preguntó y dijo que no", null significa "no aplica".
+        $user = $this->makeUser('male');
+        Sanctum::actingAs($user, ['*']);
+
+        $this->postJson('/api/v1/onboarding/par-q', $this->baseParqPayload([
+            'parq_pregnant_or_possible' => true,
+            'parq_menstrual_change_or_stress_fracture' => true,
+        ]))->assertStatus(200);
+
+        $answer = ParQAnswer::where('user_id', $user->id)->first();
+        $this->assertNull($answer->parq_pregnant_or_possible);
+        $this->assertNull($answer->parq_menstrual_change_or_stress_fracture);
+        $this->assertFalse((bool) $user->fresh()->flagged_for_review);
+    }
+
+    public function test_parq_pregnancy_flag_true_flags_female_user_for_review(): void
+    {
+        $user = $this->makeUser('female');
         Sanctum::actingAs($user, ['*']);
 
         $response = $this->postJson('/api/v1/onboarding/par-q', $this->baseParqPayload([
@@ -100,9 +136,9 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
         $this->assertTrue(ParQAnswer::where('user_id', $user->id)->first()->parq_pregnant_or_possible);
     }
 
-    public function test_parq_eating_disorder_flag_true_flags_user_for_review(): void
+    public function test_parq_eating_disorder_flag_true_flags_user_for_review_regardless_of_gender(): void
     {
-        $user = $this->makeUser();
+        $user = $this->makeUser('male');
         Sanctum::actingAs($user, ['*']);
 
         $this->postJson('/api/v1/onboarding/par-q', $this->baseParqPayload([
@@ -112,9 +148,9 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
         $this->assertTrue((bool) $user->fresh()->flagged_for_review);
     }
 
-    public function test_parq_menstrual_change_or_stress_fracture_flags_user_for_review(): void
+    public function test_parq_menstrual_change_or_stress_fracture_flags_female_user_for_review(): void
     {
-        $user = $this->makeUser();
+        $user = $this->makeUser('female');
         Sanctum::actingAs($user, ['*']);
 
         $this->postJson('/api/v1/onboarding/par-q', $this->baseParqPayload([
@@ -126,7 +162,7 @@ class OnboardingSafetyAndPreferencesTest extends TestCase
 
     public function test_parq_all_clean_does_not_flag_user(): void
     {
-        $user = $this->makeUser();
+        $user = $this->makeUser('female');
         Sanctum::actingAs($user, ['*']);
 
         $this->postJson('/api/v1/onboarding/par-q', $this->baseParqPayload())->assertStatus(200);
