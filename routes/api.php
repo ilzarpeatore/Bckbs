@@ -282,6 +282,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
             Route::post('par-q', [ API\OnboardingController::class, 'parq' ]);
             Route::post('training-questionnaire', [ API\OnboardingController::class, 'trainingQuestionnaire' ]);
             Route::post('nutrition-questionnaire', [ API\OnboardingController::class, 'nutritionQuestionnaire' ]);
+            Route::post('training-availability-update', [ API\OnboardingController::class, 'updateTrainingAvailability' ]);
             Route::post('complete', [ API\OnboardingController::class, 'complete' ]);
         });
 
