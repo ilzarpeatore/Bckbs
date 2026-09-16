@@ -379,6 +379,7 @@ return [
     'comment' => 'Comment',
     'comment_reply' => 'Comment Reply',
     'report_on_post' => 'Post has been reported successfully',
+    'report_on_comment' => 'Comment has been reported successfully',
     'posted_by' => 'Posted By',
     'reported_by' => 'Reported By',
     'reported_posting' => 'Reported Posting',

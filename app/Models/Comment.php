@@ -26,6 +26,39 @@ class Comment extends Model
         return $this->belongsTo(User::class, 'user_id', 'id');
     }
 
+    public function reportComment()
+    {
+        return $this->hasMany(ReportComment::class, 'comment_id', 'id');
+    }
+
+    // Mismo criterio que Posting::scopeExcludeReportedPost() -- un comentario
+    // que ya reportaste deja de aparecer en tu propia lista (item 11 del
+    // roadmap, ver docs/PENDIENTE_BACKEND_ADMIN.md en el repo bsa).
+    public function scopeExcludeReportedComment($query)
+    {
+        $user = auth()->user();
+        if ($user) {
+            return $query->whereDoesntHave('reportComment', function ($q) use ($user) {
+                $q->where('user_id', $user->id);
+            });
+        }
+
+        return $query;
+    }
+
+    // Oculta comentarios de usuarios bloqueados en cualquier dirección
+    // (yo bloqueé al autor, o el autor me bloqueó a mí) -- mismo criterio
+    // que Posting::scopeExcludeBlockedUsers().
+    public function scopeExcludeBlockedUsers($query)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return $query;
+        }
+
+        return $query->whereNotIn('user_id', $user->blockedAndBlockingUserIds());
+    }
+
     public function scopeMyComment($query)
     {
         // SEGURIDAD (auditoría 2026-09-13): antes confiaba en un

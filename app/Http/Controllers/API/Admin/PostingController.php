@@ -6,6 +6,7 @@ use App\Models\Posting;
 use App\Models\Comment;
 use App\Models\CommentReply;
 use App\Http\Resources\PostingResource;
+use App\Http\Resources\CommentResource;
 use Illuminate\Http\Request;
 
 class PostingController extends BaseController
@@ -56,6 +57,28 @@ class PostingController extends BaseController
         $perPage = $request->get('per_page', config('constant.PER_PAGE_LIMIT', 10));
         $items = $query->orderBy('id', 'desc')->paginate($perPage);
         $items = PostingResource::collection($items);
+
+        $response = [
+            'pagination' => json_pagination_response($items),
+            'data'       => $items,
+        ];
+
+        return json_custom_response($response);
+    }
+
+    /**
+     * Listado de comentarios reportados para el panel admin -- mismo patrón
+     * que reportList() (posts), item 11 del roadmap. Se resuelve el usuario
+     * y el propio comentario para que el panel pueda mostrar de qué post
+     * es y quién lo escribió.
+     */
+    public function reportedComments(Request $request)
+    {
+        $query = Comment::has('reportComment')->with(['user', 'posting', 'reportComment']);
+
+        $perPage = $request->get('per_page', config('constant.PER_PAGE_LIMIT', 10));
+        $items = $query->orderBy('id', 'desc')->paginate($perPage);
+        $items = CommentResource::collection($items);
 
         $response = [
             'pagination' => json_pagination_response($items),

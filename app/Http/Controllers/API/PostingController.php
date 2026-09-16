@@ -20,7 +20,7 @@ class PostingController extends Controller
 {
     public function getPostList(Request $request)
     {
-        $posting = Posting::published()->excludeReportedPost()->withCount(['comment', 'postingLike'])
+        $posting = Posting::published()->excludeReportedPost()->excludeBlockedUsers()->withCount(['comment', 'postingLike'])
             ->with(['user:id,first_name,last_name,display_name,email,username,phone_number',
                 'postingLike' => fn ($q) => $q->where('user_id', auth()->id()),
                 'postingBookmark' => fn ($q) => $q->where('user_id', auth()->id()),
@@ -182,6 +182,15 @@ class PostingController extends Controller
 
         if( $posting == null ) {
             return json_message_response( __('message.not_found_entry', [ 'name' => __('message.posting') ]) );
+        }
+
+        // Bloqueo de usuario (item 11 del roadmap): mismo criterio que
+        // CommentController::saveComment() -- ninguna de las dos direcciones
+        // puede interactuar con el contenido de la otra.
+        $user = auth()->user();
+        if ($posting->user_id !== $user_id
+            && ($user->hasBlocked($posting->user_id) || $user->isBlockedBy($posting->user_id))) {
+            return json_message_response(__('message.not_found_entry', ['name' => __('message.posting')]), 403);
         }
 
         $post_like = PostingLike::where('user_id', $user_id)->where('posting_id', $posting_id)->first();

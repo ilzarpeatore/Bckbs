@@ -85,6 +85,19 @@ class Posting extends Model implements HasMedia
         return $query;
     }
 
+    // Oculta posts de usuarios bloqueados en cualquier dirección (yo bloqueé
+    // al autor, o el autor me bloqueó a mí) -- item 11 del roadmap, ver
+    // docs/PENDIENTE_BACKEND_ADMIN.md en el repo bsa.
+    public function scopeExcludeBlockedUsers($query)
+    {
+        $user = auth()->user();
+        if (!$user) {
+            return $query;
+        }
+
+        return $query->whereNotIn('user_id', $user->blockedAndBlockingUserIds());
+    }
+
     public function getCanEditAttribute()
     {
         return $this->user_id == optional(auth()->user())->id;

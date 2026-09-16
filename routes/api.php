@@ -180,6 +180,13 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('delete-comment-reply', [ API\CommentReplyController::class, 'deleteCommentReply']);
     
     Route::post('report-on-posting', [ API\PostingController::class, 'reportOnPosting']);
+    Route::post('report-on-comment', [ API\CommentController::class, 'reportOnComment']);
+
+    // AÑADIDO: bloqueo de usuario (item 11 del roadmap), ver
+    // docs/PENDIENTE_BACKEND_ADMIN.md en el repo bsa.
+    Route::post('block-user', [ API\UserBlockController::class, 'block']);
+    Route::post('unblock-user', [ API\UserBlockController::class, 'unblock']);
+    Route::get('my-blocked-users', [ API\UserBlockController::class, 'myBlockedUsers']);
 
     Route::get('user-daily-water-goal-list', [ API\UserDailyGoalController::class, 'getDailyWaterGoalList']);
     Route::post('user-daily-water-goal-save', [ API\UserDailyGoalController::class, 'saveDailyWaterGoal']);
@@ -718,6 +725,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // Community Postings
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
     Route::get('reported-postings', [PostingController::class, 'reportList']);
+    // AÑADIDO: comentarios reportados (item 11 del roadmap), mismo patrón
+    // que reported-postings.
+    Route::get('reported-comments', [PostingController::class, 'reportedComments']);
     Route::post('postings/{id}/status', [PostingController::class, 'updateStatus']);
     // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
     // no existía ninguna vía admin para borrar un post moderado.
