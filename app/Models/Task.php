@@ -7,10 +7,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Task extends Model
 {
-    protected $fillable = ['author_id', 'client_id', 'title', 'description', 'due_date', 'priority', 'status'];
+    protected $fillable = [
+        'author_id', 'client_id', 'title', 'description', 'due_date', 'priority', 'status',
+        'type', 'category', 'source_key', 'source_repo', 'source_url', 'completed_at',
+    ];
 
     protected $casts = [
-        'due_date' => 'date',
+        'due_date'     => 'date',
+        'completed_at' => 'datetime',
     ];
 
     public function author(): BelongsTo
