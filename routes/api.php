@@ -279,6 +279,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // etapa 1 reutiliza update-profile y no vive aquí. Ver
         // docs/ONBOARDING_V2.md para el contrato completo.
         Route::prefix('onboarding')->group(function () {
+            Route::get('my-answers', [ API\OnboardingController::class, 'myAnswers' ]);
             Route::post('par-q', [ API\OnboardingController::class, 'parq' ]);
             Route::post('training-questionnaire', [ API\OnboardingController::class, 'trainingQuestionnaire' ]);
             Route::post('nutrition-questionnaire', [ API\OnboardingController::class, 'nutritionQuestionnaire' ]);

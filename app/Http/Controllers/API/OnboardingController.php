@@ -16,6 +16,29 @@ use App\Models\NutritionQuestionnaireAnswer;
 class OnboardingController extends Controller
 {
     /**
+     * Devuelve las respuestas de onboarding (par_q/training/nutrition) del
+     * usuario autenticado, o null en cada una si esa etapa todavía no se
+     * completó. Nuevo (2026-09-18) -- hasta ahora solo existía la versión
+     * admin (Admin\OnboardingController::getDetail, requiere user_id y
+     * permisos de coach); esta es la versión "mis propios datos" que
+     * consume la pantalla de edición de onboarding en la app (repo bsa,
+     * pantalla de Cuenta). Misma forma de respuesta que la versión admin
+     * para las 3 claves, para no mantener 2 contratos distintos.
+     */
+    public function myAnswers(Request $request)
+    {
+        $user = auth('sanctum')->user();
+
+        return json_custom_response([
+            'data' => [
+                'par_q'                   => ParQAnswer::where('user_id', $user->id)->first(),
+                'training_questionnaire'  => TrainingQuestionnaireAnswer::where('user_id', $user->id)->first(),
+                'nutrition_questionnaire' => NutritionQuestionnaireAnswer::where('user_id', $user->id)->first(),
+            ],
+        ]);
+    }
+
+    /**
      * Etapa 2 — PAR-Q+. Si alguna respuesta de riesgo cardíaco/mareos es
      * true, marca al usuario para revisión de un coach antes de asignarle
      * un plan (decisión de producto confirmada).
