@@ -209,37 +209,32 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 
 ### Flujo paso a paso
 
+**(Actualizado 2026-09-17 — ver "Principio de diseño no negociable" abajo, cambia dónde vive la pausa humana.)**
+
 ```
 1. Recibe un .xlsx (ya en el formato de EXCEL_FORMAT.md)
-2. Ejecuta dry-run con JSON — POST program-import (dry_run=true, por
-   defecto) si tiene token de coach vía Sanctum, o si no
-   programs:import excel <archivo> --dry-run --json por SSH. Ambas vías
-   devuelven exactamente el mismo JSON.
-3. Analiza el JSON (ya no hace falta parsear texto):
-   a. ¿review_required no está vacío (match nivel C/D/E o "CREAR NUEVO")?
-      → sí: lista esos casos concretos (ya vienen con week/day/nombre/nivel/
-        confianza/candidato) y pide aprobación humana explícita antes de
-        seguir (no continúa solo)
-      → no (todo nivel A/B): puede proceder sin pausa
-   b. ¿programs_detected y las semanas de results[].preview.weeks coinciden
-      con lo esperado? ¿hay semanas vacías por error, no por diseño?
-4. Import real (mismo endpoint/comando, dry_run=false / sin --dry-run),
-   solo tras el paso 3
-5. Si se pidió asignar a un cliente: ejecuta
-   programs:assign-client <training_program_id> <email> [--json]
-6. Corre check-integrity y reporta si algo quedó roto (este comando
-   todavía no tiene --json — su salida es corta y su señal relevante es
-   binaria: "Sin referencias rotas" o no, ver sección 5 -- aunque ya
-   corre solo semanalmente vía cron, no hace falta esperar a eso si el
-   agente acaba de escribir algo)
-7. Devuelve al humano: qué se creó (ids, de results[].training_program_id),
-   qué ejercicios se auto-crearon (report[], para que alguien revise el
-   catálogo después), y el resultado de check-integrity
+2. Import real directo — POST program-import (dry_run=false) o
+   programs:import excel <archivo> --json por SSH. No hace falta dry-run
+   previo ni pausar por review_required: el import (creación de
+   training_program + ejercicios de catálogo, incluidos auto-creados y
+   matches ambiguos nivel C/D/E) se ejecuta siempre.
+3. Corre check-integrity inmediatamente después (no esperar al cron
+   semanal) y reporta si algo quedó roto — su salida es corta y su señal
+   relevante es binaria: "Sin referencias rotas" o no, ver sección 5.
+4. Devuelve al humano: training_program_id creado, la lista de
+   review_required/report[] (qué ejercicios se auto-crearon o matchearon
+   con nivel C/D/E, para que alguien lo revise en el panel admin), y el
+   resultado de check-integrity.
+5. El agente importador NUNCA ejecuta programs:assign-client ni
+   POST training-program-assign-client por su cuenta, ni aunque
+   review_required venga vacío. La asignación a un cliente real la hace
+   siempre el humano a mano desde el panel admin, después de revisar el
+   programa recién creado.
 ```
 
 ### Principio de diseño no negociable
 
-**Nunca escribir en producción sin que un humano haya visto al menos los casos de match ambiguo (nivel C/D/E) o de auto-creación.** El coste de una prescripción de entrenamiento equivocada (ejercicio incorrecto, carga mal traducida) es alto y silencioso — no falla con un error, simplemente el cliente entrena mal. Este es el mismo criterio que hemos seguido manualmente en todo este proceso: dry-run siempre primero, confirmación explícita antes de cada escritura real.
+**(Actualizado 2026-09-17, decisión explícita del usuario — sustituye la versión anterior de este principio.)** El import en sí (crear el `training_program` y los ejercicios de catálogo que haga falta, incluidos auto-creados y matches ambiguos C/D/E) se ejecuta automáticamente, sin pausa previa por humano: el coste de un ejercicio mal matcheado que solo existe en el catálogo, sin que ningún cliente lo vea todavía, es bajo y reversible. **La pausa humana no negociable se movió a la asignación: nunca asignar un programa a un cliente real de forma automática.** Eso lo hace el humano a mano en el panel admin, revisando ahí el programa ya creado (ejercicios auto-creados, matches C/D/E, progresión) antes de asignarlo. `--confidence-gate` (que aborta el import si hay `review_required`) sigue existiendo en el código pero ya no es el flujo por defecto del agente importador — es una opción disponible, no el criterio de escritura.
 
 ---
 
