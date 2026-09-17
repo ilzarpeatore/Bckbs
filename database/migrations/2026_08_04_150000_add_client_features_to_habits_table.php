@@ -19,10 +19,21 @@ return new class extends Migration
      * SQL directo para coach_id, no ->change(), mismo motivo documentado en
      * 2026_07_16_110001_make_workout_id_nullable_in_training_programs_table.php:
      * requiere doctrine/dbal, que no está en composer.lock.
+     *
+     * FASE 0 (docs/PLAN_CLONADO_PROGRAMAS.md, entorno de tests): "MODIFY"
+     * es solo-MySQL -- en sqlite (tests locales) se usa ->change() nativo
+     * de Laravel 11 (ya no requiere doctrine/dbal) para el mismo resultado,
+     * MySQL en producción no cambia de camino.
      */
     public function up(): void
     {
-        DB::statement('ALTER TABLE habits MODIFY coach_id BIGINT UNSIGNED NULL');
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            Schema::table('habits', function (Blueprint $table) {
+                $table->unsignedBigInteger('coach_id')->nullable()->change();
+            });
+        } else {
+            DB::statement('ALTER TABLE habits MODIFY coach_id BIGINT UNSIGNED NULL');
+        }
 
         Schema::table('habits', function (Blueprint $table) {
             $table->unsignedBigInteger('source_template_id')->nullable()->after('client_id');
@@ -36,6 +47,13 @@ return new class extends Migration
             $table->dropForeign(['source_template_id']);
             $table->dropColumn('source_template_id');
         });
+
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            Schema::table('habits', function (Blueprint $table) {
+                $table->unsignedBigInteger('coach_id')->nullable(false)->change();
+            });
+            return;
+        }
 
         DB::statement('ALTER TABLE habits MODIFY coach_id BIGINT UNSIGNED NOT NULL');
     }
