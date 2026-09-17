@@ -225,10 +225,41 @@ class OnboardingController extends Controller
     /**
      * Marca el onboarding como completado para el usuario autenticado.
      * Idempotente — llamarlo dos veces no es un error.
+     *
+     * Fix 2026-09-18 (bug real, MUY grave: dos altas nuevas -- Osas
+     * Ehigiator user_id=103, Alberto Martín user_id=104 -- quedaron con
+     * onboarding_completed_at puesto pese a que par_q_answers y
+     * nutrition_questionnaire_answers nunca llegaron a crearse, por un
+     * fallo de red puntual en el cliente durante el registro diferido que
+     * este endpoint no detectaba). Antes de aquí, este método marcaba
+     * completado sin comprobar nada -- ahora exige que las 3 tablas de
+     * onboarding existan de verdad. Si falta alguna, devuelve 422 con la
+     * lista de qué falta, para que el cliente (ver
+     * AuthContext.completeOnboarding() en el repo bsa) NO marque el
+     * onboarding como completo localmente y el usuario vuelva a esa etapa
+     * la próxima vez que abra la app.
      */
     public function complete(Request $request)
     {
         $user = auth('sanctum')->user();
+
+        $missing = [];
+        if (!ParQAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'par_q';
+        }
+        if (!TrainingQuestionnaireAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'training_questionnaire';
+        }
+        if (!NutritionQuestionnaireAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'nutrition_questionnaire';
+        }
+
+        if (!empty($missing)) {
+            return json_custom_response([
+                'message' => 'Faltan etapas del onboarding por completar.',
+                'missing_stages' => $missing,
+            ], 422);
+        }
 
         if ($user->onboarding_completed_at === null) {
             $user->onboarding_completed_at = now();
