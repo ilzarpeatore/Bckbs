@@ -21,6 +21,7 @@ use App\Models\ProgramDayAssignment;
 use App\Models\ReadinessScore;
 use App\Models\SessionProgressionRule;
 use App\Models\ShadowEvaluation;
+use App\Models\TrainingProgram;
 use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
@@ -272,9 +273,29 @@ class SessionProgressionRuleEngine
         $exercise = Exercise::find($exerciseId);
         $bodypartIds = is_array($exercise?->bodypart_ids) ? $exercise->bodypart_ids : [];
 
+        // Riesgo A (docs/PLAN_CLONADO_PROGRAMAS.md §1.4 / Fase 3): con el
+        // clonado activo (PROGRAM_CLONING_ENABLED), $trainingProgramId es el
+        // id del CLON exclusivo del cliente, no el id de biblioteca que el
+        // coach eligió al crear la regla `programa_especifico`. Resolvemos
+        // aquí el "programa de biblioteca efectivo" -- el id directo si no
+        // es una copia, o su source_training_program_id si lo es -- y
+        // comparamos siempre contra ese, para que la regla siga matcheando
+        // en ambos casos (flag desactivado, o flag activo con clon). Una
+        // única consulta puntual (find por PK), no hay N+1: no hay ningún
+        // eager loading de TrainingProgram en este método hoy que se pueda
+        // reutilizar, y esto se ejecuta una vez por llamada, no por regla.
+        $effectiveTrainingProgramId = $trainingProgramId;
+        if ($trainingProgramId !== null) {
+            $sessionProgram = TrainingProgram::select('id', 'is_client_copy', 'source_training_program_id')
+                ->find($trainingProgramId);
+            if ($sessionProgram?->is_client_copy && $sessionProgram->source_training_program_id) {
+                $effectiveTrainingProgramId = $sessionProgram->source_training_program_id;
+            }
+        }
+
         $rules = SessionProgressionRule::where('coach_id', $coachId)
             ->where('active', true)
-            ->where(function ($q) use ($client, $exerciseId, $bodypartIds, $trainingProgramId) {
+            ->where(function ($q) use ($client, $exerciseId, $bodypartIds, $effectiveTrainingProgramId) {
                 $q->where(function ($qq) use ($client) {
                     $qq->where('scope_type', ScopeType::CLIENTE_ESPECIFICO->value)
                         ->where('scope_id', $client->id);
@@ -290,10 +311,13 @@ class SessionProgressionRuleEngine
                 // corriendo ese training_program concreto (sesión suelta,
                 // sin program_day_assignment -> $trainingProgramId es null,
                 // ninguna regla de este scope puede matchear, correcto).
-                if ($trainingProgramId !== null) {
-                    $q->orWhere(function ($qq) use ($trainingProgramId) {
+                // $effectiveTrainingProgramId ya resuelve clon -> origen de
+                // biblioteca (ver arriba), así que esta comparación funciona
+                // tanto con clonado desactivado como activado.
+                if ($effectiveTrainingProgramId !== null) {
+                    $q->orWhere(function ($qq) use ($effectiveTrainingProgramId) {
                         $qq->where('scope_type', ScopeType::PROGRAMA_ESPECIFICO->value)
-                            ->where('scope_id', $trainingProgramId);
+                            ->where('scope_id', $effectiveTrainingProgramId);
                     });
                 }
             })
