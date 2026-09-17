@@ -20,3 +20,9 @@ yarn-error.log
 temp_*.php
 diag_*.php
 /admin/
+storage/framework/cache/
+storage/framework/sessions/
+storage/framework/views/
+storage/logs/
+storage/app/backups/
+*.bak.*
