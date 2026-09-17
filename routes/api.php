@@ -527,6 +527,7 @@ use App\Http\Controllers\API\Admin\PlanController as AdminPlanController;
 use App\Http\Controllers\API\Admin\PlanFeatureController;
 use App\Http\Controllers\API\Admin\PlanSubscriptionController as AdminPlanSubscriptionController;
 use App\Http\Controllers\API\Admin\ReportController;
+use App\Http\Controllers\API\Admin\SubscriptionPaymentController;
 use App\Http\Controllers\API\Admin\TwoFactorController;
 use App\Http\Controllers\API\Admin\AuditLogController;
 use App\Http\Controllers\API\Admin\ExerciseSubstitutionController;
@@ -653,6 +654,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // readiness/ACWR real en el admin (item 10, docs/PENDIENTE_BACKEND_ADMIN.md).
     Route::get('users/{user}/readiness', [ReportController::class, 'clientReadiness']);
     Route::get('revenue-summary', [ReportController::class, 'revenueSummary']);
+
+    // Seguimiento manual de pagos de suscripción (Informes > Seguimiento de pagos)
+    Route::get('subscription-payments', [SubscriptionPaymentController::class, 'index']);
+    Route::get('subscription-payments/summary', [SubscriptionPaymentController::class, 'summary']);
+    Route::get('subscription-payments/years', [SubscriptionPaymentController::class, 'years']);
+    Route::put('subscription-payments/{user}/{year}/{month}', [SubscriptionPaymentController::class, 'updatePayment']);
+    Route::put('users/{user}/monthly-fee', [SubscriptionPaymentController::class, 'updateTariff']);
 
     // AÑADIDO: Panel de Excepciones del Coach -- espejo admin del
     // self-service de arriba (ver docblock de CoachExceptionItemController
