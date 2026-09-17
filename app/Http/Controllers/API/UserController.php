@@ -81,6 +81,12 @@ class UserController extends Controller
         $input['password'] = Hash::make($password);
 
         $input['status'] = 'active';
+        // Decisión de negocio (2026-09-17): todo registro nuevo empieza como
+        // 1:1 (is_personal_client=true), no como free. El coach lo pasa a
+        // free a mano desde el panel admin para los que correspondan -- ya
+        // no depende de invite_code (ver bloque de abajo, que ahora es
+        // redundante pero se deja explícito por claridad).
+        $input['is_personal_client'] = true;
         if( request('player_id') == "nil"){
             $input['player_id'] = NULL;
         }
@@ -497,6 +503,9 @@ class UserController extends Controller
             if( request('player_id') == "nil"){
                 $input['player_id'] = NULL;
             }
+            // Decisión de negocio (2026-09-17): igual que en register(), todo
+            // registro nuevo empieza como 1:1, no free.
+            $input['is_personal_client'] = true;
             $user = User::create($input);
 
             $user->assignRole($input['user_type']);
@@ -575,6 +584,9 @@ class UserController extends Controller
             $input['display_name'] = $input['first_name']." ".$input['last_name'];
             $input['password'] = Hash::make($password);
             $input['user_type'] = isset($input['user_type']) ? $input['user_type'] : 'user';
+            // Decisión de negocio (2026-09-17): igual que en register(), todo
+            // registro nuevo empieza como 1:1, no free.
+            $input['is_personal_client'] = true;
             $user = User::create($input);
 
             $user->assignRole($input['user_type']);

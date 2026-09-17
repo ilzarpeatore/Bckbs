@@ -74,6 +74,10 @@ class UserController extends BaseController
         $data['user_type'] = 'user';
         $data['status'] = $request->get('status', 'active');
         $data['display_name'] = $data['first_name'] . ' ' . $data['last_name'];
+        // Decisión de negocio (2026-09-17): igual que en el registro desde
+        // la app (API\UserController::register), por defecto 1:1, no free,
+        // salvo que el coach lo desmarque explícitamente en el formulario.
+        $data['is_personal_client'] = $request->boolean('is_personal_client', true);
 
         $user = User::create($data);
         $user->assignRole('user');
