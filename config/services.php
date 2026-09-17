@@ -50,4 +50,15 @@ return [
         'api_key' => env('USDA_API_KEY', ''),
     ],
 
+    /**
+     * Fase 2 de docs/PLAN_CLONADO_PROGRAMAS.md — feature flag para el
+     * clonado real de programas al asignarlos a un cliente
+     * (ProgramCloningService/ProgramAssignmentService). Default false a
+     * propósito: el comportamiento de producción NO cambia hasta que se
+     * active explícitamente (primero en staging, ver §3 Fase 7 del plan).
+     */
+    'program_cloning' => [
+        'enabled' => env('PROGRAM_CLONING_ENABLED', false),
+    ],
+
 ];

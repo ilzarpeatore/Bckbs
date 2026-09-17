@@ -9,6 +9,7 @@ use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\CalendarDateMapper;
+use App\Services\ProgramAssignmentService;
 use Carbon\Carbon;
 
 class ClientProfileCalendarController extends Controller
@@ -202,7 +203,6 @@ class ClientProfileCalendarController extends Controller
 
         $program = TrainingProgram::findOrFail($request->training_program_id);
         $startDate = Carbon::parse($request->start_date);
-        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
 
         // BUG REAL (2026-08-13, reportado por cliente): esto antes era un
         // create() sin comprobar duplicados. Si el coach reimportaba el
@@ -221,26 +221,19 @@ class ClientProfileCalendarController extends Controller
         // assignment_id 1040 proyectado a la vez en 2026-08-03 y
         // 2026-08-31). Ahora: si ya existe una asignación activa para este
         // client_id+training_program_id, se actualiza en vez de duplicarse
-        // (mismo criterio que reiniciar/mover la fecha de inicio).
-        $assignment = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
-            ->where('client_id', $request->client_id)
-            ->where('activo', true)
-            ->first();
-
-        if ($assignment) {
-            $assignment->update([
-                'start_date' => $request->start_date,
-                'fecha_fin'  => $fechaFin->toDateString(),
-            ]);
-        } else {
-            $assignment = ProgramClientAssignment::create([
-                'training_program_id' => $request->training_program_id,
-                'client_id'            => $request->client_id,
-                'start_date'           => $request->start_date,
-                'fecha_fin'            => $fechaFin->toDateString(),
-                'activo'               => true,
-            ]);
-        }
+        // (mismo criterio que reiniciar/mover la fecha de inicio) --
+        // delegado en ProgramAssignmentService (Fase 2 de
+        // docs/PLAN_CLONADO_PROGRAMAS.md), que además clona el programa de
+        // biblioteca si el feature flag de clonado está activo.
+        $assignment = (new ProgramAssignmentService())->assignOrRenew(
+            (int) $request->client_id,
+            $program,
+            [
+                'start_date'    => $startDate,
+                'only_active'   => true,
+                'reset_closure' => false,
+            ]
+        );
 
         return json_custom_response(['data' => $assignment]);
     }

@@ -2,10 +2,10 @@
 
 namespace App\Console\Commands;
 
-use App\Models\ProgramClientAssignment;
 use App\Models\TrainingProgram;
 use App\Models\User;
 use App\Notifications\CommonNotification;
+use App\Services\ProgramAssignmentService;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
@@ -61,35 +61,18 @@ class AssignProgramClientCommand extends Command
             return $this->reportFailure($jsonOutput, "Fecha de inicio inválida: {$startDateOpt}");
         }
 
-        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
-
-        $existing = ProgramClientAssignment::where('training_program_id', $programId)
-            ->where('client_id', $client->id)
-            ->first();
-
         // Misma semántica que TrainingProgramController::assignClient(): si
         // ya existía, es una renovación (nuevo ciclo del mesociclo) -- no
         // una fila duplicada -- así que se actualiza la misma, reabriendo
-        // cerrado_at si estaba cerrada.
-        if ($existing !== null) {
-            $existing->update([
-                'start_date' => $startDate->toDateString(),
-                'fecha_fin'  => $fechaFin->toDateString(),
-                'activo'     => true,
-                'cerrado_at' => null,
-            ]);
-            $assignment = $existing;
-            $renewed = true;
-        } else {
-            $assignment = ProgramClientAssignment::create([
-                'training_program_id' => $programId,
-                'client_id'           => $client->id,
-                'start_date'          => $startDate->toDateString(),
-                'fecha_fin'           => $fechaFin->toDateString(),
-                'activo'              => true,
-            ]);
-            $renewed = false;
-        }
+        // cerrado_at si estaba cerrada. Delegado en ProgramAssignmentService
+        // (Fase 2 de docs/PLAN_CLONADO_PROGRAMAS.md), que además clona el
+        // programa de biblioteca si el feature flag de clonado está activo.
+        $assignment = (new ProgramAssignmentService())->assignOrRenew(
+            $client->id,
+            $program,
+            ['start_date' => $startDate]
+        );
+        $renewed = !$assignment->wasRecentlyCreated;
 
         $client->notify(new CommonNotification('new_training_program', [
             'id'      => $program->id,

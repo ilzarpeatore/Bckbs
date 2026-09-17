@@ -132,27 +132,13 @@ class PlanFulfillmentService
 
     private static function assignTrainingProgram(User $user, TrainingProgram $trainingProgram, Carbon $startDate, int $sourceSubscriptionId): void
     {
-        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $trainingProgram->num_weeks);
-
-        $existing = ProgramClientAssignment::where('training_program_id', $trainingProgram->id)
-            ->where('client_id', $user->id)->first();
-        if ($existing) {
-            $existing->update([
-                'start_date' => $startDate->toDateString(),
-                'fecha_fin' => $fechaFin->toDateString(),
-                'activo' => true,
-                'cerrado_at' => null, // renovación = nuevo ciclo del mesociclo, no continuación del cerrado
+        (new ProgramAssignmentService())->assignOrRenew(
+            $user->id,
+            $trainingProgram,
+            [
+                'start_date'              => $startDate,
                 'source_subscription_id' => $sourceSubscriptionId,
-            ]);
-            return;
-        }
-        ProgramClientAssignment::create([
-            'training_program_id' => $trainingProgram->id,
-            'client_id' => $user->id,
-            'start_date' => $startDate->toDateString(),
-            'fecha_fin' => $fechaFin->toDateString(),
-            'activo' => true,
-            'source_subscription_id' => $sourceSubscriptionId,
-        ]);
+            ]
+        );
     }
 }

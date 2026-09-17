@@ -9,6 +9,7 @@ use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\User;
 use App\Notifications\CommonNotification;
+use App\Services\ProgramAssignmentService;
 use App\Services\TrainingProgramGeneratorService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -232,34 +233,23 @@ class TrainingProgramController extends Controller
         }
 
         $startDate = Carbon::parse($request->start_date);
-        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
 
-        $existing = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
-            ->where('client_id', $request->client_id)
-            ->first();
-
-        if ($existing) {
-            $existing->update([
-                'start_date' => $request->start_date,
-                'fecha_fin'  => $fechaFin->toDateString(),
-                'activo'     => true,
-                'cerrado_at' => null, // renovación = nuevo ciclo del mesociclo, no continuación del cerrado
-            ]);
-            $this->notifyProgramAssigned($request->client_id, $program);
-            return json_custom_response(['data' => $existing, 'message' => 'Assignment updated']);
-        }
-
-        $assignment = ProgramClientAssignment::create([
-            'training_program_id' => $request->training_program_id,
-            'client_id'           => $request->client_id,
-            'start_date'          => $request->start_date,
-            'fecha_fin'           => $fechaFin->toDateString(),
-            'activo'              => true,
-        ]);
+        $assignment = (new ProgramAssignmentService())->assignOrRenew(
+            (int) $request->client_id,
+            $program,
+            ['start_date' => $startDate]
+        );
 
         $this->notifyProgramAssigned($request->client_id, $program);
 
-        return json_custom_response(['data' => $assignment, 'message' => 'Client assigned']);
+        return json_custom_response([
+            'data'    => $assignment,
+            // wasRecentlyCreated: true si assignOrRenew() creó la fila
+            // (nueva) en esta misma llamada, false si actualizó una ya
+            // existente (renovación) -- funciona igual con el flag de
+            // clonado activado o desactivado.
+            'message' => $assignment->wasRecentlyCreated ? 'Client assigned' : 'Assignment updated',
+        ]);
     }
 
     private function notifyProgramAssigned(int $client_id, ?TrainingProgram $program): void
