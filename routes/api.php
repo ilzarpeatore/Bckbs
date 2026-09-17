@@ -33,18 +33,6 @@ Route::middleware('throttle:10,1')->group(function () {
     Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
 });
 
-// Pública (Stripe la llama directamente, no un cliente autenticado) — la
-// firma se verifica dentro del propio controller con STRIPE_WEBHOOK_SECRET.
-// El checkout real vive en una web fuera de este repo; esto solo escucha
-// la confirmación de pago y concede el acceso vía Plan/PlanSubscription
-// (mismo PlanFulfillmentService::fulfill() que ya usa el grant manual del admin).
-// FUSIÓN 2026-08-31: coexiste con el webhook de Packages (más abajo, dentro
-// del grupo v1) en una URL distinta a propósito -- son dos sistemas de
-// cobro en paralelo (Plan/PlanSubscription vs Package), no se sabe cuál
-// tiene configurada Stripe Dashboard ahora mismo, así que se preservan
-// ambos en vez de descartar uno a ciegas. Revisar Stripe Dashboard y
-// unificar cuando se confirme cuál está realmente en uso.
-Route::post('webhooks/stripe', [API\StripeWebhookController::class, 'handle']);
 // SEGURIDAD (auditoría 2026-09-13): sin auth:sanctum era un IDOR público --
 // ver comentario en UserController::userDetail() para el detalle.
 Route::middleware('auth:sanctum')->get('user-detail',[ API\UserController::class, 'userDetail']);
@@ -99,15 +87,6 @@ Route::get('get-macro-nutrient',[API\DashboardController::class,'getMacroNurtrie
     // no hace falta duplicar código, solo un segundo nombre de ruta público.
     Route::get('package-catalog', [ API\PackageController::class, 'getList' ]);
 
-// AÑADIDO: webhook de Stripe para Packages -- ruta pública a propósito
-// (Stripe la llama directamente, no un cliente logueado con token; se
-// verifica por firma Stripe-Signature dentro del controlador, no por
-// auth:sanctum). Ver docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa.
-// Path distinto de 'webhooks/stripe' (ver arriba, sistema Plan aparte) --
-// pendiente confirmar en Stripe Dashboard cuál endpoint está configurado
-// realmente antes de unificarlos.
-Route::post('webhooks/stripe-packages', [ API\V1\CheckoutController::class, 'stripeWebhook' ]);
-
 // SEGURIDAD (auditoria 2026-09-01, HIGH-1): ruta publica a proposito -- la
 // firma de la URL (generada solo desde progress-photo-list/store, ambas
 // detras de auth:sanctum+admin.api) es el unico credencial necesario, igual
@@ -148,7 +127,10 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     // de compra dentro de la app, sistema Package/Subscription legacy. Apple/Google
     // exigen que la app no venda nada dentro (ver plan de migración) — la compra
     // pasa a ser 100% externa (web) y el acceso se concede vía Plan/PlanSubscription
-    // (PlanSubscriptionController::grantPlan(), o el webhook de Stripe). El estado
+    // (PlanSubscriptionController::grantPlan() -- alta manual, modelo de negocio real
+    // confirmado 2026-09-13: pago presencial, nunca por app ni web; el webhook de
+    // Stripe que existía aquí se retiró por no estar conectado a ninguna cuenta real,
+    // ver docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa). El estado
     // de solo lectura del cliente ahora vive en GET my-plan, más abajo.
     Route::get('my-plan', [ API\SubscriptionController::class, 'myPlan']);
 
@@ -198,6 +180,13 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::post('delete-comment-reply', [ API\CommentReplyController::class, 'deleteCommentReply']);
     
     Route::post('report-on-posting', [ API\PostingController::class, 'reportOnPosting']);
+    Route::post('report-on-comment', [ API\CommentController::class, 'reportOnComment']);
+
+    // AÑADIDO: bloqueo de usuario (item 11 del roadmap), ver
+    // docs/PENDIENTE_BACKEND_ADMIN.md en el repo bsa.
+    Route::post('block-user', [ API\UserBlockController::class, 'block']);
+    Route::post('unblock-user', [ API\UserBlockController::class, 'unblock']);
+    Route::get('my-blocked-users', [ API\UserBlockController::class, 'myBlockedUsers']);
 
     Route::get('user-daily-water-goal-list', [ API\UserDailyGoalController::class, 'getDailyWaterGoalList']);
     Route::post('user-daily-water-goal-save', [ API\UserDailyGoalController::class, 'saveDailyWaterGoal']);
@@ -262,6 +251,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::post('readiness-store', [ API\ReadinessController::class, 'store' ]);
         // AÑADIDO: resumen ligero de readiness (stopgap subjetivo, ver ReadinessController::summary()).
         Route::get('readiness-summary', [ API\ReadinessController::class, 'summary' ]);
+        // AÑADIDO (item 1 del roadmap): readiness real (combined_score/band/acwr
+        // de readiness_scores), ver ReadinessController::latest().
+        Route::get('readiness-scores-latest', [ API\ReadinessController::class, 'latest' ]);
 
         // AÑADIDO: rutas para ClientHabitController, que ya estaba
         // implementado (espejo cliente de HabitController) pero nunca se
@@ -283,23 +275,6 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::post('my-body-metrics-store', [ API\BodyMetricController::class, 'store' ]);
         Route::post('my-body-metrics-delete', [ API\BodyMetricController::class, 'destroy' ]);
 
-        // AÑADIDO: checkout de Packages desde la web (webbs) -- ver
-        // docs/PLAN_VENTAS_PROGRAMAS_Y_BLOG.md en el repo bsa. Autenticado a
-        // propósito (el usuario ya tiene que haber iniciado sesión antes de
-        // pagar, decisión de producto explícita -- así el backend siempre
-        // sabe qué usuario es en el momento del pago). El webhook que
-        // confirma el pago (webhooks/stripe) es una ruta pública aparte, ver
-        // fuera de este grupo auth:sanctum.
-        Route::post('checkout/stripe/create-session', [ API\V1\CheckoutController::class, 'createStripeSession' ]);
-
-        // AÑADIDO: checkout de Packages con PayPal, alternativa a Stripe --
-        // mismo Package/Subscription, distinto flujo (PayPal no tiene una
-        // URL de checkout hospedada como Stripe: create-order devuelve un
-        // link de aprobación de paypal.com, capture-order la confirma
-        // cuando el frontend recibe la vuelta desde PayPal).
-        Route::post('checkout/paypal/create-order', [ API\V1\CheckoutController::class, 'createPaypalOrder' ]);
-        Route::post('checkout/paypal/capture-order', [ API\V1\CheckoutController::class, 'capturePaypalOrder' ]);
-
         // AÑADIDO: Onboarding v2, etapas 2-4 + marcado de completado -- la
         // etapa 1 reutiliza update-profile y no vive aquí. Ver
         // docs/ONBOARDING_V2.md para el contrato completo.
@@ -307,6 +282,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
             Route::post('par-q', [ API\OnboardingController::class, 'parq' ]);
             Route::post('training-questionnaire', [ API\OnboardingController::class, 'trainingQuestionnaire' ]);
             Route::post('nutrition-questionnaire', [ API\OnboardingController::class, 'nutritionQuestionnaire' ]);
+            Route::post('training-availability-update', [ API\OnboardingController::class, 'updateTrainingAvailability' ]);
             Route::post('complete', [ API\OnboardingController::class, 'complete' ]);
         });
 
@@ -753,6 +729,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // Community Postings
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
     Route::get('reported-postings', [PostingController::class, 'reportList']);
+    // AÑADIDO: comentarios reportados (item 11 del roadmap), mismo patrón
+    // que reported-postings.
+    Route::get('reported-comments', [PostingController::class, 'reportedComments']);
     Route::post('postings/{id}/status', [PostingController::class, 'updateStatus']);
     // AÑADIDO: borrado admin de un post reportado (item 12 del backlog) --
     // no existía ninguna vía admin para borrar un post moderado.
@@ -990,6 +969,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('task-store', [API\Admin\TaskController::class, 'store']);
     Route::post('task-update', [API\Admin\TaskController::class, 'update']);
     Route::post('task-delete', [API\Admin\TaskController::class, 'destroy']);
+    // Token dedicado (ability `tasks:sync`), usado por Claude Code, no por la UI del panel.
+    Route::post('task-sync', [API\Admin\TaskController::class, 'sync']);
 
     // ═══ V2: Client Feature Settings ══════════════════════════════════
     Route::get('client-feature-settings', [API\ClientFeatureSettingController::class, 'getMySettings']);

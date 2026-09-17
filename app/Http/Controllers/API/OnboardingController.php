@@ -19,9 +19,30 @@ class OnboardingController extends Controller
      * Etapa 2 — PAR-Q+. Si alguna respuesta de riesgo cardíaco/mareos es
      * true, marca al usuario para revisión de un coach antes de asignarle
      * un plan (decisión de producto confirmada).
+     *
+     * parq_pregnant_or_possible / parq_menstrual_change_or_stress_fracture /
+     * parq_eating_disorder_history (2026-09-16): el diseño del Asistente de
+     * Programación de Entrenamiento (repo AgenticdesignBS,
+     * contraindicaciones-medicas.md) asumía estas tres preguntas desde el
+     * principio, pero nunca se recogieron aquí -- sin dato real que leer,
+     * ese cribado no podía activarse nunca en producción. Se tratan igual
+     * que el resto de banderas de riesgo: cualquiera en true marca
+     * flagged_for_review.
+     *
+     * parq_pregnant_or_possible / parq_menstrual_change_or_stress_fracture
+     * (2026-09-16, decisión de producto): solo tienen sentido para un
+     * perfil de mujer (`users.gender`, ya recogido en la etapa 1 del
+     * onboarding -- update-profile -- antes de llegar aquí). Para
+     * hombre/otro/sin especificar no se piden (nullable) ni se muestran en
+     * la app -- esa parte de mostrar/ocultar el campo vive en el
+     * frontend/app, no en este backend. parq_eating_disorder_history SÍ
+     * aplica a cualquier género, se mantiene siempre obligatoria.
      */
     public function parq(Request $request)
     {
+        $user = auth('sanctum')->user();
+        $isFemale = $user->gender === 'female';
+
         $request->validate([
             'parq_heart_condition'            => 'required|boolean',
             'parq_chest_pain_activity'        => 'required|boolean',
@@ -30,12 +51,13 @@ class OnboardingController extends Controller
             'parq_bone_joint_problem'         => 'required|boolean',
             'parq_bp_or_heart_medication'     => 'required|boolean',
             'parq_reason_not_to_exercise'     => 'required|boolean',
+            'parq_pregnant_or_possible'                 => [$isFemale ? 'required' : 'nullable', 'boolean'],
+            'parq_menstrual_change_or_stress_fracture'  => [$isFemale ? 'required' : 'nullable', 'boolean'],
+            'parq_eating_disorder_history'              => 'required|boolean',
             'parq_fitness_level'              => 'required|integer|min:1|max:10',
             'parq_medical_history'            => 'nullable|string',
             'parq_goals'                      => 'required|string',
         ]);
-
-        $user = auth('sanctum')->user();
 
         ParQAnswer::updateOrCreate(
             ['user_id' => $user->id],
@@ -47,6 +69,11 @@ class OnboardingController extends Controller
                 'parq_bone_joint_problem'         => $request->parq_bone_joint_problem,
                 'parq_bp_or_heart_medication'     => $request->parq_bp_or_heart_medication,
                 'parq_reason_not_to_exercise'     => $request->parq_reason_not_to_exercise,
+                // no aplicable a hombre/otro/sin especificar -- se guarda NULL, no false
+                // (false significaría "se le preguntó y dijo que no").
+                'parq_pregnant_or_possible'                => $isFemale ? $request->boolean('parq_pregnant_or_possible') : null,
+                'parq_menstrual_change_or_stress_fracture' => $isFemale ? $request->boolean('parq_menstrual_change_or_stress_fracture') : null,
+                'parq_eating_disorder_history'             => $request->parq_eating_disorder_history,
                 'parq_fitness_level'              => $request->parq_fitness_level,
                 'parq_medical_history'            => $request->parq_medical_history,
                 'parq_goals'                      => $request->parq_goals,
@@ -56,7 +83,10 @@ class OnboardingController extends Controller
         $riskAnswered = $request->boolean('parq_heart_condition')
             || $request->boolean('parq_chest_pain_activity')
             || $request->boolean('parq_chest_pain_rest_last_month')
-            || $request->boolean('parq_dizziness_balance');
+            || $request->boolean('parq_dizziness_balance')
+            || ($isFemale && $request->boolean('parq_pregnant_or_possible'))
+            || ($isFemale && $request->boolean('parq_menstrual_change_or_stress_fracture'))
+            || $request->boolean('parq_eating_disorder_history');
 
         if ($riskAnswered && !$user->flagged_for_review) {
             $user->flagged_for_review = true;
@@ -112,6 +142,13 @@ class OnboardingController extends Controller
 
     /**
      * Etapa 4 — cuestionario de nutrición.
+     *
+     * cooking_minutes_per_meal/cooking_skill_level/cooks_for_others
+     * (2026-09-16): `disponibilidad_cocina` es requerido por
+     * perfil-nutricional.schema.json (repo AgenticdesignBS) desde el primer
+     * borrador del Asistente de Programación de Nutrición, pero nunca se
+     * preguntó aquí -- sin este dato el Productor no puede saber si puede
+     * proponer una receta de 45 minutos o solo de 10.
      */
     public function nutritionQuestionnaire(Request $request)
     {
@@ -126,6 +163,9 @@ class OnboardingController extends Controller
             'favorite_fish'               => 'nullable|string',
             'favorite_fruits_vegetables'  => 'nullable|string',
             'favorite_combined_dishes'    => 'nullable|string',
+            'cooking_minutes_per_meal'    => 'required|integer|min:0|max:180',
+            'cooking_skill_level'         => 'required|string|in:beginner,intermediate,advanced',
+            'cooks_for_others'            => 'required|boolean',
         ]);
 
         $user = auth('sanctum')->user();
@@ -143,10 +183,43 @@ class OnboardingController extends Controller
                 'favorite_fish'              => $request->favorite_fish,
                 'favorite_fruits_vegetables' => $request->favorite_fruits_vegetables,
                 'favorite_combined_dishes'   => $request->favorite_combined_dishes,
+                'cooking_minutes_per_meal'   => $request->cooking_minutes_per_meal,
+                'cooking_skill_level'        => $request->cooking_skill_level,
+                'cooks_for_others'           => $request->boolean('cooks_for_others'),
             ]
         );
 
         return json_custom_response(['message' => 'OK', 'status' => true]);
+    }
+
+    /**
+     * Actualiza SOLO la disponibilidad de entrenamiento (días/semana y
+     * duración de sesión preferida) sin reenviar el resto del cuestionario
+     * de la etapa 3 -- ese endpoint (trainingQuestionnaire) exige todos los
+     * campos como `required`, lo que lo hace inviable para "el cliente
+     * cambió de horario" después del onboarding. Requiere que el cliente ya
+     * haya completado la etapa 3 (mismo criterio de guarda que
+     * Admin\OnboardingController::updateTrainingExperience).
+     */
+    public function updateTrainingAvailability(Request $request)
+    {
+        $request->validate([
+            'training_days_per_week'      => 'required|integer|min:1|max:7',
+            'session_duration_preference' => 'required|string|in:30,45,60,90,90_plus',
+        ]);
+
+        $user = auth('sanctum')->user();
+        $answer = TrainingQuestionnaireAnswer::where('user_id', $user->id)->first();
+
+        if (!$answer) {
+            return json_message_response('Todavía no has completado el cuestionario de entrenamiento del onboarding.', 422);
+        }
+
+        $answer->training_days_per_week = $request->integer('training_days_per_week');
+        $answer->session_duration_preference = $request->session_duration_preference;
+        $answer->save();
+
+        return json_custom_response(['data' => $answer]);
     }
 
     /**

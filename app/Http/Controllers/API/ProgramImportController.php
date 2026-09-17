@@ -9,6 +9,8 @@ use App\Services\ProgramsImport\ProgramsImporter;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 
 /**
  * Envuelve el mismo ProgramsImporter que usa `php artisan programs:import
@@ -36,19 +38,30 @@ use Illuminate\Support\Facades\Storage;
  *     threshold, num_weeks, auto_create, force, free : igual que los flags
  *                  homónimos de programs:import (ver esa clase para el
  *                  significado exacto de cada uno)
+ *     confidence_gate : bool, por defecto false -- igual que --confidence-gate
+ *                  de la CLI: antes de un import real, corre una pasada
+ *                  dry-run en memoria y responde 422 sin escribir nada si
+ *                  algún ejercicio requiere revisión (nivel C/D/E o
+ *                  auto-creado).
+ *     check_integrity : bool, por defecto false -- igual que --check-integrity
+ *                  de la CLI: tras un import real con éxito, ejecuta
+ *                  programs:check-integrity (sin --fix) y devuelve su
+ *                  salida en `check_integrity_output`.
  */
 class ProgramImportController extends Controller
 {
     public function store(Request $request)
     {
         $request->validate([
-            'file'        => 'required|file|mimes:xlsx|max:5120',
-            'dry_run'     => 'sometimes|boolean',
-            'threshold'   => 'sometimes|numeric|min:0|max:1',
-            'num_weeks'   => 'sometimes|integer|min:0',
-            'auto_create' => 'sometimes|boolean',
-            'force'       => 'sometimes|boolean',
-            'free'        => 'sometimes|boolean',
+            'file'             => 'required|file|mimes:xlsx|max:5120',
+            'dry_run'          => 'sometimes|boolean',
+            'threshold'        => 'sometimes|numeric|min:0|max:1',
+            'num_weeks'        => 'sometimes|integer|min:0',
+            'auto_create'      => 'sometimes|boolean',
+            'force'            => 'sometimes|boolean',
+            'free'             => 'sometimes|boolean',
+            'confidence_gate'  => 'sometimes|boolean',
+            'check_integrity'  => 'sometimes|boolean',
         ]);
 
         $dryRun = $request->boolean('dry_run', true);
@@ -69,14 +82,44 @@ class ProgramImportController extends Controller
         // limpiar caché de firmas del matcher para reflejar ejercicios nuevos (igual que ImportProgramsCommand)
         Cache::forget('exercise_matcher_db_signatures_v1');
 
+        $coachId = auth('sanctum')->id();
+        $numWeeks = (int) $request->input('num_weeks', 0); // 0 = usar las semanas que traiga el archivo (excel siempre trae todas explícitas)
+        $threshold = (float) $request->input('threshold', 0.72);
+        $autoCreate = $request->boolean('auto_create', true);
+        $force = $request->boolean('force', false);
+        $free = $request->boolean('free', false);
+
+        if ($request->boolean('confidence_gate', false) && !$dryRun) {
+            $gateImporter = new ProgramsImporter(
+                coachId: $coachId,
+                numWeeks: $numWeeks,
+                threshold: $threshold,
+                autoCreate: $autoCreate,
+                dryRun: true,
+                force: $force,
+                freeAccessible: $free,
+            );
+
+            try {
+                $gateResult = $gateImporter->import($canonical);
+            } catch (\Throwable $e) {
+                return response()->json(ImportJsonReport::buildError('Error comprobando confidence-gate: ' . $e->getMessage()), 422);
+            }
+
+            $blocking = ImportJsonReport::buildReviewRequired((array) ($gateResult['results'] ?? []));
+            if ($blocking !== []) {
+                return response()->json(ImportJsonReport::buildConfidenceGateBlocked($blocking), 422);
+            }
+        }
+
         $importer = new ProgramsImporter(
-            coachId: auth('sanctum')->id(),
-            numWeeks: (int) $request->input('num_weeks', 0), // 0 = usar las semanas que traiga el archivo (excel siempre trae todas explícitas)
-            threshold: (float) $request->input('threshold', 0.72),
-            autoCreate: $request->boolean('auto_create', true),
+            coachId: $coachId,
+            numWeeks: $numWeeks,
+            threshold: $threshold,
+            autoCreate: $autoCreate,
             dryRun: $dryRun,
-            force: $request->boolean('force', false),
-            freeAccessible: $request->boolean('free', false),
+            force: $force,
+            freeAccessible: $free,
         );
 
         try {
@@ -96,6 +139,23 @@ class ProgramImportController extends Controller
             $importer->report(),
             $reportCsvPath,
         );
+
+        if (!$dryRun && $request->boolean('check_integrity', false)) {
+            $anyCreated = collect((array) ($result['results'] ?? []))->contains(fn ($r) => ($r['status'] ?? null) === 'created');
+            if ($anyCreated) {
+                // No se usa Artisan::call() -- ver la explicación en
+                // ImportProgramsCommand::runCheckIntegrity() sobre por qué
+                // pisa el output compartido de la Application. Aquí no hay
+                // un Artisan::call() exterior que romper, pero se resuelve
+                // igual por consistencia y para no reintroducir el bug si
+                // este endpoint se ejercita alguna vez a través de uno.
+                $command = app(\Illuminate\Contracts\Console\Kernel::class)->all()['programs:check-integrity'];
+                $input = new ArrayInput(['--coach-id' => $coachId]);
+                $buffer = new BufferedOutput();
+                $command->run($input, $buffer);
+                $payload['check_integrity_output'] = trim($buffer->fetch());
+            }
+        }
 
         return response()->json($payload);
     }

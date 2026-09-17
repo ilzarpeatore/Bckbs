@@ -289,6 +289,39 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         return $this->hasMany(ReportPosting::class, 'user_id', 'id');
     }
 
+    // Bloqueo de usuario (item 11 del roadmap, ver
+    // docs/PENDIENTE_BACKEND_ADMIN.md en el repo bsa) -- usersQueBloquéYo /
+    // usersQueMeBloquearon.
+    public function blockedUsers()
+    {
+        return $this->hasMany(BlockedUser::class, 'blocker_id', 'id');
+    }
+
+    public function blockedByUsers()
+    {
+        return $this->hasMany(BlockedUser::class, 'blocked_id', 'id');
+    }
+
+    public function hasBlocked(int $userId): bool
+    {
+        return $this->blockedUsers()->where('blocked_id', $userId)->exists();
+    }
+
+    public function isBlockedBy(int $userId): bool
+    {
+        return $this->blockedByUsers()->where('blocker_id', $userId)->exists();
+    }
+
+    /** IDs de usuarios que bloqueé + IDs de usuarios que me bloquearon a mí -- para excluir contenido en cualquier dirección de un feed/lista. */
+    public function blockedAndBlockingUserIds(): array
+    {
+        return $this->blockedUsers()->pluck('blocked_id')
+            ->merge($this->blockedByUsers()->pluck('blocker_id'))
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public function clientNotes()
     {
         return $this->hasMany(ClientNote::class, 'client_id');

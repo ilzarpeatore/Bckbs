@@ -21,11 +21,16 @@ class NutritionQuestionnaireAnswer extends Model
         'favorite_fish',
         'favorite_fruits_vegetables',
         'favorite_combined_dishes',
+        'cooking_minutes_per_meal',
+        'cooking_skill_level',
+        'cooks_for_others',
     ];
 
     protected $casts = [
-        'current_meals_per_day' => 'integer',
-        'desired_meals_per_day' => 'integer',
+        'current_meals_per_day'    => 'integer',
+        'desired_meals_per_day'    => 'integer',
+        'cooking_minutes_per_meal' => 'integer',
+        'cooks_for_others'         => 'boolean',
     ];
 
     public function user()

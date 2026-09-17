@@ -13,6 +13,7 @@ class ClientLimitation extends Model
     protected $fillable = [
         'client_id',
         'type',
+        'severity',
         'title',
         'description',
         'status',
@@ -28,5 +29,10 @@ class ClientLimitation extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(User::class, 'client_id');
+    }
+
+    public function requiresSeverity(): bool
+    {
+        return $this->type === 'allergy';
     }
 }

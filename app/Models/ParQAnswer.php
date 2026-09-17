@@ -18,6 +18,9 @@ class ParQAnswer extends Model
         'parq_bone_joint_problem',
         'parq_bp_or_heart_medication',
         'parq_reason_not_to_exercise',
+        'parq_pregnant_or_possible',
+        'parq_menstrual_change_or_stress_fracture',
+        'parq_eating_disorder_history',
         'parq_fitness_level',
         'parq_medical_history',
         'parq_goals',
@@ -31,6 +34,9 @@ class ParQAnswer extends Model
         'parq_bone_joint_problem'         => 'boolean',
         'parq_bp_or_heart_medication'     => 'boolean',
         'parq_reason_not_to_exercise'     => 'boolean',
+        'parq_pregnant_or_possible'                => 'boolean',
+        'parq_menstrual_change_or_stress_fracture' => 'boolean',
+        'parq_eating_disorder_history'              => 'boolean',
         'parq_fitness_level'              => 'integer',
     ];
 
