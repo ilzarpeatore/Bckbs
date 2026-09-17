@@ -29,6 +29,12 @@ class WorkoutTemplateController extends Controller
         // TrainingProgramsView.tsx -- no hace falta un endpoint nuevo.
         $workouts = WorkoutTemplate::where('coach_id', auth()->id())
             ->whereDoesntHave('programDayAssignments')
+            // Fase 5 de docs/PLAN_CLONADO_PROGRAMAS.md: las copias
+            // exclusivas de cliente (is_client_copy=true, creadas por
+            // ProgramCloningService al asignar un programa) nunca deben
+            // aparecer como "plantilla suelta reutilizable" de la
+            // biblioteca del coach.
+            ->where('is_client_copy', false)
             ->with('blocks.exercises')
             ->select('id', 'coach_id', 'title', 'description', 'is_exclusive', 'created_at')
             ->orderByDesc('created_at')

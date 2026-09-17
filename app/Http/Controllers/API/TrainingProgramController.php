@@ -25,7 +25,12 @@ class TrainingProgramController extends Controller
         $user = auth('sanctum')->user();
 
         $program = TrainingProgram::with(['workout', 'client'])
-            ->where('is_personal', false);
+            ->where('is_personal', false)
+            // Fase 5 de docs/PLAN_CLONADO_PROGRAMAS.md: las copias
+            // exclusivas de cliente (is_client_copy=true, creadas por
+            // ProgramCloningService al asignar un programa) nunca deben
+            // aparecer en el listado de programas de biblioteca.
+            ->where('is_client_copy', false);
 
         if ($request->has('client_id') && !empty($request->client_id)) {
             $program = $program->where('client_id', $request->client_id);
