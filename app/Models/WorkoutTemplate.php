@@ -12,11 +12,17 @@ class WorkoutTemplate extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive', 'is_demo'];
+    // AÑADIDO: source_workout_template_id, is_client_copy (linaje de clonado
+    // por cliente, docs/PLAN_CLONADO_PROGRAMAS.md — Fase 1, aún sin usar)
+    protected $fillable = [
+        'coach_id', 'title', 'description', 'is_exclusive', 'is_demo',
+        'source_workout_template_id', 'is_client_copy',
+    ];
 
     protected $casts = [
-        'is_exclusive' => 'boolean',
-        'is_demo'      => 'boolean',
+        'is_exclusive'   => 'boolean',
+        'is_demo'        => 'boolean',
+        'is_client_copy' => 'boolean',
     ];
 
     public function coach()
@@ -42,6 +48,13 @@ class WorkoutTemplate extends Model implements HasMedia
     public function programDayAssignments()
     {
         return $this->hasMany(ProgramDayAssignment::class, 'workout_template_id', 'id');
+    }
+
+    // AÑADIDO: plantilla de biblioteca de la que viene este clon de cliente
+    // (docs/PLAN_CLONADO_PROGRAMAS.md — Fase 1, aún sin poblar por ningún flujo)
+    public function sourceWorkoutTemplate()
+    {
+        return $this->belongsTo(WorkoutTemplate::class, 'source_workout_template_id', 'id');
     }
 
     /** Nº total de ejercicios (para la columna "Exercises" del listado, como en HubFit). */
