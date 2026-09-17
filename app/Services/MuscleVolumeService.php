@@ -223,7 +223,19 @@ class MuscleVolumeService
             $weightRaw = $set['weight'] ?? null;
             $reps = $set['reps'] ?? null;
             if (!is_numeric($reps)) {
-                continue;
+                // Filas ya guardadas antes de 2026-09-17 (app React Native,
+                // workout_session_screen.tsx) podian llevar el objetivo
+                // precargado sin editar (ej. "12-15" reps) en vez de un
+                // numero real -- el cliente nuevo ya lo evita, pero esto
+                // sigue haciendo tolerante el calculo para no perder series
+                // ya registradas en BD. Mismo criterio que parseFloat en JS:
+                // toma el primer numero del string, descarta si no hay
+                // ninguno.
+                if (is_string($reps) && preg_match('/-?\d+(\.\d+)?/', $reps, $m)) {
+                    $reps = $m[0];
+                } else {
+                    continue;
+                }
             }
             if (is_numeric($weightRaw)) {
                 $weight = (float) $weightRaw;

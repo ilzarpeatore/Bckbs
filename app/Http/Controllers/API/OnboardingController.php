@@ -16,6 +16,29 @@ use App\Models\NutritionQuestionnaireAnswer;
 class OnboardingController extends Controller
 {
     /**
+     * Devuelve las respuestas de onboarding (par_q/training/nutrition) del
+     * usuario autenticado, o null en cada una si esa etapa todavía no se
+     * completó. Nuevo (2026-09-18) -- hasta ahora solo existía la versión
+     * admin (Admin\OnboardingController::getDetail, requiere user_id y
+     * permisos de coach); esta es la versión "mis propios datos" que
+     * consume la pantalla de edición de onboarding en la app (repo bsa,
+     * pantalla de Cuenta). Misma forma de respuesta que la versión admin
+     * para las 3 claves, para no mantener 2 contratos distintos.
+     */
+    public function myAnswers(Request $request)
+    {
+        $user = auth('sanctum')->user();
+
+        return json_custom_response([
+            'data' => [
+                'par_q'                   => ParQAnswer::where('user_id', $user->id)->first(),
+                'training_questionnaire'  => TrainingQuestionnaireAnswer::where('user_id', $user->id)->first(),
+                'nutrition_questionnaire' => NutritionQuestionnaireAnswer::where('user_id', $user->id)->first(),
+            ],
+        ]);
+    }
+
+    /**
      * Etapa 2 — PAR-Q+. Si alguna respuesta de riesgo cardíaco/mareos es
      * true, marca al usuario para revisión de un coach antes de asignarle
      * un plan (decisión de producto confirmada).
@@ -225,10 +248,41 @@ class OnboardingController extends Controller
     /**
      * Marca el onboarding como completado para el usuario autenticado.
      * Idempotente — llamarlo dos veces no es un error.
+     *
+     * Fix 2026-09-18 (bug real, MUY grave: dos altas nuevas -- Osas
+     * Ehigiator user_id=103, Alberto Martín user_id=104 -- quedaron con
+     * onboarding_completed_at puesto pese a que par_q_answers y
+     * nutrition_questionnaire_answers nunca llegaron a crearse, por un
+     * fallo de red puntual en el cliente durante el registro diferido que
+     * este endpoint no detectaba). Antes de aquí, este método marcaba
+     * completado sin comprobar nada -- ahora exige que las 3 tablas de
+     * onboarding existan de verdad. Si falta alguna, devuelve 422 con la
+     * lista de qué falta, para que el cliente (ver
+     * AuthContext.completeOnboarding() en el repo bsa) NO marque el
+     * onboarding como completo localmente y el usuario vuelva a esa etapa
+     * la próxima vez que abra la app.
      */
     public function complete(Request $request)
     {
         $user = auth('sanctum')->user();
+
+        $missing = [];
+        if (!ParQAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'par_q';
+        }
+        if (!TrainingQuestionnaireAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'training_questionnaire';
+        }
+        if (!NutritionQuestionnaireAnswer::where('user_id', $user->id)->exists()) {
+            $missing[] = 'nutrition_questionnaire';
+        }
+
+        if (!empty($missing)) {
+            return json_custom_response([
+                'message' => 'Faltan etapas del onboarding por completar.',
+                'missing_stages' => $missing,
+            ], 422);
+        }
 
         if ($user->onboarding_completed_at === null) {
             $user->onboarding_completed_at = now();
