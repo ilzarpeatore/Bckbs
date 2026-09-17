@@ -26,3 +26,6 @@ storage/framework/views/
 storage/logs/
 storage/app/backups/
 *.bak.*
+storage/app/public/
+storage/imports/
+database/data/programs/reports/
