@@ -22,7 +22,7 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
      *
      * @var array
      */
-    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'expo_push_token', 'is_subscribe', 'is_personal_client', 'timezone','last_notification_seen', 'apple_user_identifier', 'two_factor_enabled', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at' ];
+    protected $fillable = [ 'username', 'first_name', 'last_name', 'phone_number', 'status', 'email', 'password', 'gender', 'display_name', 'login_type', 'user_type', 'player_id', 'expo_push_token', 'is_subscribe', 'is_personal_client', 'monthly_fee', 'timezone','last_notification_seen', 'apple_user_identifier', 'two_factor_enabled', 'two_factor_secret', 'two_factor_backup_codes', 'two_factor_confirmed_at' ];
 
     /**
      * The attributes that should be hidden for arrays.
@@ -43,6 +43,7 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
         'email_verified_at' => 'datetime',
         'is_subscribe'  => 'integer',
         'is_personal_client' => 'boolean',
+        'monthly_fee' => 'float',
         'two_factor_enabled' => 'boolean',
         'two_factor_backup_codes' => 'array',
         'two_factor_confirmed_at' => 'datetime',
@@ -369,5 +370,10 @@ class User extends Authenticatable implements MustVerifyEmail, HasMedia
             default:
                 return __('message.account_inactive');
         }
+    }
+
+    public function subscriptionPaymentRecords()
+    {
+        return $this->hasMany(SubscriptionPaymentRecord::class, 'user_id', 'id');
     }
 }
