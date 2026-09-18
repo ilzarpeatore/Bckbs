@@ -39,8 +39,16 @@ class ExerciseController extends Controller
             return $q->whereIn('level_id', $level_ids);
         });
 
+        // BUG real (reportado 2026-09-18: "buscar por músculo" devolvía solo
+        // 4-6 ejercicios de pecho en vez de ~193): bodypart_ids se guarda
+        // como JSON de ENTEROS (Exercise::setBodypartIdsAttribute), pero
+        // request('bodypart_id') es el string crudo del query param --
+        // JSON_CONTAINS compara tipos de forma estricta, así que
+        // whereJsonContains('bodypart_ids', "1") solo encontraba las pocas
+        // filas legacy que por error tenían el id guardado como string.
+        // Mismo cast que ya usa (correctamente) WorkoutController::getList().
         $exercise->when(request('bodypart_id'), function ($q) {
-            return $q->whereJsonContains('bodypart_ids', request('bodypart_id'));
+            return $q->whereJsonContains('bodypart_ids', (int) request('bodypart_id'));
         });
 
         $exercise->when(request('exercise_type'), function ($q) {
