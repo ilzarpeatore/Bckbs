@@ -72,4 +72,47 @@ class WorkoutTemplate extends Model implements HasMedia
             })
             ->exists();
     }
+
+    /**
+     * Copia completa (plantilla + bloques + ejercicios) para que un
+     * ProgramDayAssignment nazca sin compartir fila con nadie más --
+     * auditoría 2026-09-18: ClientProfileCalendarController::assignDirect()
+     * enlazaba el workout_template_id del catálogo tal cual, así que dos
+     * clientes distintos podían acabar apuntando a la misma plantilla y
+     * "personalizar la sesión" de uno mutaba la del otro. Usar esto en vez
+     * del id original al crear la asignación.
+     */
+    public function cloneStructure(): self
+    {
+        $copy = self::create([
+            'coach_id'     => $this->coach_id,
+            'title'        => $this->title,
+            'description'  => $this->description,
+            'is_exclusive' => $this->is_exclusive,
+            'is_public'    => false,
+        ]);
+
+        foreach ($this->blocks as $block) {
+            $newBlock = WorkoutTemplateBlock::create([
+                'workout_template_id'        => $copy->id,
+                'source_section_template_id' => $block->source_section_template_id,
+                'title'                      => $block->title,
+                'instructions'               => $block->instructions,
+                'order'                      => $block->order,
+            ]);
+
+            foreach ($block->exercises as $exercise) {
+                WorkoutTemplateExercise::create([
+                    'workout_template_block_id' => $newBlock->id,
+                    'exercise_id'               => $exercise->exercise_id,
+                    'sequence'                  => $exercise->sequence,
+                    'prescribed'                => $exercise->prescribed,
+                    'enabled_metrics'           => $exercise->enabled_metrics,
+                    'notes'                     => $exercise->notes,
+                ]);
+            }
+        }
+
+        return $copy;
+    }
 }

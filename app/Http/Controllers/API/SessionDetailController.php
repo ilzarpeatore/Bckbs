@@ -5,8 +5,10 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ProgramDayAssignment;
+use App\Models\ProgramClientAssignment;
 use App\Models\ClientExerciseLog;
 use App\Models\ClientExerciseOverride;
+use App\Models\ClientBlockOverride;
 use App\Models\PersonalRecord;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplateExercise;
@@ -76,14 +78,37 @@ class SessionDetailController extends Controller
         // Las anulaciones (client_exercise_overrides) solo existen para dias
         // de programa asignado en calendario - un workout suelto no tiene
         // "asignacion" que anular, siempre usa el prescrito de la plantilla.
-        $overrides = $isStandalone
+        $allOverrides = $isStandalone
             ? collect()
             : ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
                 ->where('client_id', $request->client_id)
-                ->get()
-                ->keyBy('workout_template_exercise_id');
+                ->with('exercise')
+                ->get();
 
-        $allExerciseIds = $workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+        // AISLAMIENTO (auditoría 2026-09-18): $allOverrides mezcla dos cosas
+        // -- overrides de un ejercicio real de la plantilla
+        // (workout_template_exercise_id NOT NULL, de siempre) y "adiciones"
+        // propias de este cliente (NULL, ver SessionDetailController::
+        // addExercise/addBlock). Antes esta vista ignoraba 'hidden' por
+        // completo y no sabía nada de las adiciones -- un ejercicio
+        // "eliminado" o "añadido" desde aquí mismo nunca se reflejaba en la
+        // propia pantalla que lo edita.
+        $overridesByExercise = $allOverrides->whereNotNull('workout_template_exercise_id')->keyBy('workout_template_exercise_id');
+        $sharedBlockAdditions = $allOverrides->where('is_addition', true)->whereNotNull('workout_template_block_id')->groupBy('workout_template_block_id');
+
+        $ownBlocks = $isStandalone
+            ? collect()
+            : ClientBlockOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+                ->where('client_id', $request->client_id)
+                ->with('exercises.exercise')
+                ->orderBy('order')
+                ->get();
+
+        $additionExerciseIds = $allOverrides->where('is_addition', true)->pluck('exercise_id')->filter()->unique()->values()->all();
+
+        $allExerciseIds = $workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())
+            ->merge($additionExerciseIds)
+            ->unique()->values()->all();
         $allTemplateExerciseIds = $workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('id')->values())->unique()->values()->all();
 
         // Batch-load logs (keyed by workout_template_exercise_id, keeping only latest)
@@ -102,6 +127,21 @@ class SessionDetailController extends Controller
             ->get()
             ->unique('workout_template_exercise_id')
             ->keyBy('workout_template_exercise_id');
+
+        // Logs de ejercicios AÑADIDOS (sin workout_template_exercise_id
+        // propio) -- se identifican por exercise_id dentro de esta misma
+        // sesión, igual que ya hace el "Añadir ejercicio +" ad-hoc del
+        // cliente en ClientCalendarController::logSets().
+        $additionLogs = ($isStandalone || empty($additionExerciseIds))
+            ? collect()
+            : ClientExerciseLog::where('client_id', $request->client_id)
+                ->where('program_day_assignment_id', $request->program_day_assignment_id)
+                ->whereNull('workout_template_exercise_id')
+                ->whereIn('exercise_id', $additionExerciseIds)
+                ->orderByDesc('id')
+                ->get()
+                ->unique('exercise_id')
+                ->keyBy('exercise_id');
 
         // Batch-load PRs for this session date (keyed by exercise_id)
         $prsToday = PersonalRecord::where('user_id', $request->client_id)
@@ -163,108 +203,169 @@ class SessionDetailController extends Controller
         $total_reps = 0;
         $total_prs = 0;
 
-        $blocks = $workoutTemplate->blocks->map(function ($block) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, $lastPerformances, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
-            $exercises = $block->exercises->map(function ($ex) use ($request, $overrides, $logs, $prsToday, $loadSuggestions, $lastPerformances, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
-                $override = $overrides->get($ex->id);
-                $effective_prescribed = array_merge($ex->prescribed ?? [], $override->prescribed_override ?? []);
-                $notes = $override->notes ?? null;
+        // Renderiza UN ejercicio (de la plantilla compartida o una adición
+        // propia del cliente) con el mismo cálculo de series/1RM/volumen/PRs
+        // -- extraído a closure (auditoría 2026-09-18) para no duplicar esta
+        // lógica entre los ejercicios de plantilla y las adiciones.
+        $renderExercise = function (
+            int $exerciseId,
+            ?int $workoutTemplateExerciseId,
+            ?int $clientExerciseOverrideId,
+            $exerciseModel,
+            array $prescribed,
+            ?string $notes,
+            array $enabledMetrics,
+            $log,
+            bool $isAddition
+        ) use ($prsToday, $loadSuggestions, $lastPerformances, &$total_sets, &$total_volume, &$total_reps, &$total_prs) {
+            $exercise_image = optional($exerciseModel)->video_url
+                ? $this->youtubeThumbnail(optional($exerciseModel)->video_url)
+                : getSingleMedia($exerciseModel, 'exercise_image', null);
 
-                $log = $logs->get($ex->id);
+            // Motor de Auto-Regulación de Carga: null si no hay ninguna
+            // sugerencia relevante para este ejercicio (caso normal). 'id'
+            // es el NextSessionTarget que el frontend usa para llamar a
+            // approve/edit/reject.
+            $suggestion = $loadSuggestions->get($exerciseId);
+            $load_suggestion = $suggestion ? [
+                'id'              => $suggestion->id,
+                'status'          => $suggestion->status->value,
+                'proposed_weight' => $suggestion->proposed_weight,
+                'proposed_reps'   => $suggestion->proposed_reps,
+                'resolved_at'     => optional($suggestion->resolved_at)->toIso8601String(),
+                'rule_name'       => optional($suggestion->rule)->name,
+            ] : null;
 
-                $exercise_image = optional($ex->exercise)->video_url
-                    ? $this->youtubeThumbnail(optional($ex->exercise)->video_url)
-                    : getSingleMedia($ex->exercise, 'exercise_image', null);
+            $last_log = $lastPerformances->get($exerciseId);
+            $last_performance = $last_log ? ['sets' => $last_log->logged_sets] : null;
 
-                $enabled_metrics = $override->enabled_metrics_override ?? ($ex->enabled_metrics ?? []);
+            $base = [
+                'exercise_id'                  => $exerciseId,
+                'workout_template_exercise_id' => $workoutTemplateExerciseId,
+                'client_exercise_override_id'  => $clientExerciseOverrideId, // AÑADIDO: id a mandar a removeExercise si es_addition
+                'is_addition'                  => $isAddition, // AÑADIDO: para que el frontend lo marque "personalizado para este cliente"
+                'prescribed'                   => $prescribed,
+                'notes'                        => $notes, // AÑADIDO
+                'title'                        => optional($exerciseModel)->title,
+                'exercise_image'               => $exercise_image,
+                'video_url'                    => optional($exerciseModel)->video_url,
+                'enabled_metrics'              => $enabledMetrics,
+                'load_suggestion'              => $load_suggestion,
+                'last_performance'             => $last_performance,
+            ];
 
-                // Motor de Auto-Regulación de Carga: null si no hay ninguna
-                // sugerencia relevante para este ejercicio (caso normal).
-                // 'id' es el NextSessionTarget que el frontend usa para
-                // llamar a approve/edit/reject.
-                $suggestion = $loadSuggestions->get($ex->exercise_id);
-                $load_suggestion = $suggestion ? [
-                    'id'              => $suggestion->id,
-                    'status'          => $suggestion->status->value,
-                    'proposed_weight' => $suggestion->proposed_weight,
-                    'proposed_reps'   => $suggestion->proposed_reps,
-                    'resolved_at'     => optional($suggestion->resolved_at)->toIso8601String(),
-                    'rule_name'       => optional($suggestion->rule)->name,
-                ] : null;
-
-                $last_log = $lastPerformances->get($ex->exercise_id);
-                $last_performance = $last_log ? ['sets' => $last_log->logged_sets] : null;
-
-                if (!$log) {
-                    return [
-                        'exercise_id'                  => $ex->exercise_id,
-                        'workout_template_exercise_id' => $ex->id,
-                        'prescribed'                   => $effective_prescribed, // ACTUALIZADO
-                        'notes'                        => $notes, // AÑADIDO
-                        'client_note'                  => null, // AÑADIDO
-                        'title'                        => optional($ex->exercise)->title,
-                        'exercise_image'               => $exercise_image,
-                        'video_url'                    => optional($ex->exercise)->video_url,
-                        'enabled_metrics'              => $enabled_metrics,
-                        'logged'                       => false,
-                        'sets'                         => [],
-                        'load_suggestion'              => $load_suggestion,
-                        'last_performance'             => $last_performance,
-                    ];
-                }
-
-                $sets_detail = [];
-
-                foreach (($log->logged_sets ?? []) as $i => $set) {
-                    $weight = (float) ($set['carga'] ?? 0);
-                    $reps   = (int) ($set['reps'] ?? 0);
-                    $rpe_rir = $set['rpe'] ?? $set['rir'] ?? null;
-
-                    $volume = $weight * $reps;
-                    $one_rm = ($weight > 0 && $reps > 0) ? PersonalRecord::calculateEpley1RM($weight, $reps) : 0;
-
-                    if ($weight > 0) $total_sets++;
-                    $total_volume += $volume;
-                    $total_reps += $reps;
-
-                    $sets_detail[] = [
-                        'set'    => $i + 1,
-                        'weight' => $weight,
-                        'reps'   => $reps,
-                        'rpe_rir' => $rpe_rir,
-                        'one_rm' => round($one_rm, 1),
-                        'volume' => round($volume, 1),
-                    ];
-                }
-
-                // PRs from pre-loaded batch (no query inside loop)
-                $prs_today = $prsToday->get($ex->exercise_id, 0);
-                $total_prs += $prs_today;
-
-                return [
-                    'exercise_id'                  => $ex->exercise_id,
-                    'workout_template_exercise_id' => $ex->id,
-                    'prescribed'                   => $effective_prescribed, // ACTUALIZADO
-                    'notes'                        => $notes, // AÑADIDO
-                    'client_note'                  => $log->notes ?: null, // AÑADIDO
-                    'title'         => optional($ex->exercise)->title,
-                    'exercise_image' => $exercise_image,
-                    'video_url'      => optional($ex->exercise)->video_url,
-                    'enabled_metrics' => $enabled_metrics,
-                    'logged'        => true,
-                    'sets'          => $sets_detail,
-                    'prs_this_session' => $prs_today,
-                    'exercise_volume'  => round(collect($sets_detail)->sum('volume'), 1),
-                    'load_suggestion'  => $load_suggestion,
-                    'last_performance' => $last_performance,
+            if (!$log) {
+                return $base + [
+                    'client_note' => null, // AÑADIDO
+                    'logged'      => false,
+                    'sets'        => [],
                 ];
-            });
+            }
+
+            $sets_detail = [];
+
+            foreach (($log->logged_sets ?? []) as $i => $set) {
+                $weight = (float) ($set['carga'] ?? 0);
+                $reps   = (int) ($set['reps'] ?? 0);
+                $rpe_rir = $set['rpe'] ?? $set['rir'] ?? null;
+
+                $volume = $weight * $reps;
+                $one_rm = ($weight > 0 && $reps > 0) ? PersonalRecord::calculateEpley1RM($weight, $reps) : 0;
+
+                if ($weight > 0) $total_sets++;
+                $total_volume += $volume;
+                $total_reps += $reps;
+
+                $sets_detail[] = [
+                    'set'    => $i + 1,
+                    'weight' => $weight,
+                    'reps'   => $reps,
+                    'rpe_rir' => $rpe_rir,
+                    'one_rm' => round($one_rm, 1),
+                    'volume' => round($volume, 1),
+                ];
+            }
+
+            // PRs from pre-loaded batch (no query inside loop)
+            $prs_today = $prsToday->get($exerciseId, 0);
+            $total_prs += $prs_today;
+
+            return $base + [
+                'client_note'       => $log->notes ?: null, // AÑADIDO
+                'logged'            => true,
+                'sets'              => $sets_detail,
+                'prs_this_session'  => $prs_today,
+                'exercise_volume'   => round(collect($sets_detail)->sum('volume'), 1),
+            ];
+        };
+
+        $renderAddition = function ($addition) use ($additionLogs, $renderExercise) {
+            return $renderExercise(
+                $addition->exercise_id,
+                null,
+                $addition->id,
+                $addition->exercise,
+                $addition->prescribed_override ?? [],
+                $addition->notes,
+                $addition->enabled_metrics_override ?? [],
+                $additionLogs->get($addition->exercise_id),
+                true
+            );
+        };
+
+        $blocks = $workoutTemplate->blocks->map(function ($block) use ($overridesByExercise, $sharedBlockAdditions, $logs, $renderExercise, $renderAddition) {
+            $templateExercises = $block->exercises
+                // Modo vida real (2026-08-12, extendido 2026-09-18 a esta
+                // vista de admin, que antes lo ignoraba por completo): un
+                // ejercicio oculto para este cliente no se le muestra, aunque
+                // otros clientes con el mismo workout_template lo sigan viendo.
+                ->reject(fn ($ex) => (bool) ($overridesByExercise->get($ex->id)->hidden ?? false))
+                ->map(function ($ex) use ($overridesByExercise, $logs, $renderExercise) {
+                    $override = $overridesByExercise->get($ex->id);
+                    $effective_prescribed = array_merge($ex->prescribed ?? [], $override->prescribed_override ?? []);
+                    $enabled_metrics = $override->enabled_metrics_override ?? ($ex->enabled_metrics ?? []);
+
+                    return $renderExercise(
+                        $ex->exercise_id,
+                        $ex->id,
+                        null,
+                        $ex->exercise,
+                        $effective_prescribed,
+                        $override->notes ?? null,
+                        $enabled_metrics,
+                        $logs->get($ex->id),
+                        false
+                    );
+                });
+
+            // AÑADIDO (auditoría 2026-09-18): ejercicios que este cliente en
+            // concreto añadió a este bloque compartido -- nunca tocan
+            // workout_template_exercises, solo existen para él.
+            $additions = ($sharedBlockAdditions->get($block->id) ?? collect())
+                ->sortBy('sequence')
+                ->map($renderAddition);
 
             return [
                 'block_id'  => $block->id,
                 'title'     => $block->title,
-                'exercises' => $exercises->values(),
+                'exercises' => $templateExercises->concat($additions)->values(),
             ];
         });
+
+        // AÑADIDO (auditoría 2026-09-18): bloques enteros que este cliente
+        // añadió -- no existen en la plantilla compartida, se listan
+        // después de los bloques compartidos.
+        $ownBlockEntries = $ownBlocks->map(function ($block) use ($renderAddition) {
+            return [
+                'block_id'                  => null,
+                'client_block_override_id'  => $block->id,
+                'title'                     => $block->title,
+                'is_addition'               => true,
+                'exercises'                 => $block->exercises->sortBy('sequence')->map($renderAddition)->values(),
+            ];
+        });
+
+        $blocks = $blocks->concat($ownBlockEntries)->values();
 
         return json_custom_response([
             'data' => [
@@ -526,18 +627,51 @@ class SessionDetailController extends Controller
     }
 
     /**
-     * Añadir un ejercicio a un bloque de la plantilla asociada a una sesión.
+     * SEGURIDAD/AISLAMIENTO (auditoría 2026-09-18): las 3 rutas de abajo
+     * antes mutaban directamente la plantilla compartida
+     * (WorkoutTemplate/Block/Exercise) usando solo program_day_assignment_id
+     * -- como un mismo ProgramDayAssignment puede estar compartido por TODOS
+     * los clientes de un programa de varias semanas (sin fila por cliente,
+     * ver ProgramClientAssignment), "personalizar la sesión de hoy" de un
+     * cliente mutaba en silencio la de todos los demás. Mismo criterio de
+     * propiedad que ClientCalendarController::resolveOwnedAssignment(), pero
+     * parametrizado por $clientId (estas rutas son de admin/coach, no del
+     * propio cliente autenticado).
+     */
+    private function assertClientOwnsAssignment(int $assignmentId, int $clientId): ProgramDayAssignment
+    {
+        $assignment = $this->resolveTemplate($assignmentId);
+
+        $owns = ProgramClientAssignment::where('client_id', $clientId)
+            ->where('training_program_id', $assignment->training_program_id)
+            ->where('activo', true)
+            ->exists();
+
+        if (!$owns) {
+            abort(403, 'Este cliente no tiene acceso a este entrenamiento.');
+        }
+
+        return $assignment;
+    }
+
+    /**
+     * Añadir un ejercicio SOLO PARA ESTE CLIENTE — nunca a la plantilla
+     * compartida. Se guarda como fila de "adición" en
+     * client_exercise_overrides (workout_template_exercise_id NULL,
+     * exercise_id + workout_template_block_id presentes) — ver migración
+     * add_addition_columns_to_client_exercise_overrides_table.
      * POST /admin/session-detail-add-exercise
      */
     public function addExercise(Request $request)
     {
         $request->validate([
             'program_day_assignment_id' => 'required|exists:program_day_assignments,id',
+            'client_id'                  => 'required|exists:users,id',
             'workout_template_block_id'  => 'required|exists:workout_template_blocks,id',
             'exercise_id'                => 'required|exists:exercises,id',
         ]);
 
-        $assignment = $this->resolveTemplate($request->program_day_assignment_id);
+        $assignment = $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
 
         $block = WorkoutTemplateBlock::where('id', $request->workout_template_block_id)
             ->where('workout_template_id', $assignment->workout_template_id)
@@ -547,67 +681,108 @@ class SessionDetailController extends Controller
             abort(422, 'El bloque no pertenece a esta plantilla.');
         }
 
-        $order = WorkoutTemplateExercise::where('workout_template_block_id', $block->id)->max('sequence') ?? 0;
+        $sharedMax = WorkoutTemplateExercise::where('workout_template_block_id', $block->id)->max('sequence') ?? 0;
+        $ownMax = ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+            ->where('client_id', $request->client_id)
+            ->where('workout_template_block_id', $block->id)
+            ->max('sequence') ?? 0;
 
-        $exercise = WorkoutTemplateExercise::create([
-            'workout_template_block_id' => $block->id,
-            'exercise_id'               => $request->exercise_id,
-            'sequence'                  => $order + 1,
-            'prescribed'                => $request->input('prescribed', ['series' => '']),
-            'enabled_metrics'           => $request->input('enabled_metrics', ['reps', 'weight', 'rest', 'rpe', 'rir']),
-            'notes'                     => $request->input('notes'),
+        $addition = ClientExerciseOverride::create([
+            'program_day_assignment_id'  => $request->program_day_assignment_id,
+            'client_id'                   => $request->client_id,
+            'workout_template_block_id'   => $block->id,
+            'exercise_id'                 => $request->exercise_id,
+            'sequence'                    => max($sharedMax, $ownMax) + 1,
+            'prescribed_override'         => $request->input('prescribed', ['series' => '']),
+            'enabled_metrics_override'    => $request->input('enabled_metrics', ['reps', 'weight', 'rest', 'rpe', 'rir']),
+            'notes'                       => $request->input('notes'),
         ]);
 
-        return json_custom_response(['data' => $exercise]);
+        return json_custom_response(['data' => $addition]);
     }
 
     /**
-     * Añadir un bloque (sección) a la plantilla asociada a una sesión.
+     * Añadir un bloque (sección) SOLO PARA ESTE CLIENTE — nunca a la
+     * plantilla compartida. Crea una fila en client_block_overrides.
      * POST /admin/session-detail-add-block
      */
     public function addBlock(Request $request)
     {
         $request->validate([
             'program_day_assignment_id' => 'required|exists:program_day_assignments,id',
-            'title'                     => 'required|string',
+            'client_id'                  => 'required|exists:users,id',
+            'title'                      => 'required|string',
         ]);
 
-        $assignment = $this->resolveTemplate($request->program_day_assignment_id);
+        $assignment = $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
 
-        $order = WorkoutTemplateBlock::where('workout_template_id', $assignment->workout_template_id)->max('order') ?? 0;
+        $sharedMax = WorkoutTemplateBlock::where('workout_template_id', $assignment->workout_template_id)->max('order') ?? 0;
+        $ownMax = ClientBlockOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+            ->where('client_id', $request->client_id)
+            ->max('order') ?? 0;
 
-        $block = WorkoutTemplateBlock::create([
-            'workout_template_id' => $assignment->workout_template_id,
-            'title'               => $request->title,
-            'instructions'        => $request->input('instructions'),
-            'order'               => $order + 1,
+        $block = ClientBlockOverride::create([
+            'program_day_assignment_id' => $request->program_day_assignment_id,
+            'client_id'                  => $request->client_id,
+            'title'                      => $request->title,
+            'instructions'               => $request->input('instructions'),
+            'order'                      => max($sharedMax, $ownMax) + 1,
         ]);
 
         return json_custom_response(['data' => $block]);
     }
 
     /**
-     * Eliminar un ejercicio de la plantilla asociada a una sesión.
+     * Eliminar un ejercicio de la sesión de ESTE CLIENTE.
+     * - Si es un ejercicio real de la plantilla compartida: se marca
+     *   `hidden` en su override (mismo patrón que ya usa
+     *   AdaptiveWeekPlanner::applyPlan() para recortar ejercicios) — nunca
+     *   se borra de la plantilla, así los demás clientes lo siguen viendo.
+     * - Si es una adición propia de este cliente (override sin
+     *   workout_template_exercise_id): se borra esa fila directamente, no
+     *   hay nada compartido que preservar.
      * POST /admin/session-detail-remove-exercise
      */
     public function removeExercise(Request $request)
     {
         $request->validate([
             'program_day_assignment_id'      => 'required|exists:program_day_assignments,id',
-            'workout_template_exercise_id'   => 'required|exists:workout_template_exercises,id',
+            'client_id'                       => 'required|exists:users,id',
+            'workout_template_exercise_id'    => 'required_without:client_exercise_override_id|nullable|exists:workout_template_exercises,id',
+            'client_exercise_override_id'     => 'required_without:workout_template_exercise_id|nullable|exists:client_exercise_overrides,id',
         ]);
 
-        $assignment = $this->resolveTemplate($request->program_day_assignment_id);
+        $assignment = $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
 
-        $exercise = WorkoutTemplateExercise::where('id', $request->workout_template_exercise_id)
-            ->whereHas('block', fn ($q) => $q->where('workout_template_id', $assignment->workout_template_id))
-            ->first();
+        if ($request->workout_template_exercise_id) {
+            $exercise = WorkoutTemplateExercise::where('id', $request->workout_template_exercise_id)
+                ->whereHas('block', fn ($q) => $q->where('workout_template_id', $assignment->workout_template_id))
+                ->first();
 
-        if (!$exercise) {
-            abort(422, 'El ejercicio no pertenece a esta plantilla.');
+            if (!$exercise) {
+                abort(422, 'El ejercicio no pertenece a esta plantilla.');
+            }
+
+            ClientExerciseOverride::updateOrCreate([
+                'program_day_assignment_id'   => $request->program_day_assignment_id,
+                'client_id'                    => $request->client_id,
+                'workout_template_exercise_id' => $exercise->id,
+            ], ['hidden' => true]);
+
+            return json_message_response('Ejercicio eliminado.');
         }
 
-        $exercise->delete();
+        $addition = ClientExerciseOverride::where('id', $request->client_exercise_override_id)
+            ->where('program_day_assignment_id', $request->program_day_assignment_id)
+            ->where('client_id', $request->client_id)
+            ->whereNull('workout_template_exercise_id')
+            ->first();
+
+        if (!$addition) {
+            abort(422, 'Esta adición no pertenece a esta sesión/cliente.');
+        }
+
+        $addition->delete();
 
         return json_message_response('Ejercicio eliminado.');
     }

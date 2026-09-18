@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use App\Models\TrainingProgram;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
+use App\Models\WorkoutTemplate;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\CalendarDateMapper;
 use Carbon\Carbon;
@@ -175,11 +176,22 @@ class ClientProfileCalendarController extends Controller
         $mapper = new CalendarDateMapper();
         $wd = $mapper->toWeekAndDay(Carbon::parse(self::PERSONAL_ANCHOR_DATE), Carbon::parse($request->date));
 
+        // SEGURIDAD (auditoría 2026-09-18): antes se enlazaba el
+        // workout_template_id del catálogo tal cual -- si el mismo workout
+        // se asignaba directo a otro cliente (u otra fecha de este mismo
+        // programa personal), ambas asignaciones acababan compartiendo la
+        // misma plantilla, y personalizar la sesión de uno vía
+        // SessionDetailController::addExercise/addBlock/removeExercise
+        // mutaba la del otro. Clonar aquí garantiza que esta asignación
+        // nunca comparte fila con ninguna otra.
+        $template = WorkoutTemplate::findOrFail($request->workout_template_id);
+        $clone = $template->cloneStructure();
+
         $assignment = ProgramDayAssignment::create([
             'training_program_id' => $program->id,
             'week_number'          => $wd['week_number'],
             'day_of_week'          => $wd['day_of_week'],
-            'workout_template_id'  => $request->workout_template_id,
+            'workout_template_id'  => $clone->id,
             'scheduled_date'       => $request->date,
         ]);
 
