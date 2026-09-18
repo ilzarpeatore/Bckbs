@@ -561,19 +561,30 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // 2026-09-11) -- debe ir ANTES del apiResource, si no 'report' choca con
     // el {user} de users/{user} (show).
     Route::get('users/report', [AdminUserController::class, 'report']);
-    Route::apiResource('users', AdminUserController::class);
+    // ->names('admin.users'): sin esto, el nombre implícito 'users.index'
+    // choca con el resource del panel Blade legacy (routes/web.php,
+    // Route::resource('users', UserController::class)) -- inofensivo en la
+    // práctica (Laravel deja ganar al último registrado en route()) pero
+    // rompe `php artisan route:cache`, que sí valida nombres duplicados y
+    // aborta con error (bug real, bloqueaba el deploy a VPS por completo,
+    // 2026-09-18: ver el mismo choque en equipment/tags/quotes más abajo).
+    Route::apiResource('users', AdminUserController::class)->names('admin.users');
     Route::get('users-graph', [AdminUserController::class, 'graph']);
 
     // Sub Admins
     Route::apiResource('sub-admins', SubAdminController::class);
 
     // Fitness Content
-    Route::apiResource('equipment', AdminEquipmentController::class);
+    // ->names('admin.equipment'): mismo choque de nombre que 'users' de
+    // arriba con routes/web.php (Route::resource('equipment', ...)).
+    Route::apiResource('equipment', AdminEquipmentController::class)->names('admin.equipment');
     Route::apiResource('workout-types', AdminWorkoutTypeController::class);
     Route::apiResource('levels', AdminLevelController::class);
     Route::apiResource('body-parts', AdminBodyPartController::class);
     Route::apiResource('categories', AdminCategoryController::class);
-    Route::apiResource('tags', AdminTagsController::class);
+    // ->names('admin.tags'): mismo choque de nombre que 'users' de arriba
+    // con routes/web.php (Route::resource('tags', ...)).
+    Route::apiResource('tags', AdminTagsController::class)->names('admin.tags');
 
     // Diet & Nutrition
     Route::apiResource('diet-categories', AdminCategoryDietController::class);
@@ -724,7 +735,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::delete('personal-client-invites/{id}', [PersonalClientInviteController::class, 'destroy']);
 
     // Quotes
-    Route::apiResource('quotes', QuotesController::class);
+    // ->names('admin.quotes'): mismo choque de nombre que 'users' de arriba
+    // con routes/web.php (Route::resource('quotes', ...)) -- aquí incluso
+    // con el mismo controller class en los dos sitios.
+    Route::apiResource('quotes', QuotesController::class)->names('admin.quotes');
 
     // Banner Sliders
     Route::apiResource('banner-sliders', BannerSliderController::class);
