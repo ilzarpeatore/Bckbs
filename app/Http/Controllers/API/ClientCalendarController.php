@@ -160,6 +160,19 @@ class ClientCalendarController extends Controller
                     ->flip();
             }
 
+            // AÑADIDO (pedido explícito 2026-09-18): thumbnail real de cada
+            // plantilla, en lote (una sola consulta para todo el programa,
+            // no una por asignación -- mismo criterio que $exerciseCounts
+            // de arriba) para exponerlo en el calendario del cliente.
+            $templateThumbnails = empty($templateIds)
+                ? collect()
+                : \Spatie\MediaLibrary\MediaCollections\Models\Media::where('model_type', \App\Models\WorkoutTemplate::class)
+                    ->whereIn('model_id', $templateIds)
+                    ->where('collection_name', 'image')
+                    ->get()
+                    ->groupBy('model_id')
+                    ->map(fn ($group) => $group->first()->getUrl());
+
             foreach ($grid_dates as $date) {
                 $wd = $mapper->toWeekAndDay($start_date, $date);
                 if ($wd['week_number'] < 1 || $wd['week_number'] > $program->num_weeks) continue;
@@ -177,6 +190,15 @@ class ClientCalendarController extends Controller
                         'assignment_id' => $a->id, // = program_day_assignment_id, se usa para pedir el detalle del día
                         'id'            => $a->workout_template_id,
                         'title'         => optional($a->workoutTemplate)->title,
+                        // AÑADIDO (pedido explícito 2026-09-18): antes este
+                        // endpoint no exponía ningún thumbnail real de la
+                        // plantilla -- el cliente (my_program_calendar_screen.tsx/
+                        // schedule_screen.tsx) siempre caía en un fallback
+                        // genérico de stock por palabra clave del título.
+                        // Ahora que WorkoutTemplateController::update()
+                        // permite subir/cambiar la imagen desde el panel
+                        // admin, se puede devolver la real.
+                        'image'         => $templateThumbnails->get($a->workout_template_id),
                         // Motor de Auto-Regulación de Carga: true si algún
                         // ejercicio de este entrenamiento tiene una
                         // sugerencia de carga pendiente o recién aplicada --
