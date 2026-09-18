@@ -43,7 +43,11 @@ class ClientTagController extends Controller
 
     public function destroy(Request $request)
     {
-        ClientTag::where('id', $request->id)->delete();
+        // SEGURIDAD (auditoría 2026-09-18): sin el where('coach_id', ...) de
+        // abajo, cualquier coach podía borrar el ClientTag de OTRO coach solo
+        // adivinando/enumerando su id -- inconsistente con getList()/store(),
+        // que ya sí acotan por coach_id.
+        ClientTag::where('id', $request->id)->where('coach_id', auth()->id())->delete();
         return json_message_response('Tag eliminado.');
     }
 

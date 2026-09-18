@@ -65,13 +65,22 @@ class Comment extends Model
         // request('user_id') mandado por el propio cliente -- cualquiera
         // podía editar/reasignar el comentario de otro usuario pasando su
         // user_id en el body. Se ignora, solo cuenta el usuario autenticado.
+        //
+        // SEGURIDAD (auditoría 2026-09-18): el filtro solo se aplicaba si
+        // hasRole(['user']) era true -- en este proyecto las cuentas de coach
+        // tienen user_type='coach' y NINGÚN rol de Spatie (ver
+        // SessionProgressionRuleController), así que cualquier cuenta sin el
+        // rol 'user' (coach u otra) se saltaba el filtro por completo y podía
+        // editar el comentario de cualquier otro usuario vía update-comment.
+        // Mismo criterio que scopeCanBeDeletedBy() más abajo: solo admin
+        // queda exento del filtro de propiedad.
         $user = auth()->user();
 
-        if( isset($user) && $user->hasRole(['user']) ) {
-            $query = $query->where('user_id', $user->id);
+        if ($user && $user->hasRole(['admin'])) {
+            return $query;
         }
 
-        return $query;
+        return $user ? $query->where('user_id', $user->id) : $query->whereNull('id');
     }
 
     public function getCanEditAttribute()

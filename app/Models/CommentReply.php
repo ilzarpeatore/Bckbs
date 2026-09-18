@@ -51,13 +51,18 @@ class CommentReply extends Model
 
     public function scopeMyCommentReply($query)
     {
+        // SEGURIDAD (auditoría 2026-09-18): mismo bug que Comment::scopeMyComment()
+        // -- el filtro solo se aplicaba si hasRole(['user']) era true, así que
+        // cualquier cuenta sin ese rol (coach, sin roles Spatie en este
+        // proyecto) se saltaba el filtro de propiedad y podía editar la
+        // respuesta de cualquier otro usuario vía save-comment-reply.
         $user = auth()->user();
-        
-        if( isset($user) && $user->hasRole(['user']) ) {
-            $query = $query->where('user_id', $user->id);
+
+        if ($user && $user->hasRole(['admin'])) {
+            return $query;
         }
 
-        return $query;
+        return $user ? $query->where('user_id', $user->id) : $query->whereNull('id');
     }
 
     public function comments()

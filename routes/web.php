@@ -193,7 +193,13 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
 
     Route::post('mail-alert-settings/save',[ SettingController::class , 'mailAlertSettingsUpdate'])->name('mailAlertSettingsUpdate');
 
-    Route::resource('pushnotification', PushNotificationController::class);
+    // ->except(['show','update']): el controlador no implementa esos 2
+    // métodos -- sin esto, Route::resource() registra las 7 rutas CRUD
+    // igual y golpearlas da 500 "Call to undefined method" (auditoría
+    // 2026-09-18, panel Blade legacy ya sustituido por bstronger-admin,
+    // sin nada que enlace a estas 2 en la práctica, pero rutas rotas de
+    // verdad si alguien las pide directo).
+    Route::resource('pushnotification', PushNotificationController::class)->except(['show', 'update']);
     Route::get('resend-pushnotification/{id}',[ PushNotificationController::class, 'edit'])->name('resend.pushnotification');
 
     Route::resource('subscription', SubscriptionController::class);
@@ -201,7 +207,8 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
     Route::resource('quotes', QuotesController::class);
 
     Route::resource('classschedule', ClassScheduleController::class);
-    Route::resource('bannerslider', BannerSliderController::class);
+    // ->except(['show']): sin controlador (ver comentario en pushnotification arriba).
+    Route::resource('bannerslider', BannerSliderController::class)->except(['show']);
 
     // Language Setting Route
     Route::resource('screen', ScreenController::class);
@@ -215,7 +222,8 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
     Route::get('help', [ LanguageWithKeywordListController::class,'help' ])->name('help');
     Route::get('download-template', [ LanguageWithKeywordListController::class,'downloadtemplate' ])->name('download.template');
 
-    Route::resource('posting', PostingController::class);
+    // ->except(['store']): sin controlador (ver comentario en pushnotification arriba).
+    Route::resource('posting', PostingController::class)->except(['store']);
     Route::get('reported-posting', [ PostingController::class, 'reportPostingList' ])->name('posting.reported');
 
     Route::post('save-comment-reply', [ CommunityController::class, 'saveCommentReply' ])->name('save.comment.reply');
@@ -223,8 +231,10 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
     Route::post('delete-comment/{id}', [ CommunityController::class, 'deleteComment' ])->name('delete.comment');
     Route::post('delete-comment-reply/{id}', [ CommunityController::class, 'deleteCommentReply' ])->name('delete.comment.reply');
 
-    Route::resource('admin-login-history', AdminLoginHistoryController::class);
-    Route::resource('admin-login-device', AdminLoginDeviceController::class);
+    // ->only(['index'])/->only(['index','show']): estos 2 controladores solo
+    // implementan eso (ver comentario en pushnotification arriba, mismo motivo).
+    Route::resource('admin-login-history', AdminLoginHistoryController::class)->only(['index']);
+    Route::resource('admin-login-device', AdminLoginDeviceController::class)->only(['index', 'show']);
     Route::get('admin/device/logout/{id}',[ AdminLoginDeviceController::class, 'logoutDevice' ])->name('admin.device.logout');
 
     Route::resource('recipe-category', RecipeCategoryContoller::class);
