@@ -12,11 +12,12 @@ class WorkoutTemplate extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive', 'is_demo'];
+    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive', 'is_demo', 'is_public'];
 
     protected $casts = [
         'is_exclusive' => 'boolean',
         'is_demo'      => 'boolean',
+        'is_public'    => 'boolean',
     ];
 
     public function coach()
@@ -48,5 +49,27 @@ class WorkoutTemplate extends Model implements HasMedia
     public function getExerciseCountAttribute(): int
     {
         return $this->blocks->sum(fn ($block) => $block->exercises->count());
+    }
+
+    /**
+     * ¿Este workout (privado, is_public=false) está realmente asignado a
+     * $clientId, en su calendario personal o en un programa de biblioteca
+     * en el que esté inscrito ahora mismo? Usado por
+     * WorkoutTemplateController::getClientDetail para dejar que un cliente
+     * siga abriendo SU PROPIO entrenamiento personalizado desde "Mi
+     * Programa" (workout_preview_screen.tsx via MigratedWorkoutPreview)
+     * aunque no sea público, sin abrirle la puerta a los de otros clientes
+     * (bug real reportado 2026-09-18, ver migración add_is_public_to_...).
+     */
+    public function isAssignedToClient(int $clientId): bool
+    {
+        return $this->programDayAssignments()
+            ->whereHas('trainingProgram', function ($q) use ($clientId) {
+                $q->where('personal_client_id', $clientId)
+                    ->orWhereHas('clientAssignments', function ($q2) use ($clientId) {
+                        $q2->where('client_id', $clientId)->where('activo', true);
+                    });
+            })
+            ->exists();
     }
 }
