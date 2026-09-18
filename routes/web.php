@@ -114,7 +114,7 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
 	Route::get('changeStatus', [ HomeController::class, 'changeStatus'])->name('changeStatus');
 
     // Users Module
-    Route::resource('users', UserController::class);
+    Route::resource('users', UserController::class)->except('show');
     Route::get('download-user-report/{fileType?}', [UserController::class, 'downloadUserReport'])->where('fileType', 'xlsx|xls|csv|ods|html')->name('download.user.report');
     Route::get('download-user-report-pdf', [UserController::class, 'downloadUserReportPdf'])->name('download.user.report.pdf');
     Route::get('users/{id}/{tab?}/', [UserController::class, 'show'])->name('users.show');
