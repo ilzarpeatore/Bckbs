@@ -7,6 +7,8 @@ use Illuminate\Http\Request;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\ClientExerciseLog;
+use App\Models\ClientExerciseOverride;
+use App\Models\ClientBlockOverride;
 use App\Models\WorkoutSessionReview;
 use App\Models\Exercise;
 use App\Models\WorkoutTemplate;
@@ -212,12 +214,31 @@ class ClientCalendarController extends Controller
         }
 
         // Batch-load overrides and logs BEFORE the loop
-        $overrides = \App\Models\ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+        $allOverrides = ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
             ->where('client_id', $client_id)
-            ->get()
-            ->keyBy('workout_template_exercise_id');
+            ->with('exercise')
+            ->get();
 
-        $allExerciseIds = $assignment->workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+        // AISLAMIENTO (auditoría 2026-09-18): $allOverrides mezcla overrides
+        // de un ejercicio real (workout_template_exercise_id NOT NULL, de
+        // siempre) con "adiciones" propias de este cliente (NULL, ver
+        // SessionDetailController::addExercise/addBlock en el admin) --
+        // separarlas antes de usarlas, igual que ya hace
+        // SessionDetailController::getSessionDetail().
+        $overrides = $allOverrides->whereNotNull('workout_template_exercise_id')->keyBy('workout_template_exercise_id');
+        $sharedBlockAdditions = $allOverrides->where('is_addition', true)->whereNotNull('workout_template_block_id')->groupBy('workout_template_block_id');
+
+        $ownBlocks = ClientBlockOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+            ->where('client_id', $client_id)
+            ->with('exercises.exercise')
+            ->orderBy('order')
+            ->get();
+
+        $additionExerciseIds = $allOverrides->where('is_addition', true)->pluck('exercise_id')->filter()->unique()->values()->all();
+
+        $allExerciseIds = $assignment->workoutTemplate->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())
+            ->merge($additionExerciseIds)
+            ->unique()->values()->all();
         // orderByDesc('id'): 'created_at' es de precision de segundo y varias
         // series del mismo ejercicio pueden insertarse en el mismo segundo -
         // 'id' refleja el orden real de insercion sin empates.
@@ -246,18 +267,86 @@ class ClientCalendarController extends Controller
 
         $totalExercisesBefore = $assignment->workoutTemplate->blocks->sum(fn ($b) => $b->exercises->count());
 
-        $blocks = $assignment->workoutTemplate->blocks->map(function ($block) use ($overrides, $logs, $loadSuggestions) {
+        // Id sintético para lo que este cliente añadió (adiciones/bloques
+        // propios) -- nunca existe como WorkoutTemplateExercise/Block real,
+        // así que no hay un id positivo real que devolver. Offset grande y
+        // negativo para no colisionar con el id sintético que la app móvil
+        // ya usa para su "Añadir ejercicio +" ad-hoc en vivo (-exercise_id,
+        // siempre un número pequeño) -- ver workout_session_screen.tsx.
+        $syntheticId = fn (int $overrideId) => -(10_000_000 + $overrideId);
+
+        // Renderiza UN ejercicio (real de la plantilla o adición propia) con
+        // la misma forma que ya consume la app móvil -- extraído a closure
+        // (auditoría 2026-09-18) para no duplicar esta lógica.
+        $renderExercise = function (
+            int $id,
+            int $exerciseId,
+            $exerciseModel,
+            array $prescribed,
+            ?string $notes,
+            array $enabledMetrics,
+            ?int $sequence,
+            bool $isAddition
+        ) use ($logs, $loadSuggestions) {
+            $last_log = $logs->get($exerciseId);
+            $thumb = $exerciseModel && $exerciseModel->video_url
+                ? $this->youtubeThumbnail($exerciseModel->video_url)
+                : getSingleMedia($exerciseModel, 'exercise_image', null);
+
+            $suggestion = $loadSuggestions->get($exerciseId);
+
             return [
-                'block_id' => $block->id,
-                'title'    => $block->title,
-                'order'    => $block->order,
+                'id'              => $id,
+                'exercise_id'     => $exerciseId,
+                // AÑADIDO (auditoría 2026-09-18): true si este ejercicio lo
+                // añadió el coach solo para este cliente (no existe en la
+                // plantilla compartida) -- la app lo trata igual que su
+                // "Añadir ejercicio +" ad-hoc ya existente (registra series
+                // por exercise_id, no por workout_template_exercise_id).
+                'is_addition'     => $isAddition,
+                'title'           => optional($exerciseModel)->title,
+                'video_url'       => optional($exerciseModel)->video_url,
+                'exercise_image'  => $thumb,
+                'body_part_id'    => $this->primaryBodyPartId($exerciseModel),
+                'sets'            => $prescribed,
+                'coach_notes'     => $notes,
+                'enabled_metrics' => $enabledMetrics,
+                'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
+                'sequence'        => $sequence,
+                'load_suggestion' => $suggestion ? [
+                    'id'              => $suggestion->id,
+                    'status'          => $suggestion->status->value,
+                    'proposed_weight' => $suggestion->proposed_weight,
+                    'proposed_reps'   => $suggestion->proposed_reps,
+                    'resolved_at'     => optional($suggestion->resolved_at)->toIso8601String(),
+                    'rule_name'       => optional($suggestion->rule)->name,
+                ] : null,
+            ];
+        };
+
+        $renderAddition = function ($addition) use ($renderExercise, $syntheticId) {
+            return $renderExercise(
+                $syntheticId($addition->id),
+                $addition->exercise_id,
+                $addition->exercise,
+                $addition->prescribed_override ?? [],
+                $addition->notes,
+                $addition->enabled_metrics_override ?? [],
+                $addition->sequence,
+                true
+            );
+        };
+
+        $blocks = $assignment->workoutTemplate->blocks->map(function ($block) use ($overrides, $sharedBlockAdditions, $renderExercise, $renderAddition) {
+            $templateExercises = $block->exercises
                 // Modo vida real (2026-08-12): un ejercicio con
                 // override.hidden=true fue recortado (accesorio) o
                 // pertenece a una sesión completa saltada por una semana
                 // adaptativa aprobada -- no se le muestra a este cliente,
                 // aunque otros clientes con el mismo workout_template lo
                 // sigan viendo intacto.
-                'exercises' => $block->exercises->reject(fn ($ex) => (bool) ($overrides->get($ex->id)->hidden ?? false))->map(function ($ex) use ($overrides, $logs, $loadSuggestions) {
+                ->reject(fn ($ex) => (bool) ($overrides->get($ex->id)->hidden ?? false))
+                ->map(function ($ex) use ($overrides, $renderExercise) {
                     $override = $overrides->get($ex->id);
                     // Defensivo: contenido creado fuera del panel admin normal
                     // (import directo, datos legacy) puede dejar 'prescribed'
@@ -269,45 +358,30 @@ class ClientCalendarController extends Controller
                     $overridePrescribed = is_array($override->prescribed_override ?? null) ? $override->prescribed_override : [];
                     $prescribed = array_merge($basePrescribed, $overridePrescribed);
 
-                    $last_log = $logs->get($ex->exercise_id);
-                    $exercise = $ex->exercise;
-                    $thumb = $exercise && $exercise->video_url
-                        ? $this->youtubeThumbnail($exercise->video_url)
-                        : getSingleMedia($exercise, 'exercise_image', null);
+                    return $renderExercise(
+                        $ex->id,
+                        $ex->exercise_id,
+                        $ex->exercise,
+                        $prescribed,
+                        $override->notes ?? null,
+                        $ex->enabled_metrics ?? [],
+                        $ex->sequence,
+                        false
+                    );
+                });
 
-                    // Motor de Auto-Regulación de Carga: null si no hay
-                    // ninguna sugerencia relevante para este ejercicio (caso
-                    // normal). 'status' distingue "el motor ya la aplicó /
-                    // el coach la aprobó" (aplicado) de "esperando revisión
-                    // del coach" (pendiente) -- el frontend usa esto para
-                    // pintar dos estados visuales distintos.
-                    $suggestion = $loadSuggestions->get($ex->exercise_id);
+            // AÑADIDO (auditoría 2026-09-18): ejercicios que este cliente
+            // añadió a este bloque compartido -- nunca tocan
+            // workout_template_exercises, solo existen para él.
+            $additions = ($sharedBlockAdditions->get($block->id) ?? collect())
+                ->sortBy('sequence')
+                ->map($renderAddition);
 
-                    return [
-                        'id'              => $ex->id,
-                        'exercise_id'     => $ex->exercise_id,
-                        'title'           => optional($exercise)->title,
-                        'video_url'       => optional($exercise)->video_url,
-                        'exercise_image'  => $thumb,
-                        // Primer body_part de exercises.bodypart_ids — para pintar el
-                        // heatmap de musculo aislado en la tarjeta (ExerciseThumb),
-                        // mismo criterio de "primario" que ya usa ExerciseInfoController.
-                        'body_part_id'    => $this->primaryBodyPartId($exercise),
-                        'sets'            => $prescribed,
-                        'coach_notes'     => $override->notes ?? null,
-                        'enabled_metrics' => $ex->enabled_metrics ?? [],
-                        'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
-                        'sequence'        => $ex->sequence,
-                        'load_suggestion' => $suggestion ? [
-                            'id'              => $suggestion->id,
-                            'status'          => $suggestion->status->value,
-                            'proposed_weight' => $suggestion->proposed_weight,
-                            'proposed_reps'   => $suggestion->proposed_reps,
-                            'resolved_at'     => optional($suggestion->resolved_at)->toIso8601String(),
-                            'rule_name'       => optional($suggestion->rule)->name,
-                        ] : null,
-                    ];
-                })->values(),
+            return [
+                'block_id' => $block->id,
+                'title'    => $block->title,
+                'order'    => $block->order,
+                'exercises' => $templateExercises->concat($additions)->values(),
             ];
         })->filter(fn ($block) => count($block['exercises']) > 0)->values();
 
@@ -315,8 +389,25 @@ class ClientCalendarController extends Controller
         // is_adjusted: distinto de is_rest -- is_rest es a nivel de
         // program_day_assignment (plantilla compartida por todos los
         // clientes del programa); is_adjusted es SOLO para este cliente,
-        // producto de una semana adaptativa que le aplicó de verdad.
+        // producto de una semana adaptativa que le aplicó de verdad. Se
+        // calcula ANTES de añadir bloques/adiciones propias (justo debajo)
+        // para que un cliente con un ejercicio propio añadido no "tape" una
+        // semana adaptativa real que sí saltó el resto de la sesión.
         $isAdjusted = $totalExercisesBefore > 0 && $totalExercisesAfter === 0;
+
+        // AÑADIDO (auditoría 2026-09-18): bloques enteros que este cliente
+        // añadió -- no existen en la plantilla compartida, se listan después
+        // de los bloques compartidos.
+        $ownBlockEntries = $ownBlocks->map(function ($block) use ($renderAddition, $syntheticId) {
+            return [
+                'block_id'  => $syntheticId($block->id),
+                'title'     => $block->title,
+                'order'     => $block->order,
+                'exercises' => $block->exercises->sortBy('sequence')->map($renderAddition)->values(),
+            ];
+        })->filter(fn ($block) => count($block['exercises']) > 0)->values();
+
+        $blocks = $blocks->concat($ownBlockEntries)->values();
 
         return json_custom_response([
             'data' => [

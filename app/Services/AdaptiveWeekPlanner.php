@@ -188,6 +188,21 @@ class AdaptiveWeekPlanner
                     ['hidden' => true]
                 );
             }
+
+            // AÑADIDO (auditoría 2026-09-18): si este cliente ya tenía
+            // ejercicios propios añadidos a esta sesión (adiciones vía
+            // SessionDetailController::addExercise, sin
+            // workout_template_exercise_id), también se ocultan al saltar la
+            // sesión entera -- si no, seguirían apareciendo aunque el resto
+            // de la sesión esté oculta. Los bloques propios enteros
+            // (client_block_overrides) no tienen columna 'hidden' todavía --
+            // limitación conocida y documentada (caso raro: cliente con un
+            // bloque propio Y la sesión recortada la misma semana), no
+            // bloqueante para este fix.
+            ClientExerciseOverride::where('program_day_assignment_id', $assignmentId)
+                ->where('client_id', $plan->client_id)
+                ->whereNull('workout_template_exercise_id')
+                ->update(['hidden' => true]);
         }
 
         foreach ((array) ($details['accessory_trims'] ?? []) as $assignmentId => $wteIds) {
@@ -341,12 +356,12 @@ class AdaptiveWeekPlanner
     private function selectSessionsToKeep(Collection $sessions, int $keepCount, string $priorizacion, int $clientId): array
     {
         if ($priorizacion === 'mantener_grupo_muscular_prioritario') {
-            $priorityBodypartId = $this->dominantBodypartId($sessions);
+            $priorityBodypartId = $this->dominantBodypartId($sessions, $clientId);
             $ranked = $sessions
                 ->map(function ($item) use ($priorityBodypartId, $clientId) {
                     $bodypartScore = $priorityBodypartId === null
                         ? 0
-                        : $this->countExercisesForBodypart($item['assignment'], $priorityBodypartId);
+                        : $this->countExercisesForBodypart($item['assignment'], $priorityBodypartId, $clientId);
                     $item['score'] = $bodypartScore + $this->progressAdjustment($item['assignment'], $clientId);
                     return $item;
                 })
@@ -363,7 +378,7 @@ class AdaptiveWeekPlanner
         if ($priorizacion === 'mantener_ejercicios_principales') {
             $ranked = $sessions
                 ->map(function ($item) use ($clientId) {
-                    $item['score'] = $this->countPrincipalExercises($item['assignment'])
+                    $item['score'] = $this->countPrincipalExercises($item['assignment'], $clientId)
                         + $this->progressAdjustment($item['assignment'], $clientId);
                     return $item;
                 })
@@ -406,17 +421,42 @@ class AdaptiveWeekPlanner
     }
 
     /**
-     * Bodypart_id más frecuente entre todos los ejercicios de todas las
-     * sesiones de la semana. Null si ningún ejercicio tiene bodypart_ids
-     * asignado.
+     * Overrides reales (workout_template_exercise_id NOT NULL) de un
+     * cliente para una asignación -- extraído (auditoría 2026-09-18) porque
+     * lo necesitan varios métodos de este archivo para no contar/puntuar/
+     * recortar un ejercicio que este cliente concreto ya no ve (`hidden`) o
+     * que fue añadido por el coach solo para él (no vive en
+     * workout_template_exercises, se excluye aquí y se trata aparte donde
+     * haga falta -- ver `SessionDetailController::getSessionDetail()` para
+     * el mismo criterio en el panel admin).
      */
-    private function dominantBodypartId(Collection $sessions): ?int
+    private function overridesByExerciseForAssignment(int $assignmentId, int $clientId): Collection
+    {
+        return ClientExerciseOverride::where('program_day_assignment_id', $assignmentId)
+            ->where('client_id', $clientId)
+            ->whereNotNull('workout_template_exercise_id')
+            ->get()
+            ->keyBy('workout_template_exercise_id');
+    }
+
+    /**
+     * Bodypart_id más frecuente entre todos los ejercicios VISIBLES (no
+     * `hidden` para este cliente) de todas las sesiones de la semana. Null
+     * si ningún ejercicio tiene bodypart_ids asignado.
+     */
+    private function dominantBodypartId(Collection $sessions, int $clientId): ?int
     {
         $counts = [];
 
         foreach ($sessions as $item) {
-            foreach ($item['assignment']->workoutTemplate->blocks as $block) {
+            $assignment = $item['assignment'];
+            $overridesByExercise = $this->overridesByExerciseForAssignment($assignment->id, $clientId);
+
+            foreach ($assignment->workoutTemplate->blocks as $block) {
                 foreach ($block->exercises as $wte) {
+                    if ((bool) ($overridesByExercise->get($wte->id)->hidden ?? false)) {
+                        continue;
+                    }
                     $bodypartIds = $wte->exercise->bodypart_ids ?? [];
                     foreach ((array) $bodypartIds as $bpId) {
                         $counts[$bpId] = ($counts[$bpId] ?? 0) + 1;
@@ -433,11 +473,16 @@ class AdaptiveWeekPlanner
         return (int) array_key_first($counts);
     }
 
-    private function countExercisesForBodypart(ProgramDayAssignment $assignment, int $bodypartId): int
+    private function countExercisesForBodypart(ProgramDayAssignment $assignment, int $bodypartId, int $clientId): int
     {
+        $overridesByExercise = $this->overridesByExerciseForAssignment($assignment->id, $clientId);
+
         $count = 0;
         foreach ($assignment->workoutTemplate->blocks as $block) {
             foreach ($block->exercises as $wte) {
+                if ((bool) ($overridesByExercise->get($wte->id)->hidden ?? false)) {
+                    continue;
+                }
                 $bodypartIds = (array) ($wte->exercise->bodypart_ids ?? []);
                 if (in_array($bodypartId, $bodypartIds, true)) {
                     $count++;
@@ -448,18 +493,28 @@ class AdaptiveWeekPlanner
     }
 
     /**
-     * Nº de ejercicios "principales" (el primero por `sequence` de cada
-     * bloque, ver docblock de clase) de una sesión -- mismo patrón de
+     * Nº de ejercicios "principales" (el primero VISIBLE por `sequence` de
+     * cada bloque, ver docblock de clase) de una sesión -- mismo patrón de
      * scoring que `countExercisesForBodypart()`, usado por
      * `mantener_ejercicios_principales` (Ronda 4, ítem 11) para priorizar
      * de verdad las sesiones con más ejercicios compuestos/principales, en
      * vez de caer en el muestreo uniforme genérico.
+     *
+     * AISLAMIENTO (auditoría 2026-09-18): antes contaba bloques con al
+     * menos 1 ejercicio en la plantilla compartida, sin comprobar `hidden`
+     * -- un bloque ya recortado del todo para este cliente contaba igual
+     * como "principal". No cuenta las adiciones propias del cliente aquí
+     * (el coach las añadió a propósito, no son parte del proxy
+     * "principal/accesorio" de la plantilla compartida).
      */
-    private function countPrincipalExercises(ProgramDayAssignment $assignment): int
+    private function countPrincipalExercises(ProgramDayAssignment $assignment, int $clientId): int
     {
+        $overridesByExercise = $this->overridesByExerciseForAssignment($assignment->id, $clientId);
+
         $count = 0;
         foreach ($assignment->workoutTemplate->blocks as $block) {
-            if ($block->exercises->isNotEmpty()) {
+            $visible = $block->exercises->reject(fn ($wte) => (bool) ($overridesByExercise->get($wte->id)->hidden ?? false));
+            if ($visible->isNotEmpty()) {
                 $count++;
             }
         }
@@ -468,19 +523,30 @@ class AdaptiveWeekPlanner
 
     /**
      * IDs de workout_template_exercises "accesorios" (todos salvo el
-     * primero por `sequence` dentro de cada bloque) de una sesión mantenida,
-     * EXCLUYENDO los que el coach marcó explícitamente como
+     * primero VISIBLE por `sequence` dentro de cada bloque) de una sesión
+     * mantenida, EXCLUYENDO los que el coach marcó explícitamente como
      * `no_recortable` en `ClientExerciseOverride` (Ronda 4, ítem 13 --
      * p. ej. trabajo de rehabilitación prescrito por dolor, que nunca debe
      * proponerse para recorte aunque no sea el "principal" del bloque).
+     *
+     * AISLAMIENTO (auditoría 2026-09-18): antes hacía `skip(1)` sobre TODOS
+     * los ejercicios de la plantilla sin comprobar `hidden` -- si el
+     * primero ya estaba oculto para este cliente (por una semana adaptativa
+     * anterior o una edición manual del coach), el algoritmo trataba como
+     * "principal" (nunca recortable) un ejercicio que ni siquiera ve, y
+     * podía re-marcar como accesorio uno que ya estaba oculto. Las
+     * adiciones propias del cliente nunca se recortan aquí -- el coach las
+     * añadió a propósito para él, no viven en la plantilla compartida.
      */
     private function accessoryExerciseIdsToTrim(ProgramDayAssignment $assignment, int $clientId): array
     {
+        $overridesByExercise = $this->overridesByExerciseForAssignment($assignment->id, $clientId);
+
         $ids = [];
         foreach ($assignment->workoutTemplate->blocks as $block) {
             // WorkoutTemplateBlock::exercises() ya ordena por 'sequence'.
-            $exercises = $block->exercises;
-            foreach ($exercises->skip(1) as $wte) {
+            $visible = $block->exercises->reject(fn ($wte) => (bool) ($overridesByExercise->get($wte->id)->hidden ?? false));
+            foreach ($visible->skip(1) as $wte) {
                 $ids[] = $wte->id;
             }
         }
@@ -517,9 +583,18 @@ class AdaptiveWeekPlanner
      */
     private function progressAdjustment(ProgramDayAssignment $assignment, int $clientId): float
     {
+        // AISLAMIENTO (auditoría 2026-09-18): no sumar el progreso de un
+        // ejercicio que este cliente ya no ve (`hidden`) -- puntuar por algo
+        // que no entrena no tiene sentido y podía inflar/desinflar el score
+        // de la sesión con datos de un ejercicio irrelevante para él.
+        $overridesByExercise = $this->overridesByExerciseForAssignment($assignment->id, $clientId);
+
         $score = 0.0;
         foreach ($assignment->workoutTemplate->blocks as $block) {
             foreach ($block->exercises as $wte) {
+                if ((bool) ($overridesByExercise->get($wte->id)->hidden ?? false)) {
+                    continue;
+                }
                 $score += $this->exerciseProgressScore($clientId, $wte->exercise_id);
             }
         }
