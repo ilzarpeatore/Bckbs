@@ -114,7 +114,17 @@ Route::group(['middleware' => [ 'auth', 'useractive' ]], function () {
 	Route::get('changeStatus', [ HomeController::class, 'changeStatus'])->name('changeStatus');
 
     // Users Module
-    Route::resource('users', UserController::class);
+    // ->except(['show']): el show por defecto del resource (users/{user})
+    // queda sombreado por el Route::get de abajo, más específico
+    // (users/{id}/{tab?}, con pestaña opcional) y registrado DESPUÉS --
+    // sin cachear rutas, Laravel ya deja ganar a este último con el mismo
+    // nombre 'users.show' (que es el que usan de verdad las vistas Blade,
+    // route('users.show', [$id, $tab])), así que el del resource nunca se
+    // usa en la práctica. php artisan route:cache sí valida nombres
+    // duplicados y abortaba por este choque -- bloqueaba el deploy a VPS
+    // por completo (2026-09-18, mismo problema que los choques
+    // admin.users/equipment/tags/quotes entre api.php y aquí mismo).
+    Route::resource('users', UserController::class)->except(['show']);
     Route::get('download-user-report/{fileType?}', [UserController::class, 'downloadUserReport'])->where('fileType', 'xlsx|xls|csv|ods|html')->name('download.user.report');
     Route::get('download-user-report-pdf', [UserController::class, 'downloadUserReportPdf'])->name('download.user.report.pdf');
     Route::get('users/{id}/{tab?}/', [UserController::class, 'show'])->name('users.show');
