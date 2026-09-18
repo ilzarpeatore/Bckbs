@@ -516,16 +516,15 @@ class SessionDetailController extends Controller
         $request->validate([
             'program_day_assignment_id'     => 'required|exists:program_day_assignments,id',
             'client_id'                      => 'required|exists:users,id',
-            'workout_template_exercise_id'   => 'required|exists:workout_template_exercises,id',
+            'workout_template_exercise_id'   => 'required_without:client_exercise_override_id|nullable|exists:workout_template_exercises,id',
+            'client_exercise_override_id'    => 'required_without:workout_template_exercise_id|nullable|exists:client_exercise_overrides,id',
             'field'                          => 'required|string',
             'value'                          => 'nullable',
         ]);
 
-        $override = ClientExerciseOverride::firstOrNew([
-            'program_day_assignment_id'   => $request->program_day_assignment_id,
-            'client_id'                    => $request->client_id,
-            'workout_template_exercise_id' => $request->workout_template_exercise_id,
-        ]);
+        $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
+
+        $override = $this->resolveEditableOverride($request);
 
         $prescribed = $override->prescribed_override ?? [];
         $prescribed[$request->field] = $request->value;
@@ -535,24 +534,49 @@ class SessionDetailController extends Controller
         return json_custom_response(['data' => $override]);
     }
 
+    /**
+     * Resuelve la fila de override que hay que editar/crear -- un ejercicio
+     * real de la plantilla (workout_template_exercise_id, comportamiento de
+     * siempre) o una adición ya creada de este cliente
+     * (client_exercise_override_id, AÑADIDO auditoría 2026-09-18, para que
+     * el coach pueda editar prescrito/notas de algo que él mismo añadió sin
+     * un endpoint aparte). Exactamente uno de los dos debe venir en el
+     * request -- validado por el llamador.
+     */
+    private function resolveEditableOverride(Request $request): ClientExerciseOverride
+    {
+        if ($request->client_exercise_override_id) {
+            return ClientExerciseOverride::where('id', $request->client_exercise_override_id)
+                ->where('program_day_assignment_id', $request->program_day_assignment_id)
+                ->where('client_id', $request->client_id)
+                ->whereNull('workout_template_exercise_id')
+                ->firstOrFail();
+        }
+
+        return ClientExerciseOverride::firstOrNew([
+            'program_day_assignment_id'   => $request->program_day_assignment_id,
+            'client_id'                    => $request->client_id,
+            'workout_template_exercise_id' => $request->workout_template_exercise_id,
+        ]);
+    }
+
     /** AÑADIDO: guardar la nota del coach para este ejercicio, solo para este cliente/sesión. */
     public function updateOverrideNotes(Request $request)
     {
         $request->validate([
             'program_day_assignment_id'     => 'required|exists:program_day_assignments,id',
             'client_id'                      => 'required|exists:users,id',
-            'workout_template_exercise_id'   => 'required|exists:workout_template_exercises,id',
+            'workout_template_exercise_id'   => 'required_without:client_exercise_override_id|nullable|exists:workout_template_exercises,id',
+            'client_exercise_override_id'    => 'required_without:workout_template_exercise_id|nullable|exists:client_exercise_overrides,id',
             'notes'                          => 'nullable|string',
         ]);
 
-        $criteria = [
-            'program_day_assignment_id'   => $request->program_day_assignment_id,
-            'client_id'                    => $request->client_id,
-            'workout_template_exercise_id' => $request->workout_template_exercise_id,
-        ];
-        $previousNotes = ClientExerciseOverride::where($criteria)->value('notes');
+        $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
 
-        $override = ClientExerciseOverride::updateOrCreate($criteria, ['notes' => $request->notes]);
+        $override = $this->resolveEditableOverride($request);
+        $previousNotes = $override->notes;
+        $override->notes = $request->notes;
+        $override->save();
 
         $newNotes = trim((string) $request->notes);
         if ($newNotes !== '' && $newNotes !== trim((string) $previousNotes)) {
@@ -799,17 +823,16 @@ class SessionDetailController extends Controller
         $request->validate([
             'program_day_assignment_id'   => 'required|exists:program_day_assignments,id',
             'client_id'                    => 'required|exists:users,id',
-            'workout_template_exercise_id' => 'required|exists:workout_template_exercises,id',
+            'workout_template_exercise_id' => 'required_without:client_exercise_override_id|nullable|exists:workout_template_exercises,id',
+            'client_exercise_override_id'  => 'required_without:workout_template_exercise_id|nullable|exists:client_exercise_overrides,id',
             'prescribed'                   => 'nullable|array',
             'enabled_metrics'              => 'nullable|array',
             'notes'                        => 'nullable|string',
         ]);
 
-        $override = ClientExerciseOverride::firstOrNew([
-            'program_day_assignment_id'   => $request->program_day_assignment_id,
-            'client_id'                    => $request->client_id,
-            'workout_template_exercise_id' => $request->workout_template_exercise_id,
-        ]);
+        $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
+
+        $override = $this->resolveEditableOverride($request);
 
         if ($request->has('prescribed')) {
             $override->prescribed_override = array_merge($override->prescribed_override ?? [], $request->prescribed);
