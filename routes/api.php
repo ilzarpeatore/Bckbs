@@ -748,6 +748,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
 
     // Push Notifications
     Route::apiResource('push-notifications', PushNotificationController::class);
+    Route::post('push-notifications-send', [PushNotificationController::class, 'send']);
 
     // Community Postings
     Route::apiResource('postings', PostingController::class)->only(['index', 'show']);
