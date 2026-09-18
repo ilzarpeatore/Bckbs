@@ -30,7 +30,7 @@ class WorkoutTemplateController extends Controller
         $workouts = WorkoutTemplate::where('coach_id', auth()->id())
             ->whereDoesntHave('programDayAssignments')
             ->with('blocks.exercises')
-            ->select('id', 'coach_id', 'title', 'description', 'is_exclusive', 'created_at')
+            ->select('id', 'coach_id', 'title', 'description', 'is_exclusive', 'is_public', 'created_at')
             ->orderByDesc('created_at')
             ->limit($request->get('per_page', 100))
             ->get()
@@ -41,6 +41,7 @@ class WorkoutTemplateController extends Controller
                     'title'          => $w->title,
                     'description'    => $w->description,
                     'is_exclusive'   => (bool) $w->is_exclusive,
+                    'is_public'      => (bool) $w->is_public,
                     'exercise_count' => $w->blocks->sum(fn ($b) => $b->exercises->count()),
                     'thumbnail'      => $media ? $media->getUrl() : null,
                     'created_at'     => $w->created_at,
@@ -123,6 +124,7 @@ class WorkoutTemplateController extends Controller
                 'title'       => $workout->title,
                 'description' => $workout->description,
                 'coach_id'    => $workout->coach_id,
+                'is_public'   => (bool) $workout->is_public,
                 'thumbnail'   => $media ? $media->getUrl() : null,
                 'blocks'      => $blocks,
             ],
@@ -134,13 +136,19 @@ class WorkoutTemplateController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'is_exclusive' => 'sometimes|boolean',
+            'is_public' => 'sometimes|boolean',
         ]);
 
+        // is_public por defecto false (pedido explícito del coach,
+        // 2026-09-18): un workout nace privado -- ni siquiera un borrador a
+        // medio terminar aparece en el catálogo público hasta que el coach
+        // lo marque a mano en el panel Admin.
         $workout = WorkoutTemplate::create([
             'coach_id'     => auth()->id(),
             'title'        => $request->title,
             'description'  => $request->description,
             'is_exclusive' => $request->boolean('is_exclusive'),
+            'is_public'    => $request->boolean('is_public'),
         ]);
 
         if ($request->hasFile('image')) {
@@ -155,11 +163,12 @@ class WorkoutTemplateController extends Controller
         $request->validate([
             'id' => 'required|exists:workout_templates,id',
             'is_exclusive' => 'sometimes|boolean',
+            'is_public' => 'sometimes|boolean',
         ]);
 
         $workout = WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id);
 
-        $workout->update($request->only(['title', 'description', 'is_exclusive']));
+        $workout->update($request->only(['title', 'description', 'is_exclusive', 'is_public']));
 
         return json_message_response(__('message.save_form', ['form' => 'Workout']));
     }
@@ -423,6 +432,19 @@ class WorkoutTemplateController extends Controller
         }
 
         $user = auth()->user();
+
+        // Mismo bug de privacidad que getClientList() (ver comentario ahí):
+        // sin esto, cualquier cliente que conociera/adivinara el id podía
+        // abrir el detalle del workout PERSONALIZADO de otro cliente, aunque
+        // ya no saliera en ningún listado. Se deja pasar si es público, o si
+        // es justo el suyo propio (asignado a su calendario personal o a un
+        // programa en el que esté inscrito) -- así "Mi Programa" sigue
+        // abriendo con normalidad su propio entrenamiento aunque no sea
+        // público.
+        if (!$workout->is_public && !($user && $workout->isAssignedToClient($user->id))) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
+
         $isAccessible = !$workout->is_exclusive || ($user && PackageAccessService::canAccessPremiumWorkouts($user));
 
         $media = $workout->getFirstMedia('image');
@@ -530,7 +552,19 @@ class WorkoutTemplateController extends Controller
     {
         $user = auth()->user();
 
+        // BUG REAL DE PRIVACIDAD (reportado 2026-09-18): sin este filtro se
+        // listaban TAMBIÉN los workouts personalizados de otros clientes
+        // (asignados a su calendario personal vía assignDirect(), ver
+        // ClientProfileCalendarController) -- cualquier cliente podía verlos
+        // en Home > Entrenamientos o en este mismo catálogo. is_public es
+        // false por defecto (ver migración add_is_public_to_...); solo entra
+        // aquí lo que el coach marcó a mano como público. Su propio
+        // entrenamiento personalizado (aunque no sea público) lo sigue
+        // viendo igual desde "Mi Programa", que no pasa por este endpoint
+        // -- ver WorkoutTemplate::isAssignedToClient(), usado en
+        // getClientDetail() más abajo para esa pantalla en concreto.
         $query = WorkoutTemplate::select('id', 'title', 'description', 'is_exclusive')
+            ->where('is_public', true)
             ->orderByDesc('created_at');
 
         // AÑADIDO: filtro para MigratedFavourite (favourite_screen.tsx) - antes esta
