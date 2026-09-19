@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Model;
  */
 class FatSecretRecipeCache extends Model
 {
+    // FIX (2026-09-19, bug real detectado probando el flujo completo):
+    // Eloquent adivina el nombre de tabla como `fat_secret_recipe_caches`
+    // (snake_case + plural del nombre de la clase) -- la migración creó
+    // `fatsecret_recipe_cache` (una sola palabra, singular), sin esto la
+    // primera consulta real explota con "Base table or view not found".
+    protected $table = 'fatsecret_recipe_cache';
     protected $primaryKey = 'fatsecret_recipe_id';
     public $incrementing = false;
 
