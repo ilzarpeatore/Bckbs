@@ -19,6 +19,7 @@ class IngredientResource extends JsonResource
             'carbs_per_gram'         => $this->carbs_per_gram,
             'density'                => $this->density,
             'status'                 => $this->status,
+            'fatsecret_food_id'      => $this->fatsecret_food_id,
         ];
     }
 }
