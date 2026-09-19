@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Exceptions\FatSecretUnavailableException;
 use Illuminate\Http\Request;
 use App\Models\DailyPlan;
 use App\Models\DailyPlanRecipe;
@@ -10,10 +11,15 @@ use App\Models\Recipe;
 use App\Http\Resources\DailyPlanResource;
 use App\Http\Resources\DailyPlanRecipeResource;
 use App\Http\Resources\RecipePlanResource;
+use App\Services\FatSecret\FatSecretRecipeService;
 use Carbon\Carbon;
 
 class DailyPlanController extends Controller
 {
+    public function __construct(private readonly FatSecretRecipeService $fatSecretRecipeService)
+    {
+    }
+
     public function recipeMealTypeResponse($daily_plan)
     {
         $recipe_meal_type = $daily_plan->meal_type;
@@ -79,15 +85,21 @@ class DailyPlanController extends Controller
 
     public function saveDailyPlanRecipeData(Request $request)
     {
+        // FIX (2026-09-20, ver docs/FATSECRET_INTEGRATION.md en el repo
+        // Bckbs): acepta EXACTAMENTE uno de recipe_id / fatsecret_recipe_id,
+        // para que el cliente pueda sustituir una comida asignada por una
+        // receta real de FatSecret desde la propia app -- mismo patron ya
+        // usado en Admin\ClientMealPlanController::assignRecipe(). Nunca se
+        // guarda contenido de FatSecret aqui, solo el id + un snapshot
+        // numerico de nutricion.
+        $request->validate([
+            'fatsecret_recipe_id' => 'nullable|integer',
+        ]);
+
         $daily_plan = DailyPlan::myDailyPlan()->where('id', request('daily_plan_id'))->first();
 
         if( $daily_plan == null ) {
             return json_message_response( __('message.not_found_entry',['name' => __('message.daily_plan') ]), 400);
-        }
-
-        $recipe = Recipe::find(request('recipe_id'));
-        if( $recipe == null ) {
-            return json_message_response( __('message.not_found_entry',['name' => __('message.recipe') ]), 400);
         }
 
         // Scope any update-by-id to a row that belongs to this same daily plan,
@@ -96,16 +108,42 @@ class DailyPlanController extends Controller
             ->where('daily_plan_id', $daily_plan->id)
             ->first();
 
-        $data = [
-            'daily_plan_id' => $daily_plan->id,
-            'recipe_id'     => request('recipe_id'),
-            'meal_type'     => request('meal_type'),
-            'is_complete'   => request('is_complete'),
-            'calories'      => $recipe->calories,
-            'protein'       => $recipe->protein,
-            'fats'          => $recipe->fats,
-            'carbs'         => $recipe->carbs,
-        ];
+        if ($request->filled('fatsecret_recipe_id')) {
+            try {
+                $fsRecipe = $this->fatSecretRecipeService->getOrRefresh((int) $request->fatsecret_recipe_id);
+            } catch (FatSecretUnavailableException $e) {
+                return json_message_response($e->getMessage(), 503);
+            }
+
+            $data = [
+                'daily_plan_id'       => $daily_plan->id,
+                'recipe_id'           => null,
+                'fatsecret_recipe_id' => $fsRecipe->fatsecret_recipe_id,
+                'meal_type'           => request('meal_type'),
+                'is_complete'         => request('is_complete'),
+                'calories'            => $fsRecipe->calories,
+                'protein'             => $fsRecipe->protein,
+                'fats'                => $fsRecipe->fat,
+                'carbs'               => $fsRecipe->carbs,
+            ];
+        } else {
+            $recipe = Recipe::find(request('recipe_id'));
+            if( $recipe == null ) {
+                return json_message_response( __('message.not_found_entry',['name' => __('message.recipe') ]), 400);
+            }
+
+            $data = [
+                'daily_plan_id'       => $daily_plan->id,
+                'recipe_id'           => $recipe->id,
+                'fatsecret_recipe_id' => null,
+                'meal_type'           => request('meal_type'),
+                'is_complete'         => request('is_complete'),
+                'calories'            => $recipe->calories,
+                'protein'             => $recipe->protein,
+                'fats'                => $recipe->fats,
+                'carbs'               => $recipe->carbs,
+            ];
+        }
 
         DailyPlanRecipe::updateOrCreate([ 'id' => $existing?->id ], $data);
 
