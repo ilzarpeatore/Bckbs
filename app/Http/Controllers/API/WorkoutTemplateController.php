@@ -170,6 +170,17 @@ class WorkoutTemplateController extends Controller
 
         $workout->update($request->only(['title', 'description', 'is_exclusive', 'is_public']));
 
+        // AÑADIDO (pedido explícito 2026-09-18): antes solo store() aceptaba
+        // 'image' -- no había forma de poner/cambiar la foto de una
+        // plantilla YA creada desde el panel admin. Sin esto, el calendario
+        // del cliente (ClientCalendarController::getMyMonth) nunca tenía un
+        // thumbnail real y caía siempre en el fallback genérico de stock
+        // del lado del cliente.
+        if ($request->hasFile('image')) {
+            $workout->clearMediaCollection('image');
+            $workout->addMediaFromRequest('image')->toMediaCollection('image');
+        }
+
         return json_message_response(__('message.save_form', ['form' => 'Workout']));
     }
 
