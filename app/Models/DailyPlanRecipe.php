@@ -6,11 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class DailyPlanRecipe extends Model
 {
-    protected $fillable = [ 'daily_plan_id', 'recipe_id', 'meal_type', 'calories', 'protein', 'fats', 'carbs', 'is_complete', 'assigned_by_user_id', 'source_subscription_id' ];
+    // fatsecret_recipe_id (2026-09-19, ver docs/FATSECRET_INTEGRATION.md):
+    // exactamente uno de recipe_id / fatsecret_recipe_id debe estar
+    // relleno, nunca los dos -- lo valida el controlador al asignar, no el
+    // modelo. calories/protein/fats/carbs se rellenan igual en ambos casos
+    // (snapshot numérico al momento de asignar), así que el resto del
+    // código que ya suma/lee estas columnas no necesita cambios.
+    protected $fillable = [ 'daily_plan_id', 'recipe_id', 'fatsecret_recipe_id', 'meal_type', 'calories', 'protein', 'fats', 'carbs', 'is_complete', 'assigned_by_user_id', 'source_subscription_id' ];
 
      protected $casts = [
         'daily_plan_id'       => 'integer',
         'recipe_id'           => 'integer',
+        'fatsecret_recipe_id' => 'integer',
         'calories'            => 'double',
         'protein'             => 'double',
         'fats'                => 'double',

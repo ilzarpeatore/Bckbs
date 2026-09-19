@@ -101,6 +101,11 @@ class Kernel extends ConsoleKernel
         }
 
         $schedule->command('send:quotes')->daily()->at($time);
+
+        // Integración FatSecret (2026-09-19, ver docs/FATSECRET_INTEGRATION.md
+        // sección 6) -- un alimento genérico casi nunca cambia de verdad,
+        // mensual sobra de margen para cumplir su límite de 24h sin refrescar.
+        $schedule->command('fatsecret:refresh-ingredients')->monthly();
     }
 
     /**

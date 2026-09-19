@@ -320,6 +320,17 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::get('get-favourite-recipe', [ API\RecipeController::class, 'getUserFavouriteRecipe' ]);
     Route::post('set-favourite-recipe', [ API\RecipeController::class, 'saveUserFavouriteRecipe' ]);
 
+    // ═══ FatSecret -- buscador de sustitución desde la app (2026-09-19,
+    // ver docs/FATSECRET_INTEGRATION.md sección 9). throttle:100,1440 = red
+    // de seguridad por cliente/día, independiente del límite real de la
+    // cuenta FatSecret (5.000/día en Basic, compartido entre TODOS los
+    // clientes) -- evita que un bug o un uso desmedido de un solo cliente
+    // agote el cupo del día para el resto.
+    Route::middleware('throttle:100,1440')->group(function () {
+        Route::get('fatsecret/recipes/search', [ API\FatSecretController::class, 'search' ]);
+        Route::get('fatsecret/recipes/{recipe_id}', [ API\FatSecretController::class, 'show' ]);
+    });
+
     // ═══ V2: Forms (Check-ins) — Client API ═══════════════════════════
     Route::get('form-assigned-list', [API\FormController::class, 'getAssignedList']);
     Route::get('form-assigned-calendar', [API\FormController::class, 'getAssignedCalendar']);
@@ -625,6 +636,15 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::apiResource('ingredient-categories', AdminIngredientCategoryController::class);
     Route::apiResource('measurement-units', AdminMeasurementUnitController::class);
     Route::apiResource('unit-conversions', IngredientUnitConversionController::class);
+
+    // ═══ FatSecret (2026-09-19, ver docs/FATSECRET_INTEGRATION.md) ═════
+    // Alimentos: solo para autocompletar nutrición de Ingredient al crearlo.
+    // Recetas: para que el coach busque/asigne una receta de FatSecret a un
+    // cliente (proxy en vivo, nunca se importa/guarda de forma permanente).
+    Route::get('fatsecret/foods/search', [API\Admin\FatSecretController::class, 'searchFoods']);
+    Route::get('fatsecret/foods/{food_id}', [API\Admin\FatSecretController::class, 'showFood']);
+    Route::get('fatsecret/recipes/search', [API\Admin\FatSecretController::class, 'searchRecipes']);
+    Route::get('fatsecret/recipes/{recipe_id}', [API\Admin\FatSecretController::class, 'showRecipe']);
 
     // Products
     Route::apiResource('products', AdminProductController::class);

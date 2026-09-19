@@ -11,7 +11,13 @@ class Ingredient extends Model
 {
     use HasSlug,HasFactory;
 
-    protected $fillable = [ 'title', 'slug', 'ingredient_category_id', 'calories_per_gram', 'protein_per_gram', 'fat_per_gram', 'carbs_per_gram', 'density', 'status' ];
+    protected $fillable = [
+        'title', 'slug', 'ingredient_category_id', 'calories_per_gram', 'protein_per_gram', 'fat_per_gram', 'carbs_per_gram', 'density', 'status',
+        // Integración FatSecret (2026-09-19) -- fatsecret_serving_id se guarda
+        // para que el refresco recalcule siempre con la misma ración, ver
+        // docs/FATSECRET_INTEGRATION.md sección 4.2.
+        'fatsecret_food_id', 'fatsecret_serving_id', 'fatsecret_synced_at',
+    ];
 
     protected $casts = [
         'calories_per_gram' => 'double',
@@ -19,6 +25,7 @@ class Ingredient extends Model
         'fat_per_gram' => 'double',
         'carbs_per_gram' => 'double',
         'density' => 'double',
+        'fatsecret_synced_at' => 'datetime',
     ];
 
     public function getSlugOptions() : SlugOptions

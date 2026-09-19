@@ -35,6 +35,15 @@ return [
         'rest_api_key' => env('ONESIGNAL_REST_API_KEY')
     ],
 
+    // Integración FatSecret Platform API (2026-09-19, ver
+    // docs/FATSECRET_INTEGRATION.md) -- OAuth2 client credentials, requiere
+    // que las llamadas salgan de una IP registrada en su panel (la del VPS
+    // de producción, nunca desde un runner de CI ni desde el navegador).
+    'fatsecret' => [
+        'client_id' => env('FATSECRET_CLIENT_ID'),
+        'client_secret' => env('FATSECRET_CLIENT_SECRET'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),

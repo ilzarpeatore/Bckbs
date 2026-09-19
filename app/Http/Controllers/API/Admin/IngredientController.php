@@ -30,6 +30,12 @@ class IngredientController extends BaseController
             'carbs_per_gram'          => 'required|numeric',
             'density'                 => 'nullable|numeric',
             'status'                  => 'sometimes|in:active,inactive',
+            // Integración FatSecret (2026-09-19) -- opcionales, el admin
+            // sigue pudiendo crear/editar un ingrediente 100% a mano sin
+            // rellenar nada de esto. Ver docs/FATSECRET_INTEGRATION.md.
+            'fatsecret_food_id'       => 'nullable|integer',
+            'fatsecret_serving_id'    => 'nullable|integer',
+            'fatsecret_synced_at'     => 'nullable|date',
         ];
     }
 }
