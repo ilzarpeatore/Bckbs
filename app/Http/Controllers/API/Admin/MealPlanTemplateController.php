@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API\Admin;
 
 use Illuminate\Http\Request;
+use App\Exceptions\FatSecretUnavailableException;
 use App\Http\Controllers\Controller;
 use App\Models\MealPlanTemplate;
 use App\Models\MealPlanTemplateItem;
@@ -13,10 +14,15 @@ use App\Models\User;
 use App\Notifications\CommonNotification;
 use App\Http\Resources\MealPlanTemplateResource;
 use App\Http\Resources\MealPlanTemplateItemResource;
+use App\Services\FatSecret\FatSecretRecipeService;
 use Carbon\Carbon;
 
 class MealPlanTemplateController extends Controller
 {
+    public function __construct(private readonly FatSecretRecipeService $fatSecretRecipeService)
+    {
+    }
+
     private function mealTypes(): array
     {
         return config('macro-nutrient.MEAL_TYPE');
@@ -85,23 +91,47 @@ class MealPlanTemplateController extends Controller
         }
 
         $request->validate([
-            'day_key'   => 'required|string',
-            'meal_type' => 'required|in:' . implode(',', $this->mealTypes()),
-            'recipe_id' => 'required|exists:recipes,id',
+            'day_key'             => 'required|string',
+            'meal_type'           => 'required|in:' . implode(',', $this->mealTypes()),
+            'recipe_id'           => 'required_without:fatsecret_recipe_id|nullable|exists:recipes,id',
+            'fatsecret_recipe_id' => 'required_without:recipe_id|nullable|integer',
         ]);
 
-        $recipe = Recipe::find($request->recipe_id);
+        if ($request->filled('recipe_id') && $request->filled('fatsecret_recipe_id')) {
+            return json_message_response('Indica recipe_id o fatsecret_recipe_id, no los dos.', 422);
+        }
 
-        $item = MealPlanTemplateItem::create([
-            'meal_plan_template_id' => $template->id,
-            'day_key'               => $request->day_key,
-            'meal_type'             => $request->meal_type,
-            'recipe_id'             => $recipe->id,
-            'calories'              => $recipe->calories,
-            'protein'               => $recipe->protein,
-            'fats'                  => $recipe->fats,
-            'carbs'                 => $recipe->carbs,
-        ]);
+        if ($request->filled('fatsecret_recipe_id')) {
+            try {
+                $fsRecipe = $this->fatSecretRecipeService->getOrRefresh((int) $request->fatsecret_recipe_id);
+            } catch (FatSecretUnavailableException $e) {
+                return json_message_response($e->getMessage(), 503);
+            }
+
+            $item = MealPlanTemplateItem::create([
+                'meal_plan_template_id' => $template->id,
+                'day_key'               => $request->day_key,
+                'meal_type'             => $request->meal_type,
+                'fatsecret_recipe_id'   => $fsRecipe->fatsecret_recipe_id,
+                'calories'              => $fsRecipe->calories,
+                'protein'               => $fsRecipe->protein,
+                'fats'                  => $fsRecipe->fat,
+                'carbs'                 => $fsRecipe->carbs,
+            ]);
+        } else {
+            $recipe = Recipe::find($request->recipe_id);
+
+            $item = MealPlanTemplateItem::create([
+                'meal_plan_template_id' => $template->id,
+                'day_key'               => $request->day_key,
+                'meal_type'             => $request->meal_type,
+                'recipe_id'             => $recipe->id,
+                'calories'              => $recipe->calories,
+                'protein'               => $recipe->protein,
+                'fats'                  => $recipe->fats,
+                'carbs'                 => $recipe->carbs,
+            ]);
+        }
 
         return json_custom_response([
             'message' => 'Item added.',
@@ -180,11 +210,16 @@ class MealPlanTemplateController extends Controller
             }
 
             foreach ($plan->dailyPlanRecipe as $recipeEntry) {
+                // FIX (2026-09-20): antes solo copiaba recipe_id -- una
+                // comida de FatSecret (recipe_id null) rompia el INSERT
+                // entero (recipe_id era NOT NULL), ver migracion
+                // 2026_09_20_100000_add_fatsecret_recipe_id_to_meal_plan_template_items_table.
                 MealPlanTemplateItem::create([
                     'meal_plan_template_id' => $template->id,
                     'day_key'               => $dayKey,
                     'meal_type'             => $recipeEntry->meal_type,
                     'recipe_id'             => $recipeEntry->recipe_id,
+                    'fatsecret_recipe_id'   => $recipeEntry->fatsecret_recipe_id,
                     'calories'              => $recipeEntry->calories,
                     'protein'               => $recipeEntry->protein,
                     'fats'                  => $recipeEntry->fats,
@@ -233,6 +268,7 @@ class MealPlanTemplateController extends Controller
                     DailyPlanRecipe::create([
                         'daily_plan_id'       => $dailyPlan->id,
                         'recipe_id'           => $item->recipe_id,
+                        'fatsecret_recipe_id' => $item->fatsecret_recipe_id,
                         'meal_type'           => $item->meal_type,
                         'calories'            => $item->calories,
                         'protein'             => $item->protein,
@@ -262,6 +298,7 @@ class MealPlanTemplateController extends Controller
                     DailyPlanRecipe::create([
                         'daily_plan_id'       => $dailyPlan->id,
                         'recipe_id'           => $item->recipe_id,
+                        'fatsecret_recipe_id' => $item->fatsecret_recipe_id,
                         'meal_type'           => $item->meal_type,
                         'calories'            => $item->calories,
                         'protein'             => $item->protein,

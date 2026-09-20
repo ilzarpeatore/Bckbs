@@ -2,11 +2,13 @@
 
 namespace App\Http\Resources;
 
-use App\Models\FatSecretRecipeCache;
+use App\Http\Resources\Concerns\NormalizesFatSecretRecipePreview;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 class DailyPlanRecipeResource extends JsonResource
 {
+    use NormalizesFatSecretRecipePreview;
+
     /**
      * Transform the resource into an array.
      *
@@ -56,21 +58,12 @@ class DailyPlanRecipeResource extends JsonResource
             return (new RecipePlanResource($this->recipe))->resolve();
         }
 
-        if (!$this->fatsecret_recipe_id) {
-            return null;
-        }
-
-        $cached = FatSecretRecipeCache::find($this->fatsecret_recipe_id);
-
-        return [
-            'id'           => $this->fatsecret_recipe_id,
-            'source'       => 'fatsecret',
-            'title'        => $cached->name ?? null,
-            'recipe_image' => $cached->image_url ?? null,
-            'calories'     => round($this->calories),
-            'protein'      => round($this->protein),
-            'fats'         => round($this->fats),
-            'carbs'        => round($this->carbs),
-        ];
+        return $this->resolveFatSecretRecipePreview(
+            $this->fatsecret_recipe_id,
+            $this->calories,
+            $this->protein,
+            $this->fats,
+            $this->carbs,
+        );
     }
 }
