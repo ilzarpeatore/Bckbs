@@ -856,6 +856,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::delete('meal-plan-template-items/{itemId}', [MealPlanTemplateController::class, 'removeItem']);
     Route::post('meal-plan-templates/{id}/export-from-calendar', [MealPlanTemplateController::class, 'exportFromCalendar']);
     Route::post('meal-plan-templates/{id}/import-to-calendar', [MealPlanTemplateController::class, 'importToCalendar']);
+    Route::get('users/{userId}/meal-plan-template-assignments', [MealPlanTemplateController::class, 'assignmentsForUser']);
 
     // Settings
     Route::get('settings', [SettingController::class, 'getSettings']);

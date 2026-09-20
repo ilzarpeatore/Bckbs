@@ -9,7 +9,12 @@ class DailyPlan extends Model
 {
     use DailyPlanTrait;
     
-    protected $fillable = [ 'user_id', 'date', 'eaten', 'left_eat', 'daily_kcal', 'calories', 'protein', 'fats', 'carbs', 'daily_plan', 'meal_type' ];
+    protected $fillable = [ 'user_id', 'source_meal_plan_template_id', 'date', 'eaten', 'left_eat', 'daily_kcal', 'calories', 'protein', 'fats', 'carbs', 'daily_plan', 'meal_type' ];
+
+    public function sourceMealPlanTemplate()
+    {
+        return $this->belongsTo(MealPlanTemplate::class, 'source_meal_plan_template_id');
+    }
 
      protected $casts = [
         'user_id'   => 'integer',

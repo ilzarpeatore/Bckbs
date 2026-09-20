@@ -42,6 +42,30 @@ class MealPlanTemplateController extends Controller
         ]);
     }
 
+    /**
+     * Unificación Diet -> MealPlanTemplate (2026-09-20): antes de esto no
+     * existía ninguna forma de saber qué plantillas tenía asignadas un
+     * cliente -- import-to-calendar() solo copiaba items a daily_plans/
+     * daily_plan_recipes sin dejar rastro de qué plantilla los originó. Con
+     * daily_plans.source_meal_plan_template_id (migración
+     * 2026_09_20_160000) ya seteado por importToCalendar(), esto agrupa por
+     * plantilla y da el rango de fechas real -- lo usa la pestaña "Dietas
+     * asignadas" del admin en vez del sistema viejo Diet/AssignDiet.
+     */
+    public function assignmentsForUser($userId)
+    {
+        $rows = \DB::table('daily_plans')
+            ->join('meal_plan_templates', 'meal_plan_templates.id', '=', 'daily_plans.source_meal_plan_template_id')
+            ->where('daily_plans.user_id', $userId)
+            ->whereNotNull('daily_plans.source_meal_plan_template_id')
+            ->selectRaw('meal_plan_templates.id as template_id, meal_plan_templates.title, meal_plan_templates.type, MIN(daily_plans.date) as start_date, MAX(daily_plans.date) as end_date, COUNT(*) as days_count')
+            ->groupBy('meal_plan_templates.id', 'meal_plan_templates.title', 'meal_plan_templates.type')
+            ->orderByDesc('start_date')
+            ->get();
+
+        return json_custom_response(['data' => $rows]);
+    }
+
     public function store(Request $request)
     {
         $request->validate([
@@ -277,6 +301,7 @@ class MealPlanTemplateController extends Controller
             foreach ($itemsByOffset as $dayKey => $items) {
                 $date = $start->copy()->addDays((int) $dayKey)->toDateString();
                 $dailyPlan = DailyPlan::findOrCreateDailyPlan($user, $date);
+                $dailyPlan->update(['source_meal_plan_template_id' => $template->id]);
 
                 foreach ($items as $item) {
                     DailyPlanRecipe::create([
@@ -307,6 +332,7 @@ class MealPlanTemplateController extends Controller
                 }
 
                 $dailyPlan = DailyPlan::findOrCreateDailyPlan($user, $day->toDateString());
+                $dailyPlan->update(['source_meal_plan_template_id' => $template->id]);
 
                 foreach ($items as $item) {
                     DailyPlanRecipe::create([
