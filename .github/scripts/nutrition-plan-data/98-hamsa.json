@@ -19,7 +19,13 @@
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
       "recipe_type_hint": "breakfast",
-      "queries": ["eggs cheese high protein breakfast", "greek yogurt oats protein breakfast"]
+      "relevance_keywords": ["egg", "cheese", "yogurt", "oat"],
+      "queries": [
+        "eggs cheese high protein breakfast",
+        "greek yogurt oats protein breakfast",
+        "egg cheese breakfast casserole",
+        "cottage cheese eggs high protein breakfast"
+      ]
     },
     {
       "meal_type": "lunch",
@@ -30,7 +36,13 @@
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
       "recipe_type_hint": "main",
-      "queries": ["grilled chicken high protein", "baked salmon high protein"]
+      "relevance_keywords": ["chicken", "salmon"],
+      "queries": [
+        "grilled chicken high protein",
+        "baked salmon high protein",
+        "roasted chicken breast high protein",
+        "salmon fillet high protein dinner"
+      ]
     },
     {
       "meal_type": "dinner",
@@ -41,7 +53,13 @@
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
       "recipe_type_hint": "main",
-      "queries": ["turkey breast high protein dinner", "beef high protein dinner"]
+      "relevance_keywords": ["turkey", "beef"],
+      "queries": [
+        "turkey breast high protein dinner",
+        "beef high protein dinner",
+        "ground turkey high protein",
+        "roast beef high protein dinner"
+      ]
     },
     {
       "meal_type": "snacks",
@@ -51,7 +69,8 @@
       "protein_pct": [30, 50],
       "fat_pct": [10, 30],
       "carb_pct": [30, 50],
-      "queries": ["tuna protein snack", "greek yogurt protein snack"]
+      "relevance_keywords": ["tuna", "yogurt"],
+      "queries": ["tuna protein snack", "greek yogurt protein snack", "tuna salad high protein", "yogurt berries protein snack"]
     }
   ]
 }
