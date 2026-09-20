@@ -30,7 +30,20 @@ if (!dataPath) {
 const fs = await import('node:fs/promises');
 const plan = JSON.parse(await fs.readFile(dataPath, 'utf8'));
 
-async function api(method, path, body) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// El grupo admin de Bckbs usa el limiter 'api' por defecto de Laravel:
+// 60 req/min por usuario (RouteServiceProvider::configureRateLimiting()).
+// Se espacian las llamadas y se reintenta con backoff ante un 429 real,
+// en vez de disparar todo en ráfaga (lo que rompió el primer dry-run real).
+const MIN_GAP_MS = 1100;
+let lastCallAt = 0;
+
+async function api(method, path, body, attempt = 1) {
+  const wait = MIN_GAP_MS - (Date.now() - lastCallAt);
+  if (wait > 0) await sleep(wait);
+  lastCallAt = Date.now();
+
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
@@ -40,6 +53,14 @@ async function api(method, path, body) {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
+
+  if (res.status === 429 && attempt <= 5) {
+    const retryAfter = Number(res.headers.get('retry-after')) || 10 * attempt;
+    console.warn(`  (429 Too Many Attempts, esperando ${retryAfter}s antes de reintentar -- intento ${attempt}/5)`);
+    await sleep(retryAfter * 1000);
+    return api(method, path, body, attempt + 1);
+  }
+
   const json = await res.json().catch(() => null);
   if (!res.ok) {
     throw new Error(`${method} ${path} -> HTTP ${res.status}: ${JSON.stringify(json)}`);
