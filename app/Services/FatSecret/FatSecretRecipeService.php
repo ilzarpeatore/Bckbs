@@ -3,6 +3,7 @@
 namespace App\Services\FatSecret;
 
 use App\Models\FatSecretRecipeCache;
+use App\Services\Translation\DeepLTranslationService;
 
 /**
  * Recetas de FatSecret servidas SIEMPRE en vivo/cache-aside de corta
@@ -23,8 +24,10 @@ class FatSecretRecipeService
     private const RECIPE_SEARCH_METHOD = 'recipes.search.v3';
     private const RECIPE_GET_METHOD = 'recipe.get.v2';
 
-    public function __construct(private readonly FatSecretClient $client)
-    {
+    public function __construct(
+        private readonly FatSecretClient $client,
+        private readonly DeepLTranslationService $translator,
+    ) {
     }
 
     /**
@@ -90,17 +93,21 @@ class FatSecretRecipeService
 
         $recipe = $data['recipe'] ?? [];
 
-        $directions = array_map(
+        $nameEn = $recipe['recipe_name'] ?? '';
+
+        $directionsEn = array_map(
             fn (array $d) => $d['direction_description'],
             $this->normalizeList($recipe['directions']['direction'] ?? [])
         );
 
-        $ingredients = array_map(fn (array $i) => [
+        $ingredientsEn = array_map(fn (array $i) => [
             'description' => $i['ingredient_description'] ?? null,
             'food_id' => isset($i['food_id']) ? (int) $i['food_id'] : null,
             'number_of_units' => isset($i['number_of_units']) ? (float) $i['number_of_units'] : null,
             'measurement_description' => $i['measurement_description'] ?? null,
         ], $this->normalizeList($recipe['ingredients']['ingredient'] ?? []));
+
+        [$name, $directions, $ingredients, $isTranslated] = $this->translateRecipeContent($nameEn, $directionsEn, $ingredientsEn);
 
         $servingSizes = $this->normalizeList($recipe['serving_sizes']['serving'] ?? []);
         $mainServing = $servingSizes[0] ?? [];
@@ -110,7 +117,8 @@ class FatSecretRecipeService
         return FatSecretRecipeCache::updateOrCreate(
             ['fatsecret_recipe_id' => $recipeId],
             [
-                'name' => $recipe['recipe_name'] ?? '',
+                'name' => $name,
+                'name_en' => $nameEn,
                 'image_url' => $images[0] ?? null,
                 'calories' => (float) ($mainServing['calories'] ?? 0),
                 'protein' => (float) ($mainServing['protein'] ?? 0),
@@ -120,10 +128,52 @@ class FatSecretRecipeService
                 'preparation_time_min' => isset($recipe['preparation_time_min']) ? (int) $recipe['preparation_time_min'] : null,
                 'cooking_time_min' => isset($recipe['cooking_time_min']) ? (int) $recipe['cooking_time_min'] : null,
                 'directions' => $directions,
+                'directions_en' => $directionsEn,
                 'ingredients' => $ingredients,
+                'ingredients_en' => $ingredientsEn,
+                'is_translated' => $isTranslated,
                 'fetched_at' => now(),
             ]
         );
+    }
+
+    /**
+     * Traduce nombre + pasos + descripciones de ingrediente en UNA sola
+     * llamada a DeepL (permiso explícito de FatSecret, 2026-09-20 -- ver
+     * docs/FATSECRET_INTEGRATION.md sección 10). Deliberadamente NO se
+     * traduce nada en search() -- solo el detalle que entra en el cache,
+     * decisión de coste/latencia (search puede devolver hasta 50 resultados
+     * por llamada).
+     *
+     * @param  array<int, array{description: ?string, food_id: ?int, number_of_units: ?float, measurement_description: ?string}>  $ingredientsEn
+     * @return array{0: string, 1: array<int, string>, 2: array<int, array>, 3: bool}
+     */
+    private function translateRecipeContent(string $nameEn, array $directionsEn, array $ingredientsEn): array
+    {
+        // Las descripciones de ingrediente pueden venir null -- se excluyen
+        // del lote a traducir y se reinsertan tal cual en su posición
+        // original, en vez de mandarle un string vacío a DeepL.
+        $ingredientDescriptions = array_map(fn (array $i) => $i['description'], $ingredientsEn);
+        $translatableIndexes = array_keys(array_filter($ingredientDescriptions, fn ($d) => $d !== null && $d !== ''));
+
+        $batch = array_merge(
+            [$nameEn],
+            $directionsEn,
+            array_map(fn ($i) => $ingredientDescriptions[$i], $translatableIndexes)
+        );
+
+        $translated = $this->translator->translateMany($batch);
+
+        $name = $translated[0] ?? $nameEn;
+        $directions = array_slice($translated, 1, count($directionsEn));
+
+        $ingredients = $ingredientsEn;
+        $translatedDescriptionsOffset = 1 + count($directionsEn);
+        foreach ($translatableIndexes as $position => $ingredientIndex) {
+            $ingredients[$ingredientIndex]['description'] = $translated[$translatedDescriptionsOffset + $position] ?? $ingredientDescriptions[$ingredientIndex];
+        }
+
+        return [$name, $directions, $ingredients, (bool) config('services.deepl.api_key')];
     }
 
     private function normalizeList(mixed $value): array

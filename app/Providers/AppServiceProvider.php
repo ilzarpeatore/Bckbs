@@ -8,6 +8,7 @@ use App\Models\PainReport;
 use App\Observers\ClientExerciseLogObserver;
 use App\Observers\PainReportObserver;
 use App\Services\FatSecret\FatSecretClient;
+use App\Services\Translation\DeepLTranslationService;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Session;
 use Illuminate\Support\ServiceProvider;
@@ -30,6 +31,13 @@ class AppServiceProvider extends ServiceProvider
                 config('services.fatsecret.client_id'),
                 config('services.fatsecret.client_secret'),
             );
+        });
+
+        // DeepLTranslationService (2026-09-21, ver docs/FATSECRET_INTEGRATION.md
+        // sección 10) -- api_key puede ser null (sin configurar), el propio
+        // servicio degrada sirviendo el texto en inglés sin traducir en ese caso.
+        $this->app->singleton(DeepLTranslationService::class, function () {
+            return new DeepLTranslationService(config('services.deepl.api_key'));
         });
     }
 

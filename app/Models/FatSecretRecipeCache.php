@@ -20,10 +20,14 @@ class FatSecretRecipeCache extends Model
     protected $primaryKey = 'fatsecret_recipe_id';
     public $incrementing = false;
 
+    // name/directions/ingredients contienen el texto YA TRADUCIDO (o el
+    // original en inglés si la traducción no está disponible/falla) --
+    // *_en guarda siempre el inglés real de FatSecret aparte, ver
+    // docs/FATSECRET_INTEGRATION.md sección 10 y FatSecretRecipeService.
     protected $fillable = [
-        'fatsecret_recipe_id', 'name', 'image_url', 'calories', 'protein', 'fat', 'carbs',
+        'fatsecret_recipe_id', 'name', 'name_en', 'image_url', 'calories', 'protein', 'fat', 'carbs',
         'number_of_servings', 'preparation_time_min', 'cooking_time_min',
-        'directions', 'ingredients', 'fetched_at',
+        'directions', 'directions_en', 'ingredients', 'ingredients_en', 'is_translated', 'fetched_at',
     ];
 
     protected $casts = [
@@ -36,7 +40,10 @@ class FatSecretRecipeCache extends Model
         'preparation_time_min' => 'integer',
         'cooking_time_min'     => 'integer',
         'directions'           => 'array',
+        'directions_en'        => 'array',
         'ingredients'          => 'array',
+        'ingredients_en'       => 'array',
+        'is_translated'        => 'boolean',
         'fetched_at'           => 'datetime',
     ];
 

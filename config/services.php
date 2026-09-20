@@ -44,6 +44,14 @@ return [
         'client_secret' => env('FATSECRET_CLIENT_SECRET'),
     ],
 
+    // Traducción de recetas de FatSecret (2026-09-21, ver
+    // docs/FATSECRET_INTEGRATION.md sección 10) -- una key DeepL Free
+    // termina en ":fx" y usa el host api-free.deepl.com; una key Pro no
+    // lleva ese sufijo y usa api.deepl.com.
+    'deepl' => [
+        'api_key' => env('DEEPL_API_KEY'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
