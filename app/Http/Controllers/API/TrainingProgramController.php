@@ -58,7 +58,12 @@ class TrainingProgramController extends Controller
             }
         }
 
-        $program = $program->orderByDesc('fecha_inicio')->paginate($per_page);
+        // FIX (pedido explícito 2026-09-20): ordenaba por fecha_inicio, un
+        // campo editable por el coach -- cambiar la fecha de inicio de un
+        // programa (o cualquier edición que la toque) lo reordenaba en la
+        // lista. created_at nunca cambia al editar (Eloquent solo actualiza
+        // updated_at en un save()), así que el orden ahora es estable.
+        $program = $program->orderByDesc('created_at')->paginate($per_page);
 
         $response = [
             'pagination' => json_pagination_response($program),
