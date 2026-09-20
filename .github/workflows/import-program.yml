@@ -1,0 +1,46 @@
+name: Import Training Program (Excel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      file_base64:
+        description: 'Contenido del .xlsx codificado en base64'
+        required: true
+      file_name:
+        description: 'Nombre de archivo, ej. M1-Be_Stronger_Macrociclo2.xlsx'
+        required: true
+      dry_run:
+        description: 'true = solo vista previa (--dry-run), false = importa de verdad'
+        required: true
+        default: 'true'
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Subir y ejecutar import en la VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          FILE_B64: ${{ inputs.file_base64 }}
+          FILE_NAME: ${{ inputs.file_name }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: FILE_B64,FILE_NAME,DRY_RUN
+          script: |
+            set -e
+            cd /var/www/testapp
+            mkdir -p storage/app/program-imports
+            echo "$FILE_B64" | base64 -d > "storage/app/program-imports/$FILE_NAME"
+            echo "=== archivo recibido ==="
+            ls -la "storage/app/program-imports/$FILE_NAME"
+            echo "=== programs:import (dry_run=$DRY_RUN) ==="
+            if [ "$DRY_RUN" = "true" ]; then
+              php artisan programs:import excel "storage/app/program-imports/$FILE_NAME" --dry-run --json
+            else
+              php artisan programs:import excel "storage/app/program-imports/$FILE_NAME" --json
+              echo "=== programs:check-integrity ==="
+              php artisan programs:check-integrity
+            fi
