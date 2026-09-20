@@ -77,13 +77,39 @@ function recipeText(r) {
   return `${r.name || ''} ${r.description || ''}`;
 }
 
-async function searchCandidates(slot) {
+// Deprioriza (no excluye) postres/dulces para que no acaben en comidas
+// principales solo por caer en el rango de kcal -- el primer dry-run real
+// asignó una "Keto Chocolate Chip Mug Cookie" a la comida de mediodía.
+const JUNK_KEYWORDS = ['cookie', 'cake', 'brownie', 'candy', 'donut', 'doughnut', 'pie', 'muffin', 'dessert', 'frosting', 'icing'];
+
+let recipeTypesCache = null;
+async function fetchRecipeTypes() {
+  if (recipeTypesCache) return recipeTypesCache;
+  try {
+    const res = await api('GET', '/admin/fatsecret/recipe-types');
+    const raw = res.data ?? [];
+    recipeTypesCache = raw.map((t) => (typeof t === 'string' ? t : t.recipe_type_name || t.name || String(t)));
+    console.log(`  (tipos de receta reales disponibles: ${recipeTypesCache.join(', ')})`);
+  } catch (e) {
+    console.warn(`  no se pudo obtener recipe-types (${e.message}) -- se busca sin filtro de tipo.`);
+    recipeTypesCache = [];
+  }
+  return recipeTypesCache;
+}
+
+function resolveRecipeType(hint, types) {
+  if (!hint) return null;
+  const match = types.find((t) => t.toLowerCase().includes(hint.toLowerCase()));
+  return match || null;
+}
+
+async function searchCandidates(slot, resolvedType) {
   const pool = new Map(); // fatsecret_recipe_id -> candidate
   for (const q of slot.queries) {
-    let results = await runSearch(q, slot, false);
+    let results = await runSearch(q, slot, false, resolvedType);
     if (results.length === 0) {
-      console.warn(`  (sin resultados con filtros estrictos para "${q}", relajando rango de kcal)`);
-      results = await runSearch(q, slot, true);
+      console.warn(`  (sin resultados con filtros estrictos para "${q}", relajando rango de kcal y quitando el filtro de tipo)`);
+      results = await runSearch(q, slot, true, null);
     }
     for (const r of results) {
       if (!pool.has(r.fatsecret_recipe_id)) pool.set(r.fatsecret_recipe_id, r);
@@ -92,7 +118,7 @@ async function searchCandidates(slot) {
   return [...pool.values()];
 }
 
-async function runSearch(q, slot, relaxed) {
+async function runSearch(q, slot, relaxed, resolvedType) {
   const kcalMargin = relaxed ? Math.max(slot.kcal_margin * 1.5, 0.3) : slot.kcal_margin;
   const params = new URLSearchParams({
     q,
@@ -111,6 +137,7 @@ async function runSearch(q, slot, relaxed) {
     params.set('fat_percentage_to', String(slot.fat_pct[1]));
     params.set('carb_percentage_from', String(slot.carb_pct[0]));
     params.set('carb_percentage_to', String(slot.carb_pct[1]));
+    if (resolvedType) params.set('recipe_types[]', resolvedType);
   }
   const res = await api('GET', `/admin/fatsecret/recipes/search?${params.toString()}`);
   return res.data?.results ?? [];
@@ -125,9 +152,13 @@ async function verifyIngredients(fatsecretRecipeId) {
   return { detail, ingredientsText };
 }
 
-async function pickForSlot(slot) {
+async function pickForSlot(slot, types) {
   console.log(`\n=== Slot: ${slot.meal_type} (${slot.label}) ===`);
-  const candidates = await searchCandidates(slot);
+  const resolvedType = resolveRecipeType(slot.recipe_type_hint, types);
+  if (slot.recipe_type_hint) {
+    console.log(resolvedType ? `  filtrando por recipe_types="${resolvedType}"` : `  aviso: sin coincidencia real para el hint "${slot.recipe_type_hint}", se busca sin filtro de tipo`);
+  }
+  const candidates = await searchCandidates(slot, resolvedType);
   console.log(`  ${candidates.length} candidatos encontrados (pre-filtro nombre/descripcion).`);
 
   const nameFiltered = candidates.filter((c) => !containsAny(recipeText(c), plan.hard_exclude_keywords));
@@ -145,7 +176,13 @@ async function pickForSlot(slot) {
         console.log(`  descartado (cerdo/derivados en ingredientes): ${c.name} [${c.fatsecret_recipe_id}]`);
         continue;
       }
-      const hasSoftAvoid = containsAny(recipeText(c) + ' ' + ingredientsText, plan.soft_avoid_keywords);
+      const fullText = recipeText(c) + ' ' + ingredientsText;
+      const hasSoftAvoid = containsAny(fullText, plan.soft_avoid_keywords);
+      const isJunk = slot.meal_type !== 'snacks' && containsAny(fullText, JUNK_KEYWORDS);
+      if (isJunk) {
+        console.log(`  descartado (dulce/postre fuera de lugar en ${slot.meal_type}): ${c.name} [${c.fatsecret_recipe_id}]`);
+        continue;
+      }
       verified.push({ ...c, hasSoftAvoid, ingredientsText });
     } catch (e) {
       console.warn(`  no se pudo verificar detalle de ${c.fatsecret_recipe_id}: ${e.message}`);
@@ -160,9 +197,11 @@ async function pickForSlot(slot) {
 }
 
 async function main() {
+  const types = await fetchRecipeTypes();
+
   const slotPicks = [];
   for (const slot of plan.slots) {
-    const picks = await pickForSlot(slot);
+    const picks = await pickForSlot(slot, types);
     slotPicks.push({ slot, picks });
   }
 
