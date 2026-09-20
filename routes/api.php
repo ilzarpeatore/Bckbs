@@ -899,6 +899,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('training-program-store', [API\TrainingProgramController::class, 'store']);
     Route::post('training-program-update', [API\TrainingProgramController::class, 'update']);
     Route::post('training-program-delete', [API\TrainingProgramController::class, 'destroy']);
+    Route::post('training-program-duplicate', [API\TrainingProgramController::class, 'duplicate']);
     Route::post('training-program-generate-weeks', [API\TrainingProgramController::class, 'generateWeeks']);
     Route::post('training-program-assign-client', [API\TrainingProgramController::class, 'assignClient']);
     Route::post('training-program-remove-assignment', [API\TrainingProgramController::class, 'removeAssignment']);

@@ -200,6 +200,99 @@ class TrainingProgramController extends Controller
         return json_message_response(__('message.save_form', ['form' => 'Training Program']));
     }
 
+    /**
+     * Duplica un programa completo (metadatos + program_day_assignments +
+     * workout_templates/blocks/exercises) como una fila 100% independiente --
+     * pedido explícito 2026-09-20: editar el duplicado no debe mutar el
+     * original. NO basta con copiar training_programs y reapuntar los
+     * program_day_assignments a los MISMOS workout_template_id: dos
+     * training_programs distintos ya pueden compartir fila de
+     * workout_templates hoy (ver stats "templates_reused" del importador,
+     * y el bug real de 2026-09-18 en WorkoutTemplate::cloneStructure() que
+     * resolvió el mismo problema para clientes distintos apuntando al mismo
+     * template) -- por eso cada workout_template del programa se clona
+     * también con cloneStructure(), nunca se reutiliza el id original.
+     *
+     * `workout_id` (arquitectura legacy Workout/WorkoutDay) se copia tal
+     * cual sin clonar su árbol -- verificado 2026-09-20 que las 13 filas
+     * reales de training_programs tienen workout_id=null, así que no hay
+     * caso real que este campo pueda romper hoy; si en el futuro vuelve a
+     * usarse, esta función necesitará también clonar esa rama.
+     *
+     * Nunca copia program_client_assignments -- el duplicado nace sin
+     * asignar a ningún cliente, igual que un programa recién importado.
+     */
+    public function duplicate(Request $request)
+    {
+        $request->validate([
+            'id' => 'required|exists:training_programs,id',
+        ]);
+
+        $original = TrainingProgram::with('dayAssignments.workoutTemplate')
+            ->where('coach_id', auth('sanctum')->id())
+            ->find($request->id);
+
+        if ($original == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Training Program']));
+        }
+
+        DB::beginTransaction();
+        try {
+            $copy = TrainingProgram::create([
+                'title'               => trim(($original->title ?: 'Programa #'.$original->id).' (copia)'),
+                'is_personal'         => false,
+                'personal_client_id'  => null,
+                'workout_id'          => $original->workout_id,
+                'coach_id'            => auth('sanctum')->id(),
+                'client_id'           => null,
+                'num_weeks'           => $original->num_weeks,
+                'fecha_inicio'        => $original->fecha_inicio,
+                'fecha_fin'           => $original->fecha_fin,
+                'activo'              => true,
+                'is_free_accessible'  => $original->is_free_accessible,
+                'billing_plan_id'     => $original->billing_plan_id,
+                'source'              => null,
+                'source_id'           => null,
+            ]);
+
+            // Un mismo workout_template puede repetirse en varios días del
+            // propio programa (ej. "Torso A" en semana 1 y semana 3) -- se
+            // clona una sola vez por template original y se reutiliza esa
+            // copia dentro del NUEVO programa, en vez de crear una copia
+            // distinta por cada fila que lo referenciaba.
+            $clonedTemplateIds = [];
+            foreach ($original->dayAssignments as $dayAssignment) {
+                $newTemplateId = null;
+                if ($dayAssignment->workout_template_id !== null && $dayAssignment->workoutTemplate !== null) {
+                    $originalTemplateId = $dayAssignment->workout_template_id;
+                    if (!isset($clonedTemplateIds[$originalTemplateId])) {
+                        $clonedTemplateIds[$originalTemplateId] = $dayAssignment->workoutTemplate->cloneStructure()->id;
+                    }
+                    $newTemplateId = $clonedTemplateIds[$originalTemplateId];
+                }
+
+                ProgramDayAssignment::create([
+                    'training_program_id' => $copy->id,
+                    'week_number'         => $dayAssignment->week_number,
+                    'day_of_week'         => $dayAssignment->day_of_week,
+                    'workout_template_id' => $newTemplateId,
+                    'scheduled_date'      => null,
+                    'is_deload'           => $dayAssignment->is_deload,
+                ]);
+            }
+
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            return json_message_response('Failed: ' . $e->getMessage(), 500);
+        }
+
+        return json_custom_response([
+            'data'    => $copy,
+            'message' => 'Programa duplicado ("'.$copy->title.'"), sin clientes asignados.',
+        ], 201);
+    }
+
     public function destroy(Request $request)
     {
         $program = TrainingProgram::where('coach_id', auth('sanctum')->id())->find($request->id);
