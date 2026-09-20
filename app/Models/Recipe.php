@@ -14,7 +14,7 @@ class Recipe extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, HasSlug;
 
-    protected $fillable = [ 'title', 'slug', 'preparation_time', 'type', 'meal_type', 'description', 'calories', 'protein', 'fats', 'carbs', 'status', 'is_premium' ];
+    protected $fillable = [ 'title', 'slug', 'preparation_time', 'type', 'meal_type', 'description', 'calories', 'protein', 'fats', 'carbs', 'status', 'is_premium', 'fatsecret_recipe_id' ];
 
     protected $casts = [
         'calories' => 'double',

@@ -3,6 +3,11 @@
 namespace App\Services\FatSecret;
 
 use App\Models\FatSecretRecipeCache;
+use App\Models\Ingredient;
+use App\Models\Recipe;
+use App\Models\RecipeCategoryMapping;
+use App\Models\RecipeIngredient;
+use App\Models\RecipeStep;
 use App\Services\Translation\DeepLTranslationService;
 
 /**
@@ -185,5 +190,92 @@ class FatSecretRecipeService
             return $value;
         }
         return [$value];
+    }
+
+    /**
+     * DECISIÓN DEL USUARIO (2026-09-20): guardar copia permanente en la
+     * biblioteca propia (`recipes`) de cualquier receta de FatSecret usada en
+     * un plan, "por si quisiera modificar algo" -- pese a la reserva legal
+     * documentada en docs/FATSECRET_INTEGRATION.md sección 0 (su ToS solo
+     * permite guardar IDs indefinidamente, el resto del contenido debería
+     * refrescarse cada 24h). Riesgo asumido explícitamente, ver sección 11.
+     *
+     * Idempotente por `recipes.fatsecret_recipe_id` (único) -- si ya se
+     * importó antes, devuelve la Recipe existente sin volver a llamar a
+     * FatSecret ni duplicar filas.
+     *
+     * Usa el contenido YA TRADUCIDO de `getOrRefresh()` (name/directions/
+     * ingredients en español vía DeepL, ver sección 10) -- nunca el `_en`.
+     *
+     * Simplificación deliberada en `recipe_ingredients`: cada línea de
+     * ingrediente de FatSecret es texto libre con cantidad ya incluida (ej.
+     * "2 tazas de queso cheddar rallado"), no un ingrediente genérico
+     * reutilizable con unidad separada -- no hay forma fiable de convertir
+     * "2 tazas"/"1 loncha" a gramos exactos sin inventar una conversión (ver
+     * la misma regla que ya aplica FatSecretFoodService::detail() para
+     * ingredientes sueltos). Por eso cada `Ingredient` creado aquí representa
+     * la línea completa tal cual, con `fatsecret_food_id` a null (no se
+     * reutiliza entre recetas -- si se pusiera aquí, el mismo food_id en dos
+     * recetas distintas violaría el índice único que ya usa el flujo manual
+     * de ingredientes) y macros de línea en 0. Los macros de la RECETA (los
+     * que de verdad importan para el plan) sí son exactos, copiados directos
+     * del total de FatSecret. El coach puede editar cualquier ingrediente a
+     * mano después si quiere precisión línea a línea.
+     */
+    public function importToLibrary(int $fatsecretRecipeId, ?string $mealType = null): Recipe
+    {
+        $existing = Recipe::where('fatsecret_recipe_id', $fatsecretRecipeId)->first();
+        if ($existing) {
+            return $existing;
+        }
+
+        $cache = $this->getOrRefresh($fatsecretRecipeId);
+
+        $recipe = Recipe::create([
+            'title' => $cache->name,
+            'meal_type' => $mealType ? [$mealType] : null,
+            'description' => $cache->name_en !== $cache->name ? "Original (FatSecret, inglés): {$cache->name_en}" : null,
+            'preparation_time' => $cache->preparation_time_min ?? $cache->cooking_time_min,
+            'calories' => $cache->calories,
+            'protein' => $cache->protein,
+            'fats' => $cache->fat,
+            'carbs' => $cache->carbs,
+            'status' => 'active',
+            'fatsecret_recipe_id' => $fatsecretRecipeId,
+        ]);
+
+        foreach ($cache->directions ?? [] as $sequence => $instruction) {
+            RecipeStep::create([
+                'recipe_id' => $recipe->id,
+                'instruction' => $instruction,
+                'sequence' => $sequence,
+            ]);
+        }
+
+        foreach ($cache->ingredients ?? [] as $ing) {
+            $description = $ing['description'] ?? null;
+            if (!$description) {
+                continue;
+            }
+            $ingredient = Ingredient::create([
+                'title' => $description,
+                'status' => 'active',
+                // fatsecret_food_id deliberadamente null aquí, ver docblock de este método.
+            ]);
+            RecipeIngredient::create([
+                'recipe_id' => $recipe->id,
+                'ingredient_id' => $ingredient->id,
+                'quantity' => $ing['number_of_units'] ?? 1,
+            ]);
+        }
+
+        if ($mealType && ($categoryId = config('macro-nutrient.MEAL_TYPE_CATEGORY.' . $mealType))) {
+            RecipeCategoryMapping::create([
+                'recipe_id' => $recipe->id,
+                'recipe_category_id' => $categoryId,
+            ]);
+        }
+
+        return $recipe;
     }
 }

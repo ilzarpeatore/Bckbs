@@ -102,8 +102,21 @@ class MealPlanTemplateController extends Controller
         }
 
         if ($request->filled('fatsecret_recipe_id')) {
+            // DECISIÓN DEL USUARIO (2026-09-20): además de referenciar la
+            // receta de FatSecret, se guarda una copia permanente en la
+            // biblioteca propia (recipes) -- ver
+            // FatSecretRecipeService::importToLibrary() para el porqué y las
+            // simplificaciones asumidas. recipe_id queda relleno con esa
+            // copia (MealPlanTemplateItemResource ya prioriza recipe_id
+            // sobre fatsecret_recipe_id, así que el coach ve y edita la
+            // receta de su propia biblioteca, no la ficha en vivo de
+            // FatSecret) y fatsecret_recipe_id se conserva solo como
+            // referencia de origen/idempotencia.
             try {
-                $fsRecipe = $this->fatSecretRecipeService->getOrRefresh((int) $request->fatsecret_recipe_id);
+                $recipe = $this->fatSecretRecipeService->importToLibrary(
+                    (int) $request->fatsecret_recipe_id,
+                    $request->meal_type
+                );
             } catch (FatSecretUnavailableException $e) {
                 return json_message_response($e->getMessage(), 503);
             }
@@ -112,11 +125,12 @@ class MealPlanTemplateController extends Controller
                 'meal_plan_template_id' => $template->id,
                 'day_key'               => $request->day_key,
                 'meal_type'             => $request->meal_type,
-                'fatsecret_recipe_id'   => $fsRecipe->fatsecret_recipe_id,
-                'calories'              => $fsRecipe->calories,
-                'protein'               => $fsRecipe->protein,
-                'fats'                  => $fsRecipe->fat,
-                'carbs'                 => $fsRecipe->carbs,
+                'recipe_id'             => $recipe->id,
+                'fatsecret_recipe_id'   => (int) $request->fatsecret_recipe_id,
+                'calories'              => $recipe->calories,
+                'protein'               => $recipe->protein,
+                'fats'                  => $recipe->fats,
+                'carbs'                 => $recipe->carbs,
             ]);
         } else {
             $recipe = Recipe::find($request->recipe_id);
