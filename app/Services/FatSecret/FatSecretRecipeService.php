@@ -213,14 +213,22 @@ class FatSecretRecipeService
             'fatPercentageTo' => 'fat_percentage.to',
             'prepTimeFrom' => 'prep_time.from',
             'prepTimeTo' => 'prep_time.to',
-            'recipeTypesMatchAll' => 'recipe_types_matchall',
-            'mustHaveImages' => 'must_have_images',
         ];
 
         $params = [];
         foreach ($map as $key => $apiParam) {
             if (isset($filters[$key])) {
                 $params[$apiParam] = $filters[$key];
+            }
+        }
+
+        // BUG REAL confirmado en vivo (2026-09-20): FatSecret exige el
+        // string literal "true"/"false" para sus parámetros booleanos --
+        // "1"/"0" (lo que produce el cast `boolean` de Laravel/PHP) lo
+        // ignora en silencio y no filtra nada, sin devolver error.
+        foreach (['recipeTypesMatchAll' => 'recipe_types_matchall', 'mustHaveImages' => 'must_have_images'] as $key => $apiParam) {
+            if (isset($filters[$key])) {
+                $params[$apiParam] = filter_var($filters[$key], FILTER_VALIDATE_BOOLEAN) ? 'true' : 'false';
             }
         }
 
