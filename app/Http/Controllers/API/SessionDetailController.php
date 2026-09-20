@@ -331,7 +331,17 @@ class SessionDetailController extends Controller
                         null,
                         $ex->exercise,
                         $effective_prescribed,
-                        $override->notes ?? null,
+                        // BUG REAL (reportado 2026-09-20): esto era solo
+                        // "$override->notes ?? null" -- sin ningún override
+                        // todavía (el caso normal justo después de asignar
+                        // un programa), la nota que el coach escribió al
+                        // construir la plantilla base ($ex->notes) se
+                        // perdía por completo, tanto en esta vista de admin
+                        // como en la app del cliente (getMySessionDetail()
+                        // reusa este mismo método). El override, cuando
+                        // existe, sigue ganando -- es la anotación
+                        // específica de ESTE cliente para ESTA sesión.
+                        $override->notes ?? $ex->notes,
                         $enabled_metrics,
                         $logs->get($ex->id),
                         false
@@ -346,9 +356,17 @@ class SessionDetailController extends Controller
                 ->map($renderAddition);
 
             return [
-                'block_id'  => $block->id,
-                'title'     => $block->title,
-                'exercises' => $templateExercises->concat($additions)->values(),
+                'block_id'     => $block->id,
+                'title'        => $block->title,
+                // BUG REAL (reportado 2026-09-20, mismo caso que 'notes' de
+                // ejercicio arriba): esta clave no existía en la respuesta,
+                // así que las instrucciones del bloque que el coach escribió
+                // en la plantilla base (WorkoutTemplateBlock.instructions,
+                // ver WorkoutTemplateViewer.tsx "Instrucciones / notas del
+                // bloque") nunca llegaban ni al panel admin ni a la app del
+                // cliente para ningún día de programa asignado.
+                'instructions' => $block->instructions,
+                'exercises'    => $templateExercises->concat($additions)->values(),
             ];
         });
 
@@ -360,6 +378,7 @@ class SessionDetailController extends Controller
                 'block_id'                  => null,
                 'client_block_override_id'  => $block->id,
                 'title'                     => $block->title,
+                'instructions'              => $block->instructions,
                 'is_addition'               => true,
                 'exercises'                 => $block->exercises->sortBy('sequence')->map($renderAddition)->values(),
             ];
