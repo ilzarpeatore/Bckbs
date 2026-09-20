@@ -53,4 +53,15 @@ class FatSecretController extends Controller
 
         return json_custom_response(['data' => $recipe]);
     }
+
+    public function recipeTypes()
+    {
+        try {
+            $types = $this->recipeService->listRecipeTypes();
+        } catch (FatSecretUnavailableException $e) {
+            return json_message_response($e->getMessage(), 503);
+        }
+
+        return json_custom_response(['data' => $types]);
+    }
 }

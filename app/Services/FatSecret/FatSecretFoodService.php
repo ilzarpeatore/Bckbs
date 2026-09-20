@@ -15,10 +15,20 @@ class FatSecretFoodService
     }
 
     /**
-     * Lista simplificada para el autocompletado del admin -- food_id/nombre/
-     * tipo únicamente, sin nutrición todavía (se pide en detail()).
+     * Lista para el autocompletado del admin -- food_id/nombre/tipo +
+     * un PREVIEW de nutrición ya parseado de `food_description` (ver
+     * parseFoodDescription()), para no obligar a abrir cada resultado antes
+     * de decidir cuál mirar. Es solo un adelanto visual -- el cálculo real
+     * que se guarda sigue saliendo de `detail()` (misma ración que reporta
+     * FatSecret con más precisión, no la del texto parseado).
      *
-     * @return array<int, array{food_id:int, food_name:string, food_type:string, brand_name:?string}>
+     * NOTA (2026-09-20): `foods.search.v2` a `v5` exigen scope `premier`
+     * (probado en real, `Missing scope: scope 'premier'` en las 4) -- esta
+     * cuenta Basic solo puede usar la v1 sin versión, que NO trae nutrición
+     * estructurada por alimento (a diferencia de `recipes.search.v3`, que sí
+     * la trae). `food_description` es lo único aprovechable sin Premier.
+     *
+     * @return array<int, array{food_id:int, food_name:string, food_type:string, brand_name:?string, nutrition_preview: ?array{serving_description:string, calories:float, protein:float, fat:float, carbs:float}}>
      */
     public function search(string $query, string $region = 'US'): array
     {
@@ -37,7 +47,40 @@ class FatSecretFoodService
             'food_name' => $f['food_name'],
             'food_type' => $f['food_type'] ?? 'Generic',
             'brand_name' => $f['brand_name'] ?? null,
+            'nutrition_preview' => $this->parseFoodDescription($f['food_description'] ?? ''),
         ], $foods);
+    }
+
+    /**
+     * `food_description` de `foods.search` v1 sigue SIEMPRE el mismo
+     * formato de FatSecret: "Per {cantidad}{unidad} - Calories: {n}kcal |
+     * Fat: {n}g | Carbs: {n}g | Protein: {n}g" (verificado contra 5
+     * resultados reales, formato consistente en genéricos y de marca,
+     * unidades vistas: g/oz). Si el formato cambiara o no calzara, devuelve
+     * null -- nunca debe romper el listado de búsqueda por un parseo
+     * fallido, es solo un preview visual.
+     *
+     * @return ?array{serving_description:string, calories:float, protein:float, fat:float, carbs:float}
+     */
+    private function parseFoodDescription(string $description): ?array
+    {
+        $matched = preg_match(
+            '/^Per\s+([\d.,]+\s*\w+)\s*-\s*Calories:\s*([\d.]+)\s*kcal\s*\|\s*Fat:\s*([\d.]+)\s*g\s*\|\s*Carbs:\s*([\d.]+)\s*g\s*\|\s*Protein:\s*([\d.]+)\s*g/i',
+            $description,
+            $m
+        );
+
+        if (!$matched) {
+            return null;
+        }
+
+        return [
+            'serving_description' => trim($m[1]),
+            'calories' => (float) $m[2],
+            'fat' => (float) $m[3],
+            'carbs' => (float) $m[4],
+            'protein' => (float) $m[5],
+        ];
     }
 
     /**

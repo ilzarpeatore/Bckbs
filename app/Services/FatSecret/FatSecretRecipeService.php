@@ -9,6 +9,7 @@ use App\Models\RecipeCategoryMapping;
 use App\Models\RecipeIngredient;
 use App\Models\RecipeStep;
 use App\Services\Translation\DeepLTranslationService;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Recetas de FatSecret servidas SIEMPRE en vivo/cache-aside de corta
@@ -83,6 +84,27 @@ class FatSecretRecipeService
             'total_results' => (int) ($container['total_results'] ?? count($results)),
             'page_number' => (int) ($container['page_number'] ?? $page),
         ];
+    }
+
+    /**
+     * Lista fija de tipos de receta de FatSecret (Appetizer, Main Dish,
+     * Breakfast...) -- verificado en real que `recipe_types.get` SÍ funciona
+     * en plan Basic (a diferencia de `foods.search` v2+, que exige
+     * `premier`). Usado para poblar el selector real del filtro
+     * `recipeTypes` de `search()`, en vez de un campo de texto libre.
+     * Cacheado con el mismo TTL que el resto de contenido de FatSecret
+     * (`FatSecretRecipeCache::TTL_HOURS`) -- es una lista casi estática pero
+     * se mantiene la misma disciplina de no acercarse al límite de 24h.
+     *
+     * @return array<int, string>
+     */
+    public function listRecipeTypes(): array
+    {
+        return Cache::remember('fatsecret_recipe_types', FatSecretRecipeCache::TTL_HOURS * 3600, function () {
+            $data = $this->client->call('recipe_types.get');
+
+            return $this->normalizeList($data['recipe_types']['recipe_type'] ?? []);
+        });
     }
 
     /**

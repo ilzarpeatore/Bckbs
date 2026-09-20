@@ -328,6 +328,7 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     // agote el cupo del día para el resto.
     Route::middleware('throttle:100,1440')->group(function () {
         Route::get('fatsecret/recipes/search', [ API\FatSecretController::class, 'search' ]);
+        Route::get('fatsecret/recipe-types', [ API\FatSecretController::class, 'recipeTypes' ]);
         Route::get('fatsecret/recipes/{recipe_id}', [ API\FatSecretController::class, 'show' ]);
     });
 
@@ -644,6 +645,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('fatsecret/foods/search', [API\Admin\FatSecretController::class, 'searchFoods']);
     Route::get('fatsecret/foods/{food_id}', [API\Admin\FatSecretController::class, 'showFood']);
     Route::get('fatsecret/recipes/search', [API\Admin\FatSecretController::class, 'searchRecipes']);
+    Route::get('fatsecret/recipe-types', [API\Admin\FatSecretController::class, 'recipeTypes']);
     Route::get('fatsecret/recipes/{recipe_id}', [API\Admin\FatSecretController::class, 'showRecipe']);
 
     // Products
