@@ -1,0 +1,42 @@
+name: Nutrition Plan Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_file:
+        description: 'Ruta al JSON de datos del plan (.github/scripts/nutrition-plan-data/<cliente>.json)'
+        required: true
+        default: '.github/scripts/nutrition-plan-data/102-ayoub.json'
+      dry_run:
+        description: 'true = solo busca y muestra el resumen (no crea nada real). false = crea la plantilla real, sin asignarla al calendario.'
+        required: true
+        default: 'true'
+
+jobs:
+  build-plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build meal plan template
+        env:
+          BCKBS_API_BASE_URL: ${{ secrets.BCKBS_API_BASE_URL }}
+          BCKBS_API_TOKEN: ${{ secrets.BCKBS_ADMIN_API_TOKEN }}
+        run: |
+          ARGS="${{ inputs.data_file }}"
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          node .github/scripts/build-nutrition-plan.mjs $ARGS
+
+      - name: Upload summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nutrition-plan-summary
+          path: nutrition-plan-summary.json
+          if-no-files-found: ignore
