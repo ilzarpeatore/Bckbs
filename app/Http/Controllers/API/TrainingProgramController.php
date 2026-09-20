@@ -28,6 +28,16 @@ class TrainingProgramController extends Controller
 
         if ($request->has('client_id') && !empty($request->client_id)) {
             $program = $program->where('client_id', $request->client_id);
+        } else {
+            // AÑADIDO (2026-09-20, junto con TrainingProgram::cloneForClient()):
+            // sin este filtro, cada clon creado al asignar un programa a un
+            // cliente aparecería aquí también -- este listado es la
+            // BIBLIOTECA (selector para "duplicar"/"asignar a cliente" en
+            // TrainingProgramsView.tsx y los desplegables de programas en
+            // ClientCalendarView.tsx/UserDetailView.tsx/ProgressionRulesView.tsx,
+            // ninguno pasa client_id hoy), no un listado de todas las copias
+            // que existen en la BD.
+            $program = $program->whereNull('client_id');
         }
 
         if ($request->has('activo')) {
@@ -238,48 +248,16 @@ class TrainingProgramController extends Controller
 
         DB::beginTransaction();
         try {
-            $copy = TrainingProgram::create([
-                'title'               => trim(($original->title ?: 'Programa #'.$original->id).' (copia)'),
-                'is_personal'         => false,
-                'personal_client_id'  => null,
-                'workout_id'          => $original->workout_id,
-                'coach_id'            => auth('sanctum')->id(),
-                'client_id'           => null,
-                'num_weeks'           => $original->num_weeks,
-                'fecha_inicio'        => $original->fecha_inicio,
-                'fecha_fin'           => $original->fecha_fin,
-                'activo'              => true,
-                'is_free_accessible'  => $original->is_free_accessible,
-                'billing_plan_id'     => $original->billing_plan_id,
-                'source'              => null,
-                'source_id'           => null,
+            // Lógica de clonado real (programa + días + workout_templates,
+            // dedupe de plantillas repetidas) extraída a
+            // TrainingProgram::cloneWithStructure() (2026-09-20) para
+            // compartirla con TrainingProgram::cloneForClient(), que la
+            // necesita para el mismo propósito al asignar un programa a un
+            // cliente -- ver el docblock de ese método para el porqué.
+            $copy = $original->cloneWithStructure([
+                'title'     => trim(($original->title ?: 'Programa #'.$original->id).' (copia)'),
+                'coach_id'  => auth('sanctum')->id(),
             ]);
-
-            // Un mismo workout_template puede repetirse en varios días del
-            // propio programa (ej. "Torso A" en semana 1 y semana 3) -- se
-            // clona una sola vez por template original y se reutiliza esa
-            // copia dentro del NUEVO programa, en vez de crear una copia
-            // distinta por cada fila que lo referenciaba.
-            $clonedTemplateIds = [];
-            foreach ($original->dayAssignments as $dayAssignment) {
-                $newTemplateId = null;
-                if ($dayAssignment->workout_template_id !== null && $dayAssignment->workoutTemplate !== null) {
-                    $originalTemplateId = $dayAssignment->workout_template_id;
-                    if (!isset($clonedTemplateIds[$originalTemplateId])) {
-                        $clonedTemplateIds[$originalTemplateId] = $dayAssignment->workoutTemplate->cloneStructure()->id;
-                    }
-                    $newTemplateId = $clonedTemplateIds[$originalTemplateId];
-                }
-
-                ProgramDayAssignment::create([
-                    'training_program_id' => $copy->id,
-                    'week_number'         => $dayAssignment->week_number,
-                    'day_of_week'         => $dayAssignment->day_of_week,
-                    'workout_template_id' => $newTemplateId,
-                    'scheduled_date'      => null,
-                    'is_deload'           => $dayAssignment->is_deload,
-                ]);
-            }
 
             DB::commit();
         } catch (\Throwable $e) {
@@ -327,8 +305,28 @@ class TrainingProgramController extends Controller
         $startDate = Carbon::parse($request->start_date);
         $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
 
-        $existing = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
-            ->where('client_id', $request->client_id)
+        // BUG REAL (reportado 2026-09-20): esto apuntaba directamente a
+        // $request->training_program_id -- el programa de la BIBLIOTECA,
+        // compartido por cualquier otro cliente que también lo tuviera
+        // asignado. Borrar un entrenamiento del calendario de un cliente
+        // (ClientProfileCalendarController::removeAssignment()) borraba esa
+        // fila para todos a la vez, incluida la propia biblioteca. Ver
+        // TrainingProgram::cloneForClient() para el porqué completo y el
+        // mismo patrón ya usado para asignación de un solo entrenamiento
+        // suelto (assignDirect()).
+        //
+        // "¿ya tiene este programa asignado?" ahora compara contra el
+        // ORIGINAL (source_id) además del id directo -- una asignación ya
+        // clonada nunca vuelve a tener training_program_id igual al de la
+        // biblioteca, pero una asignación previa a este fix (todavía sin
+        // migrar) sí. Reasignar solo mueve fechas, nunca reclona: no debe
+        // borrar el historial/personalizaciones que ese cliente ya tenga
+        // sobre su copia.
+        $existing = ProgramClientAssignment::where('client_id', $request->client_id)
+            ->whereHas('trainingProgram', function ($q) use ($request) {
+                $q->where('id', $request->training_program_id)
+                  ->orWhere('source_id', $request->training_program_id);
+            })
             ->first();
 
         if ($existing) {
@@ -342,8 +340,10 @@ class TrainingProgramController extends Controller
             return json_custom_response(['data' => $existing, 'message' => 'Assignment updated']);
         }
 
+        $clientCopy = $program->cloneForClient((int) $request->client_id);
+
         $assignment = ProgramClientAssignment::create([
-            'training_program_id' => $request->training_program_id,
+            'training_program_id' => $clientCopy->id,
             'client_id'           => $request->client_id,
             'start_date'          => $request->start_date,
             'fecha_fin'           => $fechaFin->toDateString(),

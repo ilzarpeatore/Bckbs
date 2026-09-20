@@ -234,9 +234,30 @@ class ClientProfileCalendarController extends Controller
         // 2026-08-31). Ahora: si ya existe una asignación activa para este
         // client_id+training_program_id, se actualiza en vez de duplicarse
         // (mismo criterio que reiniciar/mover la fecha de inicio).
-        $assignment = ProgramClientAssignment::where('training_program_id', $request->training_program_id)
-            ->where('client_id', $request->client_id)
+        // BUG REAL (reportado 2026-09-20): $assignment apuntaba directamente
+        // a $request->training_program_id -- el programa de la BIBLIOTECA.
+        // program_day_assignments (y sus workout_template_id) es una tabla
+        // compartida por training_program_id, no por cliente: borrar un
+        // entrenamiento del calendario de este cliente (removeAssignment()
+        // más abajo, un simple ProgramDayAssignment::delete()) borraba esa
+        // fila para CUALQUIER otro cliente con el mismo programa asignado,
+        // incluida la propia plantilla de la biblioteca. Ver
+        // TrainingProgram::cloneForClient() para el arreglo completo (mismo
+        // patrón ya usado en assignDirect() para un entrenamiento suelto).
+        //
+        // La comprobación de "ya asignado" mira también source_id (el
+        // programa original del que se clonó), no solo el id directo --
+        // una asignación ya clonada nunca vuelve a tener
+        // training_program_id igual al de la biblioteca, pero una
+        // asignación previa a este fix sí. Reasignar solo mueve fechas,
+        // nunca reclona (no debe borrar personalizaciones/historial ya
+        // existentes sobre la copia de este cliente).
+        $assignment = ProgramClientAssignment::where('client_id', $request->client_id)
             ->where('activo', true)
+            ->whereHas('trainingProgram', function ($q) use ($request) {
+                $q->where('id', $request->training_program_id)
+                  ->orWhere('source_id', $request->training_program_id);
+            })
             ->first();
 
         if ($assignment) {
@@ -245,8 +266,10 @@ class ClientProfileCalendarController extends Controller
                 'fecha_fin'  => $fechaFin->toDateString(),
             ]);
         } else {
+            $clientCopy = $program->cloneForClient((int) $request->client_id);
+
             $assignment = ProgramClientAssignment::create([
-                'training_program_id' => $request->training_program_id,
+                'training_program_id' => $clientCopy->id,
                 'client_id'            => $request->client_id,
                 'start_date'           => $request->start_date,
                 'fecha_fin'            => $fechaFin->toDateString(),
