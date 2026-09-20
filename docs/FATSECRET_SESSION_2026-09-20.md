@@ -28,6 +28,10 @@ Todo lo de abajo está **probado contra la API real de FatSecret en producción*
 
 El usuario pasó la API key de DeepL. **Traducción de recetas (nombre + instrucciones + descripciones de ingrediente) implementada, desplegada y probada en real** — commit `0b52a09`. `fatsecret_recipe_cache.name`/`directions`/`ingredients` ya vienen en español (el inglés se conserva aparte en `*_en`), sin necesidad de tocar ningún frontend ni el trait de normalización. Ver sección 10 de `docs/FATSECRET_INTEGRATION.md` para el detalle completo de cómo quedó (con una mejora respecto al diseño original: 1 sola llamada por receta a DeepL en vez de varias). Deliberadamente no se traduce la búsqueda en vivo (`recipes.search`), solo el detalle cacheado.
 
+## Actualización 2026-09-20 (segunda pasada): `region=ES` probado y descartado
+
+FatSecret concedió el permiso premium "Localization" para `region=ES`. Se probó en real contra producción (`recipes.search.v3`, `recipe.get.v2`, `foods.search`, `food.get.v4`, comparando `region=US` vs `region=ES&language=es` sobre el mismo `recipe_id`/`food_id`) **antes de tocar código** — resultado: **sin ningún efecto observable**, ni traduce ni sirve catálogo distinto para esta cuenta. Se mantiene `region='US'` por defecto en todo el código, no se cambia nada. Detalle completo con las 5 pruebas y sus respuestas en `docs/FATSECRET_INTEGRATION.md` sección 12. Token temporal de prueba (id 168) revocado.
+
 ## Qué queda pendiente (en orden de prioridad sugerido)
 
 ### 1. Encontrado, no arreglado: lista de la compra
@@ -35,7 +39,6 @@ El usuario pasó la API key de DeepL. **Traducción de recetas (nombre + instruc
 
 ### 2. Sin verificar todavía
 - Comprobación visual del panel admin en navegador real (la extensión de Claude in Chrome no estaba conectada en esta sesión) — el usuario dijo que lo miraría, no hay confirmación de que lo haya hecho.
-- Si los valores nutricionales de un alimento genérico cambian de verdad entre `region=US` y `region=ES` — toda la prueba real ha sido con `region=US` (default).
 - Confirmar por escrito con FatSecret el guardado indefinido de los 4 valores numéricos por `food_id` (aprovechando el contacto que ya dio permiso de traducción) — no bloqueante, solo un flecos legal por cerrar.
 
 ## Archivos/commits clave por repo
