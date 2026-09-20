@@ -300,6 +300,7 @@ class FatSecretRecipeService
             'meal_type' => $mealType ? [$mealType] : null,
             'description' => $cache->name_en !== $cache->name ? "Original (FatSecret, inglés): {$cache->name_en}" : null,
             'preparation_time' => $cache->preparation_time_min ?? $cache->cooking_time_min,
+            'type' => $this->classifyRecipeType($cache->ingredients_en ?? []),
             'calories' => $cache->calories,
             'protein' => $cache->protein,
             'fats' => $cache->fat,
@@ -307,6 +308,27 @@ class FatSecretRecipeService
             'status' => 'active',
             'fatsecret_recipe_id' => $fatsecretRecipeId,
         ]);
+
+        // FIX (2026-09-20, bug real: la receta importada se quedaba sin foto
+        // -- justo el problema original que motivó usar FatSecret en vez del
+        // banco de imágenes que no coincidía con el contenido). `image_url`
+        // apunta a un asset de FatSecret, no a un archivo local -- se
+        // descarga y adjunta vía Spatie MediaLibrary (mismo mecanismo que
+        // usa RecipeController::store() con una imagen subida a mano). Si la
+        // descarga falla (red, FatSecret caído, imagen con publicidad
+        // corrupta...) NUNCA debe romper la asignación de la comida -- la
+        // receta se queda sin foto, no sin guardar.
+        if ($cache->image_url) {
+            try {
+                $recipe->addMediaFromUrl($cache->image_url)->toMediaCollection('recipe_image');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('FatSecretRecipeService::importToLibrary -- no se pudo descargar la imagen', [
+                    'fatsecret_recipe_id' => $fatsecretRecipeId,
+                    'image_url' => $cache->image_url,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         foreach ($cache->directions ?? [] as $sequence => $instruction) {
             RecipeStep::create([
@@ -341,5 +363,58 @@ class FatSecretRecipeService
         }
 
         return $recipe;
+    }
+
+    /**
+     * FatSecret no da una clasificación veg/non-veg/vegan fiable en la
+     * respuesta (ver docs/FATSECRET_INTEGRATION.md, limitación conocida de
+     * la sección 11) -- esto es una heurística por palabras clave sobre los
+     * ingredientes EN INGLÉS (`ingredients_en`, no la traducción -- el
+     * inglés de FatSecret es consistente, la traducción de DeepL podría
+     * variar la forma de una misma palabra entre recetas). Best-effort, no
+     * perfecto: mejor que el default fijo 'veg' de antes (que podía marcar
+     * como vegetariana una receta con salchicha de cerdo), pero el coach
+     * debe revisar a mano si depende de esto para una restricción real de
+     * dieta -- esto NO sustituye la revisión de alergias/exclusiones ya
+     * existente (esa sigue siendo manual, ver entrega-bckbs.md sección 4).
+     *
+     * Orden de prioridad: cualquier ingrediente de carne/pescado/marisco ->
+     * 'non-veg' (gana sobre todo lo demás). Si no hay carne/pescado pero sí
+     * lácteos/huevo/miel -> 'veg' (vegetariano, no vegano). Si no hay
+     * ninguno de los dos -> 'vegan'.
+     *
+     * @param  array<int, array{description: ?string}>  $ingredientsEn
+     */
+    private function classifyRecipeType(array $ingredientsEn): string
+    {
+        $text = ' ' . strtolower(implode(' ', array_filter(
+            array_map(fn (array $i) => $i['description'] ?? '', $ingredientsEn)
+        ))) . ' ';
+
+        $meatFishKeywords = [
+            'chicken', 'beef', 'pork', 'lamb', 'turkey', 'bacon', 'ham', 'sausage', 'salami',
+            'pepperoni', 'veal', 'duck', 'goose', 'venison', 'rabbit', 'meat', 'meatball',
+            'steak', 'ribs', 'chorizo', 'prosciutto', 'gelatin', 'lard', 'anchovy', 'anchovies',
+            'fish', 'salmon', 'tuna', 'cod', 'tilapia', 'shrimp', 'prawn', 'crab', 'lobster',
+            'oyster', 'clam', 'mussel', 'squid', 'calamari', 'scallop', 'crawfish',
+        ];
+        $dairyEggKeywords = [
+            'egg', 'eggs', 'milk', 'cheese', 'butter', 'cream', 'yogurt', 'yoghurt',
+            'honey', 'mayonnaise', 'whey', 'ghee', 'custard',
+        ];
+
+        foreach ($meatFishKeywords as $word) {
+            if (preg_match('/\b' . preg_quote($word, '/') . '\b/', $text)) {
+                return 'non-veg';
+            }
+        }
+
+        foreach ($dairyEggKeywords as $word) {
+            if (preg_match('/\b' . preg_quote($word, '/') . '\b/', $text)) {
+                return 'veg';
+            }
+        }
+
+        return 'vegan';
     }
 }

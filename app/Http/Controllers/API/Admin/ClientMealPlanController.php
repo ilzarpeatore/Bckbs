@@ -71,9 +71,7 @@ class ClientMealPlanController extends Controller
         // FIX (2026-09-19, integración FatSecret): antes solo aceptaba
         // recipe_id (receta propia). Ahora acepta EXACTAMENTE uno de
         // recipe_id / fatsecret_recipe_id -- ver docs/FATSECRET_INTEGRATION.md
-        // sección 9. Nunca se guarda contenido de FatSecret aquí, solo el id
-        // y un snapshot numérico de nutrición (mismo patrón que ya usaba
-        // esta tabla para recetas propias).
+        // sección 9.
         $request->validate([
             'user_id'             => 'required|exists:users,id',
             'date'                => 'required|date',
@@ -90,20 +88,31 @@ class ClientMealPlanController extends Controller
         $daily_plan = DailyPlan::findOrCreateDailyPlan($user, $request->date);
 
         if ($request->filled('fatsecret_recipe_id')) {
+            // FIX (2026-09-20): esta vía se había quedado sin el import a
+            // biblioteca que ya tenía MealPlanTemplateController::addItem()
+            // -- una comida de FatSecret asignada directo al calendario (sin
+            // pasar por una plantilla) se quedaba solo con la referencia
+            // efímera de siempre, nunca con una copia propia editable. Ver
+            // FatSecretRecipeService::importToLibrary() para el porqué y las
+            // simplificaciones asumidas; mismo patrón que addItem().
             try {
-                $fsRecipe = $this->fatSecretRecipeService->getOrRefresh((int) $request->fatsecret_recipe_id);
+                $recipe = $this->fatSecretRecipeService->importToLibrary(
+                    (int) $request->fatsecret_recipe_id,
+                    $request->meal_type
+                );
             } catch (FatSecretUnavailableException $e) {
                 return json_message_response($e->getMessage(), 503);
             }
 
             $daily_plan_recipe = DailyPlanRecipe::create([
                 'daily_plan_id'       => $daily_plan->id,
-                'fatsecret_recipe_id' => $fsRecipe->fatsecret_recipe_id,
+                'recipe_id'           => $recipe->id,
+                'fatsecret_recipe_id' => (int) $request->fatsecret_recipe_id,
                 'meal_type'           => $request->meal_type,
-                'calories'            => $fsRecipe->calories,
-                'protein'             => $fsRecipe->protein,
-                'fats'                => $fsRecipe->fat,
-                'carbs'               => $fsRecipe->carbs,
+                'calories'            => $recipe->calories,
+                'protein'             => $recipe->protein,
+                'fats'                => $recipe->fats,
+                'carbs'               => $recipe->carbs,
                 'assigned_by_user_id' => auth()->id(),
             ]);
         } else {

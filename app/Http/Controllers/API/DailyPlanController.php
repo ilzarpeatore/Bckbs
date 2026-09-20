@@ -109,22 +109,31 @@ class DailyPlanController extends Controller
             ->first();
 
         if ($request->filled('fatsecret_recipe_id')) {
+            // FIX (2026-09-20): esta vía (sustituir una comida desde la app
+            // del cliente) se había quedado sin el import a biblioteca que
+            // ya tenía MealPlanTemplateController::addItem() -- se queda con
+            // recipe_id=null en vez de una copia propia editable. Mismo
+            // patrón que Admin\ClientMealPlanController::assignRecipe(), ver
+            // FatSecretRecipeService::importToLibrary().
             try {
-                $fsRecipe = $this->fatSecretRecipeService->getOrRefresh((int) $request->fatsecret_recipe_id);
+                $recipe = $this->fatSecretRecipeService->importToLibrary(
+                    (int) $request->fatsecret_recipe_id,
+                    request('meal_type')
+                );
             } catch (FatSecretUnavailableException $e) {
                 return json_message_response($e->getMessage(), 503);
             }
 
             $data = [
                 'daily_plan_id'       => $daily_plan->id,
-                'recipe_id'           => null,
-                'fatsecret_recipe_id' => $fsRecipe->fatsecret_recipe_id,
+                'recipe_id'           => $recipe->id,
+                'fatsecret_recipe_id' => (int) $request->fatsecret_recipe_id,
                 'meal_type'           => request('meal_type'),
                 'is_complete'         => request('is_complete'),
-                'calories'            => $fsRecipe->calories,
-                'protein'             => $fsRecipe->protein,
-                'fats'                => $fsRecipe->fat,
-                'carbs'               => $fsRecipe->carbs,
+                'calories'            => $recipe->calories,
+                'protein'             => $recipe->protein,
+                'fats'                => $recipe->fats,
+                'carbs'               => $recipe->carbs,
             ];
         } else {
             $recipe = Recipe::find(request('recipe_id'));
