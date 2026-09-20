@@ -77,7 +77,11 @@ async function runSearch(q, slot, relaxed) {
     q,
     calories_from: String(Math.round(slot.target_kcal * (1 - kcalMargin))),
     calories_to: String(Math.round(slot.target_kcal * (1 + kcalMargin))),
-    must_have_images: 'true',
+    // Laravel valida esto como 'boolean' (solo acepta true/false/1/0/'1'/'0',
+    // NUNCA el string "true") antes de que FatSecretRecipeService lo traduzca
+    // internamente al literal "true" que exige la API de FatSecret -- mismo
+    // bug que dry_run/force en TrainingProgramsView.tsx.
+    must_have_images: '1',
   });
   if (!relaxed) {
     params.set('protein_percentage_from', String(slot.protein_pct[0]));
