@@ -1,0 +1,74 @@
+{
+  "cliente_id": "102-ayoub-ghamari",
+  "client_id": 102,
+  "titulo": "Ayoub Ghamari -- Plan ganancia muscular (borrador, sin asignar)",
+  "type": "weekday",
+  "weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+  "hard_exclude_keywords": [
+    "pork", "bacon", "ham", "prosciutto", "pancetta", "lard", "pepperoni",
+    "salami", "chorizo", "sausage", "hot dog", "spam", "gelatin", "gelatine"
+  ],
+  "soft_avoid_keywords": ["green bean", "onion"],
+  "slots": [
+    {
+      "meal_type": "breakfast",
+      "label": "M1 -- al despertar (huevos/pavo/queso/avena)",
+      "target_kcal": 660,
+      "kcal_margin": 0.2,
+      "protein_pct": [16, 36],
+      "fat_pct": [32, 52],
+      "carb_pct": [21, 41],
+      "queries": ["eggs cheese turkey high protein breakfast", "oatmeal eggs protein breakfast"]
+    },
+    {
+      "meal_type": "lunch",
+      "label": "M3 -- comida (pasta con atun)",
+      "target_kcal": 653,
+      "kcal_margin": 0.2,
+      "protein_pct": [17, 37],
+      "fat_pct": [5, 25],
+      "carb_pct": [46, 66],
+      "queries": ["pasta tuna high protein"]
+    },
+    {
+      "meal_type": "dinner",
+      "label": "M5 -- cena (carne/pollo + patata o arroz)",
+      "target_kcal": 562,
+      "kcal_margin": 0.2,
+      "protein_pct": [19, 39],
+      "fat_pct": [9, 29],
+      "carb_pct": [42, 62],
+      "queries": ["grilled chicken rice high protein", "beef steak potato high protein"]
+    },
+    {
+      "meal_type": "snacks",
+      "label": "M2 -- pre-entreno (batido leche avellana/aguacate/crema de arroz)",
+      "target_kcal": 616,
+      "kcal_margin": 0.2,
+      "protein_pct": [4, 24],
+      "fat_pct": [24, 44],
+      "carb_pct": [44, 64],
+      "queries": ["protein shake oats avocado peanut butter"]
+    },
+    {
+      "meal_type": "snacks",
+      "label": "M4 -- post-entreno (pollo + arroz)",
+      "target_kcal": 501,
+      "kcal_margin": 0.2,
+      "protein_pct": [27, 47],
+      "fat_pct": [0, 19],
+      "carb_pct": [40, 60],
+      "queries": ["chicken rice bowl high protein"]
+    },
+    {
+      "meal_type": "snacks",
+      "label": "M6 -- nocturno (yogur griego/almendras/fruta)",
+      "target_kcal": 322,
+      "kcal_margin": 0.2,
+      "protein_pct": [14, 34],
+      "fat_pct": [18, 38],
+      "carb_pct": [47, 67],
+      "queries": ["greek yogurt almonds snack"]
+    }
+  ]
+}
