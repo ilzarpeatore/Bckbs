@@ -17,12 +17,10 @@ use App\Services\Translation\DeepLTranslationService;
  * admin (coach asigna una receta a un cliente) como por la app del cliente
  * (buscar una comida para sustituir la asignada).
  *
- * VERIFICAR ANTES DE PRODUCCIÓN (ver docs/FATSECRET_INTEGRATION.md sección
- * 7): los nombres de método exactos de recipe.get (¿v1/v2/v3?) no están
- * confirmados con una llamada real todavía -- v2 es la versión cuyo schema
- * se documentó al diseñar esto, pero está marcada deprecated en su portal.
- * Probar contra la cuenta Basic real y ajustar RECIPE_GET_METHOD si hace
- * falta antes de dar esto por cerrado.
+ * CONFIRMADO 2026-09-20 contra la documentación real (ver
+ * docs/FATSECRET_INTEGRATION.md sección 13): `recipe.get.v2` SÍ es la
+ * versión vigente/recomendada, no está deprecada -- no hace falta migrar a
+ * ninguna v3. `recipes.search.v3` es igualmente la versión actual.
  */
 class FatSecretRecipeService
 {
@@ -41,16 +39,26 @@ class FatSecretRecipeService
      * mostrada (confirmado en la documentación de recipes.search, ver
      * docs/FATSECRET_INTEGRATION.md sección 9).
      *
+     * $filters (todos opcionales, disponibles en plan Basic -- verificado
+     * contra la documentación real 2026-09-20, ver
+     * docs/FATSECRET_INTEGRATION.md sección 13): caloriesFrom/caloriesTo,
+     * proteinPercentageFrom/To, carbPercentageFrom/To, fatPercentageFrom/To,
+     * prepTimeFrom/To (minutos), recipeTypes (array<string>, ej. ["Main
+     * Dish"]), recipeTypesMatchAll (bool), mustHaveImages (bool), sortBy (uno
+     * de: newest, oldest, caloriesPerServingAscending,
+     * caloriesPerServingDescending).
+     *
+     * @param  array<string, mixed>  $filters
      * @return array{results: array<int, array>, total_results: int, page_number: int}
      */
-    public function search(string $query, string $region = 'US', int $page = 0): array
+    public function search(string $query, string $region = 'US', int $page = 0, array $filters = []): array
     {
-        $data = $this->client->call(self::RECIPE_SEARCH_METHOD, [
+        $data = $this->client->call(self::RECIPE_SEARCH_METHOD, array_merge([
             'search_expression' => $query,
             'region' => $region,
             'page_number' => $page,
             'max_results' => 50,
-        ]);
+        ], $this->buildSearchFilterParams($filters)));
 
         $container = $data['recipes'] ?? [];
         $recipes = $this->normalizeList($container['recipe'] ?? []);
@@ -179,6 +187,54 @@ class FatSecretRecipeService
         }
 
         return [$name, $directions, $ingredients, (bool) config('services.deepl.api_key')];
+    }
+
+    /**
+     * Traduce el array de filtros de negocio a los nombres literales exactos
+     * que exige `recipes.search.v3` (confirmados contra la documentación
+     * real, no adivinados -- el `.` de "calories.from" es parte del nombre
+     * del parámetro, no notación de array anidado). Solo se añaden las
+     * claves presentes -- omitir un filtro debe comportarse exactamente
+     * igual que antes de que existiera esta función.
+     *
+     * @param  array<string, mixed>  $filters
+     * @return array<string, mixed>
+     */
+    private function buildSearchFilterParams(array $filters): array
+    {
+        $map = [
+            'caloriesFrom' => 'calories.from',
+            'caloriesTo' => 'calories.to',
+            'proteinPercentageFrom' => 'protein_percentage.from',
+            'proteinPercentageTo' => 'protein_percentage.to',
+            'carbPercentageFrom' => 'carb_percentage.from',
+            'carbPercentageTo' => 'carb_percentage.to',
+            'fatPercentageFrom' => 'fat_percentage.from',
+            'fatPercentageTo' => 'fat_percentage.to',
+            'prepTimeFrom' => 'prep_time.from',
+            'prepTimeTo' => 'prep_time.to',
+            'recipeTypesMatchAll' => 'recipe_types_matchall',
+            'mustHaveImages' => 'must_have_images',
+        ];
+
+        $params = [];
+        foreach ($map as $key => $apiParam) {
+            if (isset($filters[$key])) {
+                $params[$apiParam] = $filters[$key];
+            }
+        }
+
+        if (!empty($filters['recipeTypes'])) {
+            $params['recipe_types'] = implode(',', (array) $filters['recipeTypes']);
+        }
+
+        if (!empty($filters['sortBy']) && in_array($filters['sortBy'], [
+            'newest', 'oldest', 'caloriesPerServingAscending', 'caloriesPerServingDescending',
+        ], true)) {
+            $params['sort_by'] = $filters['sortBy'];
+        }
+
+        return $params;
     }
 
     private function normalizeList(mixed $value): array

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Exceptions\FatSecretUnavailableException;
+use App\Http\Controllers\Concerns\BuildsFatSecretRecipeSearchFilters;
 use App\Http\Controllers\Controller;
 use App\Services\FatSecret\FatSecretRecipeService;
 use Illuminate\Http\Request;
@@ -18,19 +19,23 @@ use Illuminate\Http\Request;
  */
 class FatSecretController extends Controller
 {
+    use BuildsFatSecretRecipeSearchFilters;
+
     public function __construct(private readonly FatSecretRecipeService $recipeService)
     {
     }
 
     public function search(Request $request)
     {
-        $request->validate([
-            'q' => 'required|string|min:2',
-            'page' => 'nullable|integer|min:0',
-        ]);
+        $request->validate($this->recipeSearchValidationRules());
 
         try {
-            $results = $this->recipeService->search($request->q, 'US', (int) $request->get('page', 0));
+            $results = $this->recipeService->search(
+                $request->q,
+                'US',
+                (int) $request->get('page', 0),
+                $this->recipeSearchFilters($request)
+            );
         } catch (FatSecretUnavailableException $e) {
             return json_message_response($e->getMessage(), 503);
         }
