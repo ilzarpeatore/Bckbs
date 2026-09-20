@@ -47,11 +47,18 @@ class FatSecretFoodService
      * conversión, el admin rellena a mano (ver sección 4.2, regla
      * obligatoria).
      *
+     * `food.get.v5` (antes v4, cambiado 2026-09-20 -- ver
+     * docs/FATSECRET_INTEGRATION.md sección 13): compatible hacia atrás,
+     * mismos nombres de campo por ración -- v5 solo AÑADE una ración
+     * estandarizada "100 g"/"100 ml" (`serving_id=0`) para alimentos de
+     * marca que en v4 podían no tener ninguna ración nativa en gramos.
+     * Verificado en real que no rompe nada existente (probado food_id=5110).
+     *
      * @return array{food_id:int, food_name_en:string, serving_id:?int, can_autocalculate:bool, calories_per_gram:?float, protein_per_gram:?float, fat_per_gram:?float, carbs_per_gram:?float, density_hint:?float}
      */
     public function detail(int $foodId, string $region = 'US'): array
     {
-        $data = $this->client->call('food.get.v4', [
+        $data = $this->client->call('food.get.v5', [
             'food_id' => $foodId,
             'region' => $region,
         ]);
@@ -119,7 +126,7 @@ class FatSecretFoodService
      */
     public function recalculateWithServing(int $foodId, int $servingId, string $region = 'US'): ?array
     {
-        $data = $this->client->call('food.get.v4', [
+        $data = $this->client->call('food.get.v5', [
             'food_id' => $foodId,
             'region' => $region,
         ]);
