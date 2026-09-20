@@ -43,6 +43,8 @@ program_client_assignments     ← asigna un training_program a un client_id con
 
 `training_programs` es una plantilla sin cliente hasta que se crea una fila en `program_client_assignments`. Un mismo programa se puede asignar a varios clientes.
 
+**(2026-09-20) Un `training_program` también puede nacer de un duplicado, no solo de un import.** `POST admin/training-program-duplicate` (`TrainingProgramController::duplicate()`) clona un programa entero de la biblioteca -- metadatos + `program_day_assignments` + cada `workout_template`/bloque/ejercicio (con `WorkoutTemplate::cloneStructure()`, nunca reapuntando al mismo `workout_template_id`, para que editar la copia no mute el original). El duplicado nace con `source=null`/`source_id=null` (no hereda la procedencia de import del original) y sin ningún `program_client_assignment`, igual que un programa recién importado -- misma norma de este documento, la asignación a un cliente real sigue siendo siempre manual desde el panel admin.
+
 ---
 
 ## 3. Pipeline de import (código ya existente y funcionando)
