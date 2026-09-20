@@ -47,6 +47,16 @@ Se leyó toda la documentación pública (todos los métodos, Terms and Conditio
 - **Corregido en `AgenticdesignBS::entrega-bckbs.md`:** ya no dice que `recipes.search` carezca de filtro de macros server-side (era incorrecto, ver punto de arriba).
 - **Pendiente, se encarga el usuario directamente:** la Attribution Policy real exige atribución en 3 sitios (app, ficha de App Store/Play Store, web pública), no solo dentro de la app como tenemos ahora — texto exacto y badges oficiales en `docs/FATSECRET_INTEGRATION.md` sección 13.
 
+## Actualización 2026-09-20 (cuarta pasada): importación a biblioteca completada + Recipe.type + roadmap
+
+Por indicación explícita del usuario:
+- **Lista de la compra** e **Image Recognition** (Premier) → documentados como pendientes de decisión de producto/negocio en `React App::docs/ROADMAP.md` (items #26/#27 de "Pendiente real, priorizado"), sin código nuevo. Sincronizado con el panel de tareas del admin.
+- **Importación a biblioteca completada** — antes solo `MealPlanTemplateController::addItem()` llamaba a `importToLibrary()`. Ahora también `ClientMealPlanController::assignRecipe()` y `DailyPlanController::saveDailyPlanRecipeData()`, las 3 vías por las que una comida de FatSecret puede acabar asignada. Commit `58d4d6b`.
+- **Bug real encontrado de paso:** `importToLibrary()` nunca copiaba la foto (usa Spatie MediaLibrary, no una columna) — toda receta importada se quedaba sin imagen. Corregido con `addMediaFromUrl()`, con try/catch. Verificado en real.
+- **`Recipe.type` ya no es siempre `'veg'`** — heurística por palabras clave sobre `ingredients_en`. Verificado con 3 recetas reales, incluido un caso donde detectó correctamente que "Mixed Vegetable Soup" NO es vegetariana (lleva caldo de pollo) — algo que un enfoque basado solo en el nombre habría fallado.
+
+Todo verificado en real contra producción (asignar → comprobar `recipe_id`/foto/`type` → limpiar los datos de prueba y revocar el token), documentado en `docs/FATSECRET_INTEGRATION.md` sección 11.
+
 ## Qué queda pendiente (en orden de prioridad sugerido)
 
 ### 1. Encontrado, no arreglado: lista de la compra
