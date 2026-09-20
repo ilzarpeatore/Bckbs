@@ -32,6 +32,21 @@ El usuario pasó la API key de DeepL. **Traducción de recetas (nombre + instruc
 
 FatSecret concedió el permiso premium "Localization" para `region=ES`. Se probó en real contra producción (`recipes.search.v3`, `recipe.get.v2`, `foods.search`, `food.get.v4`, comparando `region=US` vs `region=ES&language=es` sobre el mismo `recipe_id`/`food_id`) **antes de tocar código** — resultado: **sin ningún efecto observable**, ni traduce ni sirve catálogo distinto para esta cuenta. Se mantiene `region='US'` por defecto en todo el código, no se cambia nada. Detalle completo con las 5 pruebas y sus respuestas en `docs/FATSECRET_INTEGRATION.md` sección 12. Token temporal de prueba (id 168) revocado.
 
+## Actualización 2026-09-20 (tercera pasada): auditoría completa de `platform.fatsecret.com/docs/`
+
+Se leyó toda la documentación pública (todos los métodos, Terms and Conditions, Attribution Policy) para ver qué se había dejado sin cubrir. Detalle completo en `docs/FATSECRET_INTEGRATION.md` sección 13. Resumen de lo hecho:
+
+- **Implementado y desplegado, probado en real:**
+  - Filtros server-side de `recipes.search.v3` (calorías, % macros, tiempo de preparación, tipo, solo-con-imagen, orden) — commit `7353d00`, todos disponibles en Basic.
+  - **Bug real encontrado y arreglado:** `must_have_images`/`recipe_types_matchall` exigen literal `"true"`/`"false"`, no `"1"`/`"0"` — con `"1"` FatSecret lo ignora en silencio sin filtrar nada. Commit `3c57651`.
+  - `food.get.v4` → `food.get.v5` (compatible hacia atrás, añade ración estandarizada 100g para alimentos de marca) — commit `48d6bc1`.
+  - Corregida nota desactualizada en el código: `recipe.get.v2`/`recipes.search.v3` son las versiones vigentes, no deprecadas.
+- **Evaluado, bloqueado por permiso de cuenta (no código nuestro):** Natural Language Processing (texto libre → alimentos) — probado pedir `scope=nlp` en el token OAuth2 → `400 invalid_scope`. Hay que pedírselo a FatSecret explícitamente (mismo patrón que `region=ES` o la traducción), igual que se hizo con esos dos. Sin eso, no se puede implementar.
+- **Descartado por coste:** Image Recognition (foto → nutrición) es Premier Exclusive, no está en Basic.
+- **Confirmado fuera de alcance:** las APIs de "profile" de FatSecret (diario/peso/ejercicio/favoritos propios) exigen que cada usuario tenga cuenta FatSecret con OAuth delegado — incompatible con nuestro propio sistema de usuarios.
+- **Corregido en `AgenticdesignBS::entrega-bckbs.md`:** ya no dice que `recipes.search` carezca de filtro de macros server-side (era incorrecto, ver punto de arriba).
+- **Pendiente, se encarga el usuario directamente:** la Attribution Policy real exige atribución en 3 sitios (app, ficha de App Store/Play Store, web pública), no solo dentro de la app como tenemos ahora — texto exacto y badges oficiales en `docs/FATSECRET_INTEGRATION.md` sección 13.
+
 ## Qué queda pendiente (en orden de prioridad sugerido)
 
 ### 1. Encontrado, no arreglado: lista de la compra
