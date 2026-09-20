@@ -24,17 +24,16 @@ Todo lo de abajo está **probado contra la API real de FatSecret en producción*
 2. `meal_plan_template_items.recipe_id` era NOT NULL — "Guardar como plantilla" con una comida de FatSecret rompía con error de BD — commit `5484617`.
 3. **Grave, confirmado en vivo por el usuario:** en `plan_screen.tsx`, marcar como comido y ver detalle no funcionaban para una comida de FatSecret (exigían `recipeId` local) — sin esto, la función no servía para el seguimiento real de nutrición. Arreglado — commit `7267262`. De paso se corrigió una atribución incorrecta ("USDA" en vez de "FatSecret").
 
+## Actualización 2026-09-21: traducción implementada
+
+El usuario pasó la API key de DeepL. **Traducción de recetas (nombre + instrucciones + descripciones de ingrediente) implementada, desplegada y probada en real** — commit `0b52a09`. `fatsecret_recipe_cache.name`/`directions`/`ingredients` ya vienen en español (el inglés se conserva aparte en `*_en`), sin necesidad de tocar ningún frontend ni el trait de normalización. Ver sección 10 de `docs/FATSECRET_INTEGRATION.md` para el detalle completo de cómo quedó (con una mejora respecto al diseño original: 1 sola llamada por receta a DeepL en vez de varias). Deliberadamente no se traduce la búsqueda en vivo (`recipes.search`), solo el detalle cacheado.
+
 ## Qué queda pendiente (en orden de prioridad sugerido)
 
-### 1. Bloqueante inmediato: credenciales de traducción
-El usuario obtuvo permiso de FatSecret para traducir **recetas e instrucciones** (antes el permiso solo cubría nombres de ingrediente suelto). Se decidió usar **DeepL API** como proveedor. **Se buscó una API key existente en el `.env` del VPS, en los 3 repos y en el entorno de la sesión — no se encontró ninguna.** El usuario cree que "ya la tenemos" pero hay que localizarla o crear una cuenta nueva en deepl.com/pro-api (nivel gratuito: 500.000 caracteres/mes).
-
-**Diseño completo listo para implementar en cuanto haya credencial** — ver `docs/FATSECRET_INTEGRATION.md` sección 10: nuevo `TranslationService`, columnas `name_es`/`directions_es` en `fatsecret_recipe_cache`, traducir dentro de `getOrRefresh()` (mismo ciclo de refresco de 6h, no una llamada por vista). Hay 2 decisiones de producto a confirmar con el usuario antes de escribir código: (a) ¿se traduce también `ingredients[].description`? (b) ¿se traducen los resultados de búsqueda (`recipes.search`) o solo el detalle cacheado? — recomendación por defecto: solo el detalle, dejar la búsqueda en inglés (menos coste/latencia).
-
-### 2. Encontrado, no arreglado: lista de la compra
+### 1. Encontrado, no arreglado: lista de la compra
 `DailyPlanShoppingListService::consolidate()` omite en silencio (sin error, sin aviso) cualquier comida de FatSecret al generar la lista de la compra semanal. El usuario lo tiene identificado pero no ha pedido el fix — decidir si se soluciona (posiblemente como líneas de texto sin estructurar, ya que los ingredientes de FatSecret no están vinculados a `ingredient_id` local) o se deja documentado como limitación conocida.
 
-### 3. Sin verificar todavía
+### 2. Sin verificar todavía
 - Comprobación visual del panel admin en navegador real (la extensión de Claude in Chrome no estaba conectada en esta sesión) — el usuario dijo que lo miraría, no hay confirmación de que lo haya hecho.
 - Si los valores nutricionales de un alimento genérico cambian de verdad entre `region=US` y `region=ES` — toda la prueba real ha sido con `region=US` (default).
 - Confirmar por escrito con FatSecret el guardado indefinido de los 4 valores numéricos por `food_id` (aprovechando el contacto que ya dio permiso de traducción) — no bloqueante, solo un flecos legal por cerrar.
@@ -48,8 +47,6 @@ El usuario obtuvo permiso de FatSecret para traducir **recetas e instrucciones**
 
 ## Próximos pasos sugeridos, en orden
 
-1. Localizar/crear la API key de DeepL.
-2. Confirmar con el usuario las 2 decisiones de producto de la sección 10 de `FATSECRET_INTEGRATION.md` (qué se traduce exactamente).
-3. Implementar la traducción (backend, ~1 servicio + 1 migración + cambio en `getOrRefresh()`, sin tocar frontend si se sustituye en los mismos campos `name`/`directions`).
-4. Decidir y, si procede, arreglar el hallazgo de la lista de la compra.
-5. Pedir al usuario que confirme la comprobación visual del panel, o repetirla si la extensión de Chrome ya está disponible.
+1. Decidir y, si procede, arreglar el hallazgo de la lista de la compra.
+2. Pedir al usuario que confirme la comprobación visual del panel, o repetirla si la extensión de Chrome ya está disponible.
+3. Verificar región US vs ES para nutrición de genéricos, si hay tiempo/interés.
