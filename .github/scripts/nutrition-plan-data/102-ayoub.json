@@ -20,7 +20,13 @@
       "carb_pct": [21, 41],
       "recipe_type_hint": "breakfast",
       "relevance_keywords": ["egg", "cheese", "turkey", "oat"],
-      "queries": ["eggs cheese turkey high protein breakfast", "oatmeal eggs protein breakfast"]
+      "queries": [
+        "eggs cheese turkey high protein breakfast",
+        "oatmeal eggs protein breakfast",
+        "egg cheese breakfast casserole",
+        "cottage cheese eggs high protein breakfast",
+        "turkey bacon eggs breakfast"
+      ]
     },
     {
       "meal_type": "lunch",
@@ -32,7 +38,12 @@
       "carb_pct": [46, 66],
       "recipe_type_hint": "main",
       "relevance_keywords": ["pasta", "tuna", "noodle", "spaghetti"],
-      "queries": ["pasta tuna high protein"]
+      "queries": [
+        "pasta tuna high protein",
+        "tuna pasta salad",
+        "spaghetti tuna high protein",
+        "tuna noodle casserole high protein"
+      ]
     },
     {
       "meal_type": "dinner",
@@ -78,7 +89,7 @@
       "fat_pct": [18, 38],
       "carb_pct": [47, 67],
       "relevance_keywords": ["yogurt", "almond", "berry", "fruit"],
-      "queries": ["greek yogurt almonds snack"]
+      "queries": ["greek yogurt almonds snack", "berry yogurt parfait", "fruit yogurt bowl high protein"]
     }
   ]
 }
