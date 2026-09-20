@@ -1,0 +1,54 @@
+{
+  "cliente_id": "98-hamsa-dris-bakkali",
+  "client_id": 98,
+  "titulo": "Hamsa Dris Bakkali -- Plan recomposición (déficit -15%, borrador, sin asignar)",
+  "type": "weekday",
+  "weekdays": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"],
+  "hard_exclude_keywords": [
+    "pork", "bacon", "ham", "prosciutto", "pancetta", "lard", "pepperoni",
+    "salami", "chorizo", "sausage", "hot dog", "spam", "gelatin", "gelatine"
+  ],
+  "soft_avoid_keywords": [],
+  "slots": [
+    {
+      "meal_type": "breakfast",
+      "label": "Comida 1 -- antes del turno (huevo/queso, sustituye cafe+bollos)",
+      "target_kcal": 700,
+      "kcal_margin": 0.2,
+      "protein_pct": [25, 45],
+      "fat_pct": [18, 38],
+      "carb_pct": [27, 47],
+      "queries": ["eggs cheese high protein breakfast", "greek yogurt oats protein breakfast"]
+    },
+    {
+      "meal_type": "lunch",
+      "label": "Comida 2 -- a mitad de turno (pollo o salmon al horno, sustituye empanado frito)",
+      "target_kcal": 850,
+      "kcal_margin": 0.2,
+      "protein_pct": [25, 45],
+      "fat_pct": [18, 38],
+      "carb_pct": [27, 47],
+      "queries": ["grilled chicken high protein", "baked salmon high protein"]
+    },
+    {
+      "meal_type": "dinner",
+      "label": "Comida 3 -- al terminar el turno (pavo o ternera)",
+      "target_kcal": 835,
+      "kcal_margin": 0.2,
+      "protein_pct": [25, 45],
+      "fat_pct": [18, 38],
+      "carb_pct": [27, 47],
+      "queries": ["turkey breast high protein dinner", "beef high protein dinner"]
+    },
+    {
+      "meal_type": "snacks",
+      "label": "Toma extra opcional en dias de entrenamiento (proteina)",
+      "target_kcal": 400,
+      "kcal_margin": 0.25,
+      "protein_pct": [30, 50],
+      "fat_pct": [10, 30],
+      "carb_pct": [30, 50],
+      "queries": ["tuna protein snack", "greek yogurt protein snack"]
+    }
+  ]
+}
