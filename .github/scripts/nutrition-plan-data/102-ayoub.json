@@ -18,6 +18,7 @@
       "protein_pct": [16, 36],
       "fat_pct": [32, 52],
       "carb_pct": [21, 41],
+      "recipe_type_hint": "breakfast",
       "queries": ["eggs cheese turkey high protein breakfast", "oatmeal eggs protein breakfast"]
     },
     {
@@ -28,6 +29,7 @@
       "protein_pct": [17, 37],
       "fat_pct": [5, 25],
       "carb_pct": [46, 66],
+      "recipe_type_hint": "main",
       "queries": ["pasta tuna high protein"]
     },
     {
@@ -38,6 +40,7 @@
       "protein_pct": [19, 39],
       "fat_pct": [9, 29],
       "carb_pct": [42, 62],
+      "recipe_type_hint": "main",
       "queries": ["grilled chicken rice high protein", "beef steak potato high protein"]
     },
     {
@@ -58,6 +61,7 @@
       "protein_pct": [27, 47],
       "fat_pct": [0, 19],
       "carb_pct": [40, 60],
+      "recipe_type_hint": "main",
       "queries": ["chicken rice bowl high protein"]
     },
     {

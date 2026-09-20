@@ -18,6 +18,7 @@
       "protein_pct": [25, 45],
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
+      "recipe_type_hint": "breakfast",
       "queries": ["eggs cheese high protein breakfast", "greek yogurt oats protein breakfast"]
     },
     {
@@ -28,6 +29,7 @@
       "protein_pct": [25, 45],
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
+      "recipe_type_hint": "main",
       "queries": ["grilled chicken high protein", "baked salmon high protein"]
     },
     {
@@ -38,6 +40,7 @@
       "protein_pct": [25, 45],
       "fat_pct": [18, 38],
       "carb_pct": [27, 47],
+      "recipe_type_hint": "main",
       "queries": ["turkey breast high protein dinner", "beef high protein dinner"]
     },
     {
