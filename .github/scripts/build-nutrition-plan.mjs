@@ -82,6 +82,12 @@ function recipeText(r) {
 // asignó una "Keto Chocolate Chip Mug Cookie" a la comida de mediodía.
 const JUNK_KEYWORDS = ['cookie', 'cake', 'brownie', 'candy', 'donut', 'doughnut', 'pie', 'muffin', 'dessert', 'frosting', 'icing'];
 
+// Igual de real: recipe_types="Breakfast"/"Main Dish" no evita que un batido
+// o unos oats acaben en comida/cena cuando el fallback relajado los deja
+// pasar -- se deprioriza (no se excluye, por si no hay nada mejor) este
+// vocabulario típico de desayuno/snack fuera de lunch/dinner.
+const BREAKFAST_CODED_KEYWORDS = ['smoothie', 'shake', 'oats', 'oatmeal', 'pancake', 'waffle', 'cereal', 'granola', 'toast'];
+
 let recipeTypesCache = null;
 async function fetchRecipeTypes() {
   if (recipeTypesCache) return recipeTypesCache;
@@ -106,9 +112,18 @@ function resolveRecipeType(hint, types) {
 async function searchCandidates(slot, resolvedType) {
   const pool = new Map(); // fatsecret_recipe_id -> candidate
   for (const q of slot.queries) {
+    // 3 pasadas, cada vez cediendo menos de lo importante: primero el rango
+    // estricto con el tipo de receta real; si no hay nada, se relaja el
+    // rango de kcal pero SE MANTIENE el tipo (evita que "pasta con atún"
+    // caiga en un batido solo porque el % de macros no encajó exacto);
+    // solo como último recurso se quita también el filtro de tipo.
     let results = await runSearch(q, slot, false, resolvedType);
+    if (results.length === 0 && resolvedType) {
+      console.warn(`  (sin resultados con filtros estrictos para "${q}", relajando kcal pero manteniendo recipe_types="${resolvedType}")`);
+      results = await runSearch(q, slot, true, resolvedType);
+    }
     if (results.length === 0) {
-      console.warn(`  (sin resultados con filtros estrictos para "${q}", relajando rango de kcal y quitando el filtro de tipo)`);
+      console.warn(`  (sigue sin resultados para "${q}", último recurso: quitando también el filtro de tipo)`);
       results = await runSearch(q, slot, true, null);
     }
     for (const r of results) {
@@ -164,8 +179,24 @@ async function pickForSlot(slot, types) {
   const nameFiltered = candidates.filter((c) => !containsAny(recipeText(c), plan.hard_exclude_keywords));
   console.log(`  ${nameFiltered.length} tras excluir cerdo/derivados por nombre/descripcion.`);
 
-  // Ordena priorizando cercania a target_kcal, ya filtrado por nombre.
-  nameFiltered.sort((a, b) => Math.abs(a.calories - slot.target_kcal) - Math.abs(b.calories - slot.target_kcal));
+  const relevanceWords = slot.relevance_keywords || [];
+  const isMainMeal = slot.meal_type === 'lunch' || slot.meal_type === 'dinner';
+
+  // Preordena antes de gastar llamadas de verificación en lo menos relevante:
+  // 1) coincide con el plato que se buscaba (relevance_keywords) primero,
+  // 2) no lleva vocabulario de desayuno/snack colado en comida/cena,
+  // 3) más cerca del target_kcal.
+  nameFiltered.sort((a, b) => {
+    const relA = relevanceWords.length && containsAny(recipeText(a), relevanceWords) ? 0 : 1;
+    const relB = relevanceWords.length && containsAny(recipeText(b), relevanceWords) ? 0 : 1;
+    if (relA !== relB) return relA - relB;
+    if (isMainMeal) {
+      const bcA = containsAny(recipeText(a), BREAKFAST_CODED_KEYWORDS) ? 1 : 0;
+      const bcB = containsAny(recipeText(b), BREAKFAST_CODED_KEYWORDS) ? 1 : 0;
+      if (bcA !== bcB) return bcA - bcB;
+    }
+    return Math.abs(a.calories - slot.target_kcal) - Math.abs(b.calories - slot.target_kcal);
+  });
 
   const verified = [];
   for (const c of nameFiltered) {
@@ -183,14 +214,24 @@ async function pickForSlot(slot, types) {
         console.log(`  descartado (dulce/postre fuera de lugar en ${slot.meal_type}): ${c.name} [${c.fatsecret_recipe_id}]`);
         continue;
       }
-      verified.push({ ...c, hasSoftAvoid, ingredientsText });
+      const isRelevant = relevanceWords.length ? containsAny(fullText, relevanceWords) : true;
+      const isBreakfastCoded = isMainMeal && containsAny(fullText, BREAKFAST_CODED_KEYWORDS);
+      verified.push({ ...c, hasSoftAvoid, isRelevant, isBreakfastCoded, ingredientsText });
     } catch (e) {
       console.warn(`  no se pudo verificar detalle de ${c.fatsecret_recipe_id}: ${e.message}`);
     }
   }
 
-  // Preferir candidatos sin aversiones declaradas (cebolla/judia verde), a igualdad de orden ya fijado por cercania a target_kcal.
-  verified.sort((a, b) => (a.hasSoftAvoid === b.hasSoftAvoid ? 0 : a.hasSoftAvoid ? 1 : -1));
+  // Reordena tras verificar ingredientes (la relevancia/soft-avoid ya considera texto de ingredientes, no solo nombre).
+  verified.sort((a, b) => {
+    const relA = a.isRelevant ? 0 : 1;
+    const relB = b.isRelevant ? 0 : 1;
+    if (relA !== relB) return relA - relB;
+    const bcA = a.isBreakfastCoded ? 1 : 0;
+    const bcB = b.isBreakfastCoded ? 1 : 0;
+    if (bcA !== bcB) return bcA - bcB;
+    return a.hasSoftAvoid === b.hasSoftAvoid ? 0 : a.hasSoftAvoid ? 1 : -1;
+  });
 
   console.log(`  ${verified.length} candidatos verificados (ingredientes revisados) disponibles para esta semana.`);
   return verified;
