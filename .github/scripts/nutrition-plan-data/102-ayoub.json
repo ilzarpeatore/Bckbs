@@ -19,6 +19,7 @@
       "fat_pct": [32, 52],
       "carb_pct": [21, 41],
       "recipe_type_hint": "breakfast",
+      "relevance_keywords": ["egg", "cheese", "turkey", "oat"],
       "queries": ["eggs cheese turkey high protein breakfast", "oatmeal eggs protein breakfast"]
     },
     {
@@ -30,6 +31,7 @@
       "fat_pct": [5, 25],
       "carb_pct": [46, 66],
       "recipe_type_hint": "main",
+      "relevance_keywords": ["pasta", "tuna", "noodle", "spaghetti"],
       "queries": ["pasta tuna high protein"]
     },
     {
@@ -41,6 +43,7 @@
       "fat_pct": [9, 29],
       "carb_pct": [42, 62],
       "recipe_type_hint": "main",
+      "relevance_keywords": ["chicken", "beef", "steak", "rice", "potato"],
       "queries": ["grilled chicken rice high protein", "beef steak potato high protein"]
     },
     {
@@ -51,6 +54,7 @@
       "protein_pct": [4, 24],
       "fat_pct": [24, 44],
       "carb_pct": [44, 64],
+      "relevance_keywords": ["shake", "smoothie", "oat", "avocado"],
       "queries": ["protein shake oats avocado peanut butter"]
     },
     {
@@ -62,6 +66,7 @@
       "fat_pct": [0, 19],
       "carb_pct": [40, 60],
       "recipe_type_hint": "main",
+      "relevance_keywords": ["chicken", "rice"],
       "queries": ["chicken rice bowl high protein"]
     },
     {
@@ -72,6 +77,7 @@
       "protein_pct": [14, 34],
       "fat_pct": [18, 38],
       "carb_pct": [47, 67],
+      "relevance_keywords": ["yogurt", "almond", "berry", "fruit"],
       "queries": ["greek yogurt almonds snack"]
     }
   ]
