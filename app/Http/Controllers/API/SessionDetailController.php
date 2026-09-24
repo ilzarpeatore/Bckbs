@@ -478,7 +478,10 @@ class SessionDetailController extends Controller
     {
         $request->validate(['client_id' => 'required|exists:users,id']);
 
+        // latestSnapshots: sin esto cada serie aparecía repetida una vez por
+        // cada serie marcada después (filas acumuladas, ver ClientExerciseLog).
         $logs = ClientExerciseLog::where('client_id', $request->client_id)
+            ->latestSnapshots((int) $request->client_id)
             ->with('exercise:id,title')
             ->orderByDesc('id')
             ->limit(200)

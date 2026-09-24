@@ -925,7 +925,9 @@ class ClientCalendarController extends Controller
         $limit = (int) $request->input('limit', 20);
         $bodyPartId = $request->input('body_part_id') !== null ? (int) $request->input('body_part_id') : null;
 
-        $query = ClientExerciseLog::where('client_id', $user->id);
+        // latestSnapshots: una fila por ejercicio y sesión (ver ClientExerciseLog),
+        // si no "sesiones" y "series" salían multiplicadas.
+        $query = ClientExerciseLog::where('client_id', $user->id)->latestSnapshots($user->id);
         $query->where('performed_date', '<=', $end->toDateString());
         if ($days > 0) {
             $query->where('performed_date', '>=', $end->copy()->subDays($days - 1)->toDateString());

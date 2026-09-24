@@ -345,7 +345,9 @@ class MuscleVolumeService
     public static function computeForClient(int $clientId, int $days, bool $multiplierEnabled = true, ?string $endDate = null): array
     {
         $end = $endDate ? Carbon::parse($endDate)->endOfDay() : Carbon::now();
-        $query = ClientExerciseLog::where('client_id', $clientId)->orderBy('id');
+        // latestSnapshots: cada serie marcada genera una fila acumulada --
+        // sin esto 3 series contaban como 6 (ver ClientExerciseLog).
+        $query = ClientExerciseLog::where('client_id', $clientId)->latestSnapshots($clientId)->orderBy('id');
         $query->where('performed_date', '<=', $end->toDateString());
         if ($days > 0) {
             $query->where('performed_date', '>=', $end->copy()->subDays($days - 1)->toDateString());
