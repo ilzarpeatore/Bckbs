@@ -64,10 +64,11 @@ class BackfillProfileFormAnswersCommand extends Command
                 }
             }
 
-            $address = $a['Dirección'] ?? implode(', ', array_filter([
-                $a['Dirección (calle)'] ?? null, $a['Apartamento / Suite'] ?? null,
+            // "Dirección" tal cual; si no, se compone solo cuando hay calle (un código postal suelto no es una dirección).
+            $address = $a['Dirección'] ?? (isset($a['Dirección (calle)']) ? implode(', ', array_filter([
+                $a['Dirección (calle)'], $a['Apartamento / Suite'] ?? null,
                 $a['Código postal'] ?? null, $a['Estado / Provincia'] ?? null,
-            ]));
+            ])) : '');
             if ($address !== '') {
                 $profile = DB::table('user_profiles')->where('user_id', $clientId)->first();
                 if ($profile !== null && trim((string) $profile->address) === '') {
