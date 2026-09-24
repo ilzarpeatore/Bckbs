@@ -12,7 +12,9 @@ class WorkoutTemplate extends Model implements HasMedia
 {
     use HasFactory, InteractsWithMedia, SoftDeletes;
 
-    protected $fillable = ['coach_id', 'title', 'description', 'is_exclusive', 'is_demo', 'is_public'];
+    // AÑADIDO: created_by_client_id, client_series_uuid (entrenamientos
+    // personalizados creados por el cliente, ver ClientCustomWorkoutController).
+    protected $fillable = ['coach_id', 'created_by_client_id', 'client_series_uuid', 'title', 'description', 'is_exclusive', 'is_demo', 'is_public'];
 
     protected $casts = [
         'is_exclusive' => 'boolean',

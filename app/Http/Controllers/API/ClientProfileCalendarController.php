@@ -22,7 +22,14 @@ class ClientProfileCalendarController extends Controller
      * cliente. num_weeks muy alto = efectivamente "sin límite" para uso
      * normal (unos 19 años).
      */
-    private function getOrCreatePersonalProgram(int $client_id): TrainingProgram
+    // AÑADIDO (entrenamientos personalizados del cliente, 2026-09-24):
+    // public static para que ClientCustomWorkoutController (el propio
+    // cliente creando su sesión desde la app) reutilice exactamente el
+    // mismo calendario personal en vez de crear uno paralelo. $coach_id
+    // solo se usa si hay que crearlo: desde el panel es el coach
+    // autenticado (comportamiento de siempre); desde la app, el coach del
+    // cliente (o el propio cliente si no tiene coach).
+    public static function getOrCreatePersonalProgram(int $client_id, ?int $coach_id = null): TrainingProgram
     {
         $program = TrainingProgram::where('personal_client_id', $client_id)
             ->where('is_personal', true)
@@ -51,7 +58,7 @@ class ClientProfileCalendarController extends Controller
             'title'              => 'Calendario personal',
             'is_personal'        => true,
             'personal_client_id' => $client_id,
-            'coach_id'           => auth()->id(),
+            'coach_id'           => $coach_id ?? auth()->id(),
             'num_weeks'          => 1000,
             'fecha_inicio'       => self::PERSONAL_ANCHOR_DATE,
             'activo'             => true,
@@ -150,6 +157,9 @@ class ClientProfileCalendarController extends Controller
                         'training_program_id'   => $program->is_personal ? null : $program->id,
                         'thumbnail'             => $allMedia->get($a->workout_template_id),
                         'exercise_count'        => $exerciseCounts->get($a->workout_template_id, 0),
+                        // AÑADIDO (2026-09-24): lo creó el propio cliente desde
+                        // la app (ClientCustomWorkoutController), no el coach.
+                        'is_client_created'     => $wt?->created_by_client_id !== null,
                     ]);
                 }
             }
