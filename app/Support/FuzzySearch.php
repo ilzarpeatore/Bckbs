@@ -228,7 +228,9 @@ class FuzzySearch
 
         $ranked = [];
         foreach ($model->newQuery()->select(array_merge([$key], $plain))->get() as $row) {
-            $score = self::score((string) $term, array_map(fn ($c) => (string) $row->{$c}, $plain));
+            // Valores crudos de la BD (no los casts: una columna JSON/array no es texto buscable).
+            $raw = $row->getAttributes();
+            $score = self::score((string) $term, array_map(fn ($c) => is_scalar($raw[$c] ?? null) ? (string) $raw[$c] : '', $plain));
             if ($score !== null) {
                 $ranked[$row->{$key}] = $score;
             }
