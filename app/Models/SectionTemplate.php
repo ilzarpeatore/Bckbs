@@ -47,4 +47,31 @@ class SectionTemplate extends Model
 
         return $block;
     }
+
+    /**
+     * Inverso de cloneInto(): crea una plantilla de sección a partir de un
+     * bloque de un workout_template (título + instrucciones + ejercicios con
+     * su prescrito y métricas). Es una COPIA: editar el bloque después no
+     * modifica la sección ni al revés. Las notas por ejercicio no se copian
+     * (section_template_exercises no tiene esa columna).
+     */
+    public static function createFromBlock(WorkoutTemplateBlock $block, int $coachId, ?string $title = null): self
+    {
+        $section = static::create([
+            'coach_id'     => $coachId,
+            'title'        => $title ?: ($block->title ?: 'Sección sin título'),
+            'instructions' => $block->instructions,
+        ]);
+
+        foreach ($block->exercises as $exercise) {
+            $section->exercises()->create([
+                'exercise_id'     => $exercise->exercise_id,
+                'sequence'        => $exercise->sequence,
+                'prescribed'      => $exercise->prescribed,
+                'enabled_metrics' => $exercise->enabled_metrics,
+            ]);
+        }
+
+        return $section;
+    }
 }

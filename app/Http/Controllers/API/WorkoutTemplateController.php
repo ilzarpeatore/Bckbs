@@ -253,6 +253,29 @@ class WorkoutTemplateController extends Controller
         return json_custom_response(['data' => $block->load('exercises.exercise')]);
     }
 
+    /**
+     * Inverso de importSection(): guarda un bloque de este workout como una
+     * plantilla de sección reutilizable (section_templates). Copia, no enlace.
+     */
+    public function saveBlockAsSection(Request $request)
+    {
+        $request->validate([
+            'id'    => 'required|exists:workout_template_blocks,id',
+            'title' => 'nullable|string|max:255',
+        ]);
+
+        $block = WorkoutTemplateBlock::with('exercises')->whereHas('workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->findOrFail($request->id);
+
+        $section = SectionTemplate::createFromBlock($block, auth()->id(), $request->title);
+
+        return json_custom_response([
+            'data'    => $section->load('exercises'),
+            'message' => 'Sección guardada',
+        ]);
+    }
+
     public function updateBlock(Request $request)
     {
         $request->validate([

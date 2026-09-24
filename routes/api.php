@@ -898,6 +898,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('workout-template-delete', [API\WorkoutTemplateController::class, 'destroy']);
     Route::post('workout-template-block-store', [API\WorkoutTemplateController::class, 'storeBlock']);
     Route::post('workout-template-import-section', [API\WorkoutTemplateController::class, 'importSection']);
+    Route::post('workout-template-block-save-as-section', [API\WorkoutTemplateController::class, 'saveBlockAsSection']);
     Route::post('workout-template-block-update', [API\WorkoutTemplateController::class, 'updateBlock']);
     Route::post('workout-template-block-delete', [API\WorkoutTemplateController::class, 'destroyBlock']);
     Route::post('workout-template-exercise-save', [API\WorkoutTemplateController::class, 'saveExercise']);
