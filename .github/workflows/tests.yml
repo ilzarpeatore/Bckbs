@@ -16,7 +16,9 @@ jobs:
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.4'
+          # Misma versión que producción (deploy.yml recarga php8.3-fpm): probar
+          # en otra podría dar verde con código que falla en la VPS.
+          php-version: '8.3'
           extensions: mbstring, pdo_sqlite, sqlite3, intl, gd, zip, bcmath
           coverage: none
 

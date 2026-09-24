@@ -322,7 +322,7 @@ class ClientCalendarController extends Controller
         // por el propio cliente -- mismo criterio que has_load_suggestion en
         // getMyMonth().
         $loadSuggestions = collect();
-        if ($assignment->workoutTemplate->created_by_client_id === null
+        if (optional($assignment->workoutTemplate)->created_by_client_id === null
             && Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
             $loadSuggestions = NextSessionTarget::relevantForClient($client_id)
                 ->whereIn('exercise_id', $allExerciseIds)
