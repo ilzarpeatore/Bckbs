@@ -935,6 +935,9 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('real-calendar-remove', [API\RealCalendarController::class, 'removeAssignment']);
     Route::post('real-calendar-move', [API\RealCalendarController::class, 'moveAssignment']);
     Route::get('real-calendar-weeks-grid', [API\RealCalendarController::class, 'getWeeksGrid']);
+    // Editor de sesiones a nivel programa (matriz ejercicios x semanas).
+    Route::get('program-session-matrix', [API\ProgramSessionMatrixController::class, 'show']);
+    Route::post('program-session-matrix-save', [API\ProgramSessionMatrixController::class, 'save']);
     Route::post('real-calendar-assign-week-day', [API\RealCalendarController::class, 'assignWeekDay']);
     Route::post('real-calendar-move-week-day', [API\RealCalendarController::class, 'moveWeekDay']);
     Route::post('real-calendar-duplicate-week-day', [API\RealCalendarController::class, 'duplicateWeekDay']);
