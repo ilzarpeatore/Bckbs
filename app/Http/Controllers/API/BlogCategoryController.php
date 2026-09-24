@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\BlogCategory;
 
 class BlogCategoryController extends Controller
@@ -13,7 +14,7 @@ class BlogCategoryController extends Controller
         $query = BlogCategory::where('status', 'active');
 
         if ($request->filled('search')) {
-            $query->where('title', 'LIKE', '%' . $request->search . '%');
+            FuzzySearch::apply($query, ['title'], $request->search);
         }
 
         $categories = $query->orderBy('title', 'asc')->get();

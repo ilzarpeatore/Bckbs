@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Notifications\CommonNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\Storage;
 
 class ResourceController extends Controller
@@ -39,11 +40,7 @@ class ResourceController extends Controller
             $query->where('category', $request->category);
         }
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('title', 'LIKE', "%{$search}%")
-                  ->orWhere('content', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['title', 'content'], $request->search, ['title']);
         }
 
         $perPage = min((int) $request->input('per_page', 50), 250);

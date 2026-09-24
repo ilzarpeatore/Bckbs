@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Models\User;
 use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\Hash;
 
 class SubAdminController extends BaseController
@@ -24,12 +25,7 @@ class SubAdminController extends BaseController
         $query = User::where('user_type', 'sub_admin');
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('first_name', 'LIKE', "%{$search}%")
-                  ->orWhere('last_name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['first_name', 'last_name', 'email'], $request->search);
         }
 
         $perPage = $request->get('per_page', config('constant.PER_PAGE_LIMIT', 10));

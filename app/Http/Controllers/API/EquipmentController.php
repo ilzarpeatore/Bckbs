@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Equipment;
 use App\Http\Resources\EquipmentResource;
 
@@ -14,7 +15,7 @@ class EquipmentController extends Controller
         $equipment = Equipment::where('status', 'active');
 
         $equipment->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
                 
         $per_page = config('constant.PER_PAGE_LIMIT');

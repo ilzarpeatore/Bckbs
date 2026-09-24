@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Product;
 use App\Http\Resources\ProductResource;
 use App\Http\Resources\ProductDetailResource;
@@ -17,7 +18,7 @@ class ProductController extends Controller
         $product = Product::where('status', 'active');
 
         $product->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         $product->when(request('productcategory_id'), function ($q) {

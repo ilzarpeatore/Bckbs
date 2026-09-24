@@ -8,6 +8,7 @@ use App\Models\CommentReply;
 use App\Http\Resources\PostingResource;
 use App\Http\Resources\CommentResource;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class PostingController extends BaseController
 {
@@ -26,8 +27,7 @@ class PostingController extends BaseController
         $query = Posting::with(['user']);
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where('description', 'LIKE', "%{$search}%");
+            FuzzySearch::apply($query, ['description'], $request->search);
         }
 
         if ($request->filled('status')) {

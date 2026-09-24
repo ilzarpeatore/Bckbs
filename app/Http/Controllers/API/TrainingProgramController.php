@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\TrainingProgram;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
@@ -45,7 +46,7 @@ class TrainingProgramController extends Controller
         }
 
         if ($request->has('search') && !empty($request->search)) {
-            $program = $program->where('title', 'like', '%'.$request->search.'%');
+            FuzzySearch::apply($program, ['title'], $request->search);
         }
 
         $per_page = config('constant.PER_PAGE_LIMIT');

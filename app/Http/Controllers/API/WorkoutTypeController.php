@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\WorkoutType;
 use App\Http\Resources\WorkoutTypeResource;
 
@@ -14,7 +15,7 @@ class WorkoutTypeController extends Controller
         $workouttype = WorkoutType::query();
 
         $workouttype->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         if( $request->has('status') && isset($request->status) ) {

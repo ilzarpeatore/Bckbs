@@ -10,6 +10,7 @@ use App\Models\FormSubmission;
 use App\Models\User;
 use App\Notifications\CommonNotification;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class FormController extends Controller
 {
@@ -24,7 +25,7 @@ class FormController extends Controller
         }
 
         if ($request->filled('search')) {
-            $query->where('title', 'LIKE', '%' . $request->search . '%');
+            FuzzySearch::apply($query, ['title'], $request->search);
         }
 
         $perPage = $request->get('per_page', 50);

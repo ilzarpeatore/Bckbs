@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\RecipeTagResource;
 use App\Models\RecipeTag;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class RecipeTagController extends Controller
 {
@@ -14,7 +15,7 @@ class RecipeTagController extends Controller
         $recipetag = RecipeTag::active();
 
         $recipetag->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         // AÑADIDO: permite agrupar/filtrar tags por `group` (item 11 del backlog).

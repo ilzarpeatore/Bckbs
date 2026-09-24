@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\ClassSchedule;
 use App\Http\Resources\ClassScheduleResource;
 use App\Http\Requests\ClassSchedulePlanRequest;
@@ -36,7 +37,7 @@ class ClassScheduleController extends Controller
         
        
         $class_schedule->when(request('class_name'), function ($q) {
-            return $q->where('class_name', 'LIKE', '%' . request('class_name') . '%');
+            return FuzzySearch::apply($q, ['class_name'], request('class_name'));
         });
                 
         $per_page = config('constant.PER_PAGE_LIMIT');

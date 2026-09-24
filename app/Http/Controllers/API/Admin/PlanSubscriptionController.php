@@ -12,6 +12,7 @@ use App\Notifications\CommonNotification;
 use App\Services\AuditLogger;
 use App\Services\PlanFulfillmentService;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\Mail;
 use Carbon\Carbon;
 
@@ -32,11 +33,7 @@ class PlanSubscriptionController extends BaseController
         $query = PlanSubscription::with(['plan', 'subscriber']);
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('slug', 'like', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['name', 'slug'], $request->search);
         }
 
         if ($request->filled('status')) {
@@ -343,12 +340,11 @@ class PlanSubscriptionController extends BaseController
             ->orderBy('created_at', 'desc');
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('subscriber', fn ($sq) => $sq->where('first_name', 'like', "%{$search}%")
-                    ->orWhere('last_name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%"))
-                  ->orWhereHas('plan', fn ($pq) => $pq->where('name', 'like', "%{$search}%"));
+            $subscriberIds = FuzzySearch::matchingIds(User::class, ['first_name', 'last_name', 'email'], $request->search);
+            $planIds = FuzzySearch::matchingIds(Plan::class, ['name'], $request->search);
+            $query->where(function ($q) use ($subscriberIds, $planIds) {
+                $q->where(fn ($sq) => $sq->where('subscriber_type', User::class)->whereIn('subscriber_id', $subscriberIds))
+                  ->orWhereIn('plan_id', $planIds);
             });
         }
 

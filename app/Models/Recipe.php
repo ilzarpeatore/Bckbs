@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\FuzzySearch;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Spatie\MediaLibrary\HasMedia;
@@ -91,7 +92,7 @@ class Recipe extends Model implements HasMedia
         $query->where('status', 'active');
 
         $query->when(request('title'), function ($q) {
-            $q->where('title', 'LIKE', '%' . request('title') . '%');
+            FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         // recipes.meal_type (columna JSON) esta vacia en todo el catalogo real -

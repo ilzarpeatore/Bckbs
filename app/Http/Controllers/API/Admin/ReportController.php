@@ -11,6 +11,7 @@ use App\Models\ReadinessScore;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
@@ -358,10 +359,11 @@ class ReportController extends Controller
             ->orderBy('created_at', 'desc');
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('subscriber', fn ($sq) => $sq->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"))
-                  ->orWhereHas('plan', fn ($pq) => $pq->where('name', 'like', "%{$search}%"));
+            $subscriberIds = FuzzySearch::matchingIds(\App\Models\User::class, ['first_name', 'last_name'], $request->search);
+            $planIds = FuzzySearch::matchingIds(Plan::class, ['name'], $request->search);
+            $query->where(function ($q) use ($subscriberIds, $planIds) {
+                $q->where(fn ($sq) => $sq->where('subscriber_type', \App\Models\User::class)->whereIn('subscriber_id', $subscriberIds))
+                  ->orWhereIn('plan_id', $planIds);
             });
         }
 

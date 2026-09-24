@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Package;
 use App\Http\Resources\PackageResource;
 
@@ -14,7 +15,7 @@ class PackageController  extends Controller
         $package = Package::where('status', 'active');
 
         $package->when(request('name'), function ($q) {
-            return $q->where('name', 'LIKE', '%' . request('name') . '%');
+            return FuzzySearch::apply($q, ['name'], request('name'));
         });
                 
         $per_page = config('constant.PER_PAGE_LIMIT');

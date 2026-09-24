@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class AuditLogController extends Controller
 {
@@ -25,14 +26,10 @@ class AuditLogController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('action', 'like', "%{$search}%")
-                  ->orWhere('entity_type', 'like', "%{$search}%")
-                  ->orWhere('detail', 'like', "%{$search}%")
-                  ->orWhereHas('user', fn ($uq) => $uq->where('first_name', 'like', "%{$search}%")
-                      ->orWhere('last_name', 'like', "%{$search}%")
-                      ->orWhere('email', 'like', "%{$search}%"));
+            $userIds = FuzzySearch::matchingIds(\App\Models\User::class, ['first_name', 'last_name', 'email'], $request->search);
+            $query->where(function ($q) use ($userIds, $request) {
+                $q->where(FuzzySearch::likeClosure(['action', 'entity_type', 'detail'], $request->search))
+                  ->orWhereIn('user_id', $userIds);
             });
         }
 

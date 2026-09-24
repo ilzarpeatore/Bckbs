@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Exercise;
 use App\Http\Resources\ExerciseResource;
 use App\Http\Resources\ExerciseDetailResource;
@@ -17,7 +18,7 @@ class ExerciseController extends Controller
         $exercise = Exercise::where('status', 'active');
 
         $exercise->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         $exercise->when(request('equipment_id'), function ($q) {

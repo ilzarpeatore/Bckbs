@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\Task;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
@@ -30,11 +31,7 @@ class TaskController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('title', 'LIKE', "%{$search}%")
-                  ->orWhere('description', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['title', 'description'], $request->search);
         }
 
         $perPage = $request->get('per_page', 50);

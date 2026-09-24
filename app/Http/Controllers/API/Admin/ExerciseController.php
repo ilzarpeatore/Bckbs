@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Models\Exercise;
 use App\Http\Resources\ExerciseResource;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Validation\Rule;
 
 class ExerciseController extends BaseController
@@ -27,14 +28,8 @@ class ExerciseController extends BaseController
         if (method_exists($model, 'scopeSearch')) {
             $query->search($request);
         } elseif ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search, $model) {
-                foreach ($model->getFillable() as $field) {
-                    if (!in_array($field, ['password', 'remember_token'])) {
-                        $q->orWhere($field, 'LIKE', "%{$search}%");
-                    }
-                }
-            });
+            $columns = array_values(array_filter($model->getFillable(), fn ($f) => !in_array($f, ['password', 'remember_token'])));
+            FuzzySearch::apply($query, $columns, $request->search);
         }
 
         if ($request->filled('status')) {

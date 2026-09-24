@@ -7,6 +7,7 @@ use App\Http\Resources\UserResource;
 use App\Services\WelcomeMailService;
 use App\Exports\UserReportExport;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use Illuminate\Support\Facades\Hash;
 use Maatwebsite\Excel\Facades\Excel;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -28,13 +29,7 @@ class UserController extends BaseController
         $query = User::role('user');
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('first_name', 'LIKE', "%{$search}%")
-                  ->orWhere('last_name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%")
-                  ->orWhere('username', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['first_name', 'last_name', 'email', 'username'], $request->search);
         }
 
         if ($request->filled('status')) {

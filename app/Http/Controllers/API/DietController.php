@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Diet;
 use App\Http\Resources\DietResource;
 use App\Http\Resources\DietDetailResource;
@@ -20,7 +21,7 @@ class DietController extends Controller
         $diet = Diet::active()->showAssignPrivateDiet();
 
         $diet->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
         // if( $request->has('is_premium') && isset($request->is_premium) ) {
         //     $diet = $diet->where('is_premium',request('is_premium'));

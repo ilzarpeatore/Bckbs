@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\CategoryDiet;
 use App\Http\Resources\CategoryDietResource;
 
@@ -14,7 +15,7 @@ class CategoryDietController extends Controller
         $categorydiet = CategoryDiet::where('status', 'active');
 
         $categorydiet->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
         
         $per_page = config('constant.PER_PAGE_LIMIT');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\AppFeedback;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class AppFeedbackController extends Controller
 {
@@ -25,11 +26,7 @@ class AppFeedbackController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('title', 'LIKE', "%{$search}%")
-                  ->orWhere('description', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['title', 'description'], $request->search, ['title']);
         }
 
         $perPage = $request->get('per_page', config('constant.PER_PAGE_LIMIT', 10));

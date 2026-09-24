@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Workout;
 use App\Http\Resources\WorkoutResource;
 use App\Http\Resources\WorkoutDetailResource;
@@ -20,7 +21,7 @@ class WorkoutController extends Controller
         $workout = Workout::active()->showAssignPrivateWorkout();
 
         $workout->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         $workout->when(request('level_id'), function ($q) {

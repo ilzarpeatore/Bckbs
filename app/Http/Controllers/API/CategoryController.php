@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Category;
 use App\Http\Resources\CategoryResource;
 
@@ -13,7 +14,7 @@ class CategoryController extends Controller
     {
         $category = Category::where('status', 'active');
         $category->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
         
         $per_page = config('constant.PER_PAGE_LIMIT');

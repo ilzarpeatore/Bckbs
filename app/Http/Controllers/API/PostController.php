@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 use App\Models\Post;
 use App\Http\Resources\PostResource;
 use App\Http\Resources\PostDetailResource;
@@ -15,15 +16,11 @@ class PostController extends Controller
         $post = Post::where('status', 'publish');
 
         $post->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         $post->when(request('search'), function ($q) {
-            $search = request('search');
-            return $q->where(function ($query) use ($search) {
-                $query->where('title', 'LIKE', "%{$search}%")
-                    ->orWhere('description', 'LIKE', "%{$search}%");
-            });
+            return FuzzySearch::apply($q, ['title', 'description'], request('search'), ['title']);
         });
 
         $post->when(request('is_featured'), function ($q) {

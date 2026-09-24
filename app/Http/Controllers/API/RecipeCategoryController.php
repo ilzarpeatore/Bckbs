@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\RecipeCategoryResource;
 use App\Models\RecipeCategory;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class RecipeCategoryController extends Controller
 {
@@ -14,7 +15,7 @@ class RecipeCategoryController extends Controller
         $recipecategory = RecipeCategory::active();
 
         $recipecategory->when(request('title'), function ($q) {
-            return $q->where('title', 'LIKE', '%' . request('title') . '%');
+            return FuzzySearch::apply($q, ['title'], request('title'));
         });
 
         $per_page = config('constant.PER_PAGE_LIMIT');

@@ -6,6 +6,7 @@ use App\Models\Recipe;
 use App\Models\RecipeStep;
 use App\Http\Resources\RecipeResource;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 class RecipeController extends BaseController
 {
@@ -25,11 +26,7 @@ class RecipeController extends BaseController
 
         // Text search across title and description
         if ($request->filled('search')) {
-            $s = $request->search;
-            $query->where(function ($q) use ($s) {
-                $q->where('title', 'LIKE', "%{$s}%")
-                  ->orWhere('description', 'LIKE', "%{$s}%");
-            });
+            FuzzySearch::apply($query, ['title', 'description'], $request->search, ['title']);
         }
 
         // Status filter
@@ -57,7 +54,7 @@ class RecipeController extends BaseController
         if ($request->filled('ingredient')) {
             $ing = $request->ingredient;
             $query->whereHas('recipeIngredients.ingredient', function ($q) use ($ing) {
-                $q->where('title', 'LIKE', "%{$ing}%");
+                $q->where(FuzzySearch::likeClosure(['title'], $ing));
             });
         }
 

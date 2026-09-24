@@ -8,6 +8,7 @@ use App\Models\ParQAnswer;
 use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\NutritionQuestionnaireAnswer;
 use Illuminate\Http\Request;
+use App\Support\FuzzySearch;
 
 /**
  * Visibilidad admin del onboarding v2 (estado de completado, flag PAR-Q de
@@ -33,13 +34,7 @@ class OnboardingController extends Controller
         }
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('first_name', 'LIKE', "%{$search}%")
-                  ->orWhere('last_name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%")
-                  ->orWhere('username', 'LIKE', "%{$search}%");
-            });
+            FuzzySearch::apply($query, ['first_name', 'last_name', 'email', 'username'], $request->search);
         }
 
         $perPage = $request->get('per_page', 50);
