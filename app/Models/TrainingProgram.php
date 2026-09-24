@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -133,6 +134,60 @@ class TrainingProgram extends Model
         }
 
         return $copy;
+    }
+
+    /**
+     * ÚNICO camino para asignar un programa de la biblioteca a un cliente:
+     * SIEMPRE con copia propia (cloneForClient), nunca apuntando la asignación
+     * al programa de la biblioteca -- así cada cliente tiene su programa y sus
+     * plantillas totalmente independientes de los demás y de la biblioteca.
+     *
+     * Si el cliente ya tiene este programa (o una copia suya, vía source_id)
+     * es una renovación: solo se mueven las fechas, nunca se reclona, para no
+     * perder personalizaciones ni historial de esa copia.
+     *
+     * Lo usan las compras (Package/PlanFulfillmentService), el comando
+     * programs:assign-client y cualquier futuro alta de asignación;
+     * ProgramClientAssignment rechaza además crear una asignación directa a un
+     * programa de la biblioteca (ver su booted()).
+     *
+     * @param  array<string,mixed>  $extra  atributos extra de la asignación (p. ej. source_subscription_id)
+     * @return array{0:ProgramClientAssignment,1:bool}  [asignación, ¿renovada?]
+     */
+    public function assignToClient(int $clientId, Carbon $startDate, array $extra = []): array
+    {
+        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, (int) $this->num_weeks);
+
+        $existing = ProgramClientAssignment::where('client_id', $clientId)
+            ->whereHas('trainingProgram', function ($q) {
+                $q->where('id', $this->id)
+                  ->orWhere(fn ($w) => $w->where('source', 'client_import')->where('source_id', (string) $this->id));
+            })
+            ->orderByDesc('id')
+            ->first();
+
+        if ($existing !== null) {
+            $existing->update(array_merge([
+                'start_date' => $startDate->toDateString(),
+                'fecha_fin'  => $fechaFin->toDateString(),
+                'activo'     => true,
+                'cerrado_at' => null, // renovación = nuevo ciclo del mesociclo, no continuación del cerrado
+            ], $extra));
+
+            return [$existing, true];
+        }
+
+        $copy = $this->cloneForClient($clientId);
+
+        $assignment = ProgramClientAssignment::create(array_merge([
+            'training_program_id' => $copy->id,
+            'client_id'           => $clientId,
+            'start_date'          => $startDate->toDateString(),
+            'fecha_fin'           => $fechaFin->toDateString(),
+            'activo'              => true,
+        ], $extra));
+
+        return [$assignment, false];
     }
 
     public function cloneForClient(int $clientId): self

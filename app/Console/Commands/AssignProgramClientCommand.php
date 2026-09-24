@@ -61,35 +61,9 @@ class AssignProgramClientCommand extends Command
             return $this->reportFailure($jsonOutput, "Fecha de inicio inválida: {$startDateOpt}");
         }
 
-        $fechaFin = ProgramClientAssignment::computeFechaFin($startDate, $program->num_weeks);
-
-        $existing = ProgramClientAssignment::where('training_program_id', $programId)
-            ->where('client_id', $client->id)
-            ->first();
-
-        // Misma semántica que TrainingProgramController::assignClient(): si
-        // ya existía, es una renovación (nuevo ciclo del mesociclo) -- no
-        // una fila duplicada -- así que se actualiza la misma, reabriendo
-        // cerrado_at si estaba cerrada.
-        if ($existing !== null) {
-            $existing->update([
-                'start_date' => $startDate->toDateString(),
-                'fecha_fin'  => $fechaFin->toDateString(),
-                'activo'     => true,
-                'cerrado_at' => null,
-            ]);
-            $assignment = $existing;
-            $renewed = true;
-        } else {
-            $assignment = ProgramClientAssignment::create([
-                'training_program_id' => $programId,
-                'client_id'           => $client->id,
-                'start_date'          => $startDate->toDateString(),
-                'fecha_fin'           => $fechaFin->toDateString(),
-                'activo'              => true,
-            ]);
-            $renewed = false;
-        }
+        // SIEMPRE con copia propia para el cliente (nunca el programa de la biblioteca directamente):
+        // ver TrainingProgram::assignToClient(). Si ya tenía este programa (o su copia) es una renovación.
+        [$assignment, $renewed] = $program->assignToClient((int) $client->id, $startDate);
 
         $client->notify(new CommonNotification('new_training_program', [
             'id'      => $program->id,
@@ -104,6 +78,7 @@ class AssignProgramClientCommand extends Command
                 'renewed'               => $renewed,
                 'assignment_id'         => $assignment->id,
                 'training_program_id'   => $programId,
+                'assigned_program_id'   => $assignment->training_program_id, // la copia propia del cliente
                 'client_id'             => $client->id,
                 'client_email'          => $client->email,
                 'start_date'            => $assignment->start_date->toDateString(),

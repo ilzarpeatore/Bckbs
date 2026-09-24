@@ -15,6 +15,30 @@ class ProgramClientAssignment extends Model
         'activo', 'cerrado_at', 'source_subscription_id',
     ];
 
+    /**
+     * AISLAMIENTO: una asignación NUNCA puede apuntar a un programa de la
+     * biblioteca (sin dueño cliente) -- todos los clientes que lo tuvieran
+     * compartirían filas (plantillas, días, historial de edición). Se asigna
+     * con TrainingProgram::assignToClient(), que crea la copia del cliente.
+     * Solo se comprueba al crear o al cambiar de programa: las filas
+     * existentes se siguen actualizando (fechas, cierre) sin problema.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $assignment) {
+            if ($assignment->exists && !$assignment->isDirty('training_program_id')) {
+                return;
+            }
+
+            $program = TrainingProgram::find($assignment->training_program_id);
+            if ($program !== null && \App\Services\TemplateIsolationGuard::ownerKey($program) === \App\Services\TemplateIsolationGuard::LIBRARY) {
+                throw new \DomainException(
+                    "El programa #{$program->id} es de la biblioteca: no se asigna directamente a un cliente. Usa TrainingProgram::assignToClient() para crear su copia."
+                );
+            }
+        });
+    }
+
     protected $casts = [
         'start_date' => 'date',
         'fecha_fin'  => 'date',

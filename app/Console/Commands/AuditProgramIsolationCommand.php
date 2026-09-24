@@ -15,9 +15,8 @@ use Illuminate\Console\Command;
  *   php artisan programs:audit-isolation
  *
  * Termina con código 1 si encuentra una VIOLACIÓN (datos compartidos entre
- * clientes o entre un cliente y la biblioteca), 0 si no. Los programas de
- * biblioteca asignados directamente a un único cliente (legacy, sin copia
- * propia) se listan como AVISO, no como violación.
+ * clientes o entre un cliente y la biblioteca, o un programa de biblioteca
+ * asignado directamente a un cliente), 0 si no.
  */
 class AuditProgramIsolationCommand extends Command
 {
@@ -53,7 +52,7 @@ class AuditProgramIsolationCommand extends Command
             }
         }
 
-        // 3) Avisos: programas de biblioteca asignados directamente (legacy, sin copia).
+        // 3) Programas de biblioteca asignados directamente (sin copia propia): el cliente comparte fila con la biblioteca.
         $directs = ProgramClientAssignment::where('activo', true)->get()
             ->groupBy('training_program_id')
             ->filter(function ($rows, $programId) {
@@ -62,7 +61,8 @@ class AuditProgramIsolationCommand extends Command
             });
         foreach ($directs as $programId => $rows) {
             $ids = $rows->pluck('client_id')->unique()->implode(', ');
-            $this->warn("AVISO: el programa de biblioteca {$programId} está asignado directamente (sin copia propia) al/los cliente(s) {$ids}; editarlo desde la biblioteca cambia su calendario en vivo.");
+            $violations++;
+            $this->error("VIOLACIÓN: el programa de biblioteca {$programId} está asignado directamente (sin copia propia) al/los cliente(s) {$ids}; se corrige con programs:detach-direct-assignment {$programId}.");
         }
 
         if ($violations === 0) {

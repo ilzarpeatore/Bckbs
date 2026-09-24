@@ -93,6 +93,24 @@ class Kernel extends ConsoleKernel
             ->weeklyOn(0, '04:00')
             ->timezone('Europe/Madrid')
             ->appendOutputTo(storage_path('logs/programs-check-integrity.log'));
+        // Aislamiento entre clientes (solo lectura): ningún programa ni plantilla
+        // compartidos entre clientes ni con la biblioteca. Si detecta una
+        // violación avisa a los admin con una notificación (sin escribir
+        // ficheros: el scheduler corre como root y dejaría logs con dueño
+        // root que PHP-FPM no puede escribir).
+        $schedule->command('programs:audit-isolation')
+            ->dailyAt('05:30')
+            ->timezone('Europe/Madrid')
+            ->onFailure(function () {
+                foreach (\App\Models\User::where('user_type', 'admin')->get() as $admin) {
+                    $admin->notify(new \App\Notifications\CommonNotification('isolation_violation', [
+                        'id'      => 0,
+                        'type'    => 'isolation_violation',
+                        'subject' => 'Aislamiento entre clientes',
+                        'message' => 'La auditoría diaria ha detectado un programa o una plantilla compartidos entre clientes. Ejecuta programs:audit-isolation por SSH para ver el detalle.',
+                    ]));
+                }
+            });
         $time = SettingData ('QUOTE', 'QUOTE_TIME') ?? '05:00';
         $timezone = SettingData ('string', 'timezone') ?? config('app.timezone');
         

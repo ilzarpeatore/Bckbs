@@ -227,7 +227,7 @@ class ClientCustomWorkoutTest extends TestCase
         $client = $this->makeUser($coach->id);
 
         $program = TrainingProgram::create([
-            'title' => 'Be Stronger — Macrociclo 2', 'coach_id' => $coach->id, 'num_weeks' => 8,
+            'title' => 'Be Stronger — Macrociclo 2', 'coach_id' => $coach->id, 'client_id' => $client->id, 'num_weeks' => 8,
             'fecha_inicio' => '2026-09-14', 'activo' => true,
         ]);
         ProgramClientAssignment::create([
@@ -433,7 +433,7 @@ class ClientCustomWorkoutTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-09-27 23:30:00'));
         $coach = $this->makeUser();
         $client = $this->makeUser($coach->id);
-        $program = TrainingProgram::create(['title' => 'Macro', 'coach_id' => $coach->id, 'num_weeks' => 8, 'fecha_inicio' => '2026-09-14', 'activo' => true]);
+        $program = TrainingProgram::create(['title' => 'Macro', 'coach_id' => $coach->id, 'client_id' => $client->id, 'num_weeks' => 8, 'fecha_inicio' => '2026-09-14', 'activo' => true]);
         ProgramClientAssignment::create(['training_program_id' => $program->id, 'client_id' => $client->id, 'start_date' => '2026-09-14', 'fecha_fin' => '2026-11-08', 'activo' => true]);
         Sanctum::actingAs($client);
 
@@ -473,7 +473,7 @@ class ClientCustomWorkoutTest extends TestCase
         ], $item);
 
         // Con un programa real también: el programa primero, el item extra al final.
-        $real = TrainingProgram::create(['title' => 'Macro', 'coach_id' => $coach->id, 'num_weeks' => 8, 'fecha_inicio' => '2026-09-14', 'activo' => true]);
+        $real = TrainingProgram::create(['title' => 'Macro', 'coach_id' => $coach->id, 'client_id' => $client->id, 'num_weeks' => 8, 'fecha_inicio' => '2026-09-14', 'activo' => true]);
         ProgramClientAssignment::create(['training_program_id' => $real->id, 'client_id' => $client->id, 'start_date' => '2026-09-14', 'activo' => true]);
         $res = $this->getJson('/api/v1/my-active-programs')->assertOk()->assertJsonCount(2, 'data');
         $this->assertSame(['program', 'coach_calendar'], array_column($res->json('data'), 'kind'));

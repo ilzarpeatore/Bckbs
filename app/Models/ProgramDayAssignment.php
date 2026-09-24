@@ -14,6 +14,46 @@ class ProgramDayAssignment extends Model
 
     protected $casts = ['scheduled_date' => 'date', 'is_deload' => 'boolean'];
 
+    /**
+     * AISLAMIENTO (garantía por construcción): al crear un día o cambiar su
+     * plantilla, si esa plantilla la usa ya un propietario DISTINTO (la
+     * biblioteca u otro cliente), el día recibe automáticamente su propia
+     * copia (WorkoutTemplate::cloneStructure) en vez de compartir la fila.
+     * Así ninguna ruta -- las de hoy (calendarios real/personal, generador de
+     * semanas, alta de usuario con plantilla demo...) ni las que se añadan en
+     * el futuro -- puede dejar a dos clientes (o a un cliente y la biblioteca)
+     * apuntando a la misma plantilla. Varios días del MISMO propietario sí
+     * pueden reutilizar una plantilla (p. ej. "Torso A" en dos semanas).
+     * Ver TemplateIsolationGuard y el comando programs:audit-isolation.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $day) {
+            if ($day->workout_template_id === null) {
+                return;
+            }
+            if ($day->exists && !$day->isDirty('workout_template_id') && !$day->isDirty('training_program_id')) {
+                return;
+            }
+
+            $program = TrainingProgram::find($day->training_program_id);
+            if ($program === null) {
+                return;
+            }
+
+            $owner = \App\Services\TemplateIsolationGuard::ownerKey($program);
+            $others = array_diff(\App\Services\TemplateIsolationGuard::ownersOfTemplate((int) $day->workout_template_id), [$owner]);
+            if ($others === []) {
+                return;
+            }
+
+            $template = WorkoutTemplate::find($day->workout_template_id);
+            if ($template !== null) {
+                $day->workout_template_id = $template->cloneStructure()->id;
+            }
+        });
+    }
+
     public function trainingProgram()
     {
         return $this->belongsTo(TrainingProgram::class, 'training_program_id', 'id');
