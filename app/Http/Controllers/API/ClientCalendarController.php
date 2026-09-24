@@ -173,6 +173,24 @@ class ClientCalendarController extends Controller
                     ->groupBy('model_id')
                     ->map(fn ($group) => $group->first()->getUrl());
 
+            // Entrenamientos personalizados que se repiten (misma serie
+            // semanal, client_series_uuid) -- la app solo ofrece "borrar este
+            // y los siguientes" cuando de verdad hay más de uno. Una sola
+            // consulta por programa, y solo en el calendario personal.
+            $seriesCounts = collect();
+            if ($program->is_personal) {
+                $uuids = $assignments->flatten()
+                    ->map(fn ($a) => optional($a->workoutTemplate)->client_series_uuid)
+                    ->filter()->unique()->values()->all();
+                if (!empty($uuids)) {
+                    $seriesCounts = \App\Models\WorkoutTemplate::where('created_by_client_id', $client_id)
+                        ->whereIn('client_series_uuid', $uuids)
+                        ->selectRaw('client_series_uuid, COUNT(*) as cnt')
+                        ->groupBy('client_series_uuid')
+                        ->pluck('cnt', 'client_series_uuid');
+                }
+            }
+
             foreach ($grid_dates as $date) {
                 $wd = $mapper->toWeekAndDay($start_date, $date);
                 if ($wd['week_number'] < 1 || $wd['week_number'] > $program->num_weeks) continue;
@@ -215,6 +233,7 @@ class ClientCalendarController extends Controller
                         'is_personal'         => (bool) $program->is_personal,
                         'is_custom'           => optional($a->workoutTemplate)->created_by_client_id !== null
                             && (int) $a->workoutTemplate->created_by_client_id === (int) $client_id,
+                        'is_repeating'        => (int) $seriesCounts->get(optional($a->workoutTemplate)->client_series_uuid ?? '', 0) > 1,
                     ]);
                 }
             }

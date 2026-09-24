@@ -92,7 +92,7 @@ class ClientCustomWorkoutTest extends TestCase
         $res = $this->postJson('/api/v1/my-custom-workouts', $this->payload())->assertOk();
         $assignmentId = $res->json('data.assignments.0.assignment_id');
         $this->assertCount(1, $res->json('data.assignments'));
-        $this->assertNull($res->json('data.series_uuid'));
+        $this->assertNotNull($res->json('data.series_uuid'));
 
         $assignment = ProgramDayAssignment::with('trainingProgram', 'workoutTemplate.blocks.exercises')->find($assignmentId);
         $this->assertTrue($assignment->trainingProgram->is_personal);
@@ -119,6 +119,7 @@ class ClientCustomWorkoutTest extends TestCase
         $this->assertCount(1, $day['workouts']);
         $this->assertSame($assignmentId, $day['workouts'][0]['assignment_id']);
         $this->assertTrue($day['workouts'][0]['is_custom']);
+        $this->assertFalse($day['workouts'][0]['is_repeating']);
         $this->assertTrue($day['workouts'][0]['is_personal']);
 
         // Y se abre con el mismo endpoint de detalle que cualquier otro día.
@@ -237,5 +238,78 @@ class ClientCustomWorkoutTest extends TestCase
         $this->assertSame(2, $res->json('data.0.current_week'));
         $this->assertSame(2, $res->json('data.0.sessions_this_week'));
         $this->assertSame(1, $res->json('data.0.completed_this_week'));
+    }
+
+    public function test_same_client_request_id_does_not_duplicate(): void
+    {
+        $client = $this->makeUser();
+        Sanctum::actingAs($client);
+
+        $payload = $this->payload(['date' => '2026-09-21', 'repeat_weeks' => 3, 'client_request_id' => 'abc_DEF-123']);
+        $first = $this->postJson('/api/v1/my-custom-workouts', $payload)->assertOk();
+        $second = $this->postJson('/api/v1/my-custom-workouts', $payload)->assertOk();
+
+        $this->assertFalse($first->json('replayed'));
+        $this->assertTrue($second->json('replayed'));
+        $this->assertSame($first->json('data.assignments'), $second->json('data.assignments'));
+        $this->assertSame(3, WorkoutTemplate::where('created_by_client_id', $client->id)->count());
+
+        // Y el calendario marca las ocurrencias como repetidas.
+        $cal = $this->getJson('/api/v1/my-calendar?month=9&year=2026')->assertOk();
+        $day = collect($cal->json('data.days'))->firstWhere('date', '2026-09-28');
+        $this->assertTrue($day['workouts'][0]['is_repeating']);
+
+        // Un id de otro cliente con el mismo valor no le devuelve nada ajeno.
+        Sanctum::actingAs($this->makeUser());
+        $this->postJson('/api/v1/my-custom-workouts', $payload)->assertOk()->assertJsonPath('replayed', false);
+    }
+
+    public function test_prescribed_values_are_normalized(): void
+    {
+        Sanctum::actingAs($this->makeUser());
+
+        $res = $this->postJson('/api/v1/my-custom-workouts', $this->payload(['blocks' => [['title' => 'X', 'exercises' => [
+            ['exercise_id' => $this->exerciseA, 'prescribed' => ['series' => '99', 'reps' => '12-8', 'carga' => '22,5', 'descanso' => '1:30', 'rir' => '15']],
+            ['exercise_id' => $this->exerciseB, 'prescribed' => ['series' => 'abc', 'reps' => '8-', 'carga' => '1.2.3', 'descanso' => '-', 'rpe' => '0']],
+        ]]]]))->assertOk();
+
+        $template = WorkoutTemplate::with('blocks.exercises')->find($res->json('data.assignments.0.workout_template_id'));
+        $ex = $template->blocks[0]->exercises->sortBy('sequence')->values();
+        $this->assertSame(['series' => '20', 'reps' => '8-12', 'carga' => '22.5', 'descanso' => '90', 'rir' => '10'], $ex[0]->prescribed);
+        // Basura descartada o saneada, nunca guardada tal cual.
+        $this->assertSame(['series' => '3', 'reps' => '8', 'rpe' => '1'], $ex[1]->prescribed);
+    }
+
+    public function test_limits_and_spanish_messages(): void
+    {
+        Sanctum::actingAs($this->makeUser());
+
+        $many = array_fill(0, 41, ['exercise_id' => $this->exerciseA]);
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['blocks' => [['title' => 'X', 'exercises' => $many]]]))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Como máximo puedes tener 40 ejercicios por sección.');
+
+        $blocks = [];
+        foreach (range(1, 2) as $i) $blocks[] = ['title' => "S$i", 'exercises' => array_fill(0, 31, ['exercise_id' => $this->exerciseA])];
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['blocks' => $blocks]))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Como máximo puedes tener 60 ejercicios en un entrenamiento.');
+
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-13']))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Solo puedes crear entrenamientos a partir de la semana en curso.');
+
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['blocks' => [['title' => 'X', 'exercises' => [['exercise_id' => 999999]]]]]))
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Uno de los ejercicios ya no existe. Quítalo y vuelve a añadirlo.');
+    }
+
+    public function test_monday_in_utc_still_accepts_the_local_current_week(): void
+    {
+        // Lunes 00:30 UTC: un cliente en UTC-5 todavía está en domingo y su
+        // "semana en curso" empieza el lunes anterior.
+        Carbon::setTestNow(Carbon::parse('2026-09-28 00:30:00'));
+        Sanctum::actingAs($this->makeUser());
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-22']))->assertOk();
     }
 }

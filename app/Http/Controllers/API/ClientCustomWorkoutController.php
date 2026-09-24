@@ -33,6 +33,9 @@ class ClientCustomWorkoutController extends Controller
     /** Tope de repeticiones semanales ("repetir todos los lunes") por creación. */
     const MAX_REPEAT_WEEKS = 52;
 
+    /** Tope de ejercicios por entrenamiento (todas las secciones juntas). */
+    const MAX_EXERCISES = 60;
+
     /**
      * POST v1/my-custom-workouts
      *
@@ -51,12 +54,20 @@ class ClientCustomWorkoutController extends Controller
     public function store(Request $request)
     {
         $today = Carbon::today();
+        // El servidor va en UTC y el cliente en su hora local: el lunes
+        // local puede ser todavía domingo en UTC (o al revés). Se calcula la
+        // semana en curso desde AYER para no rechazar el lunes local de un
+        // cliente que va por delante/detrás de UTC; sigue sin permitir
+        // semanas pasadas reales.
+        $minDate = $today->copy()->subDay()->startOfWeek(Carbon::MONDAY)->toDateString();
 
         $request->validate([
+            // Idempotencia: la app manda un id por pantalla de creación. Si
+            // la petición se repite (timeout de red y el usuario vuelve a
+            // pulsar Guardar) se devuelve lo ya creado en vez de duplicarlo.
+            'client_request_id'                 => ['nullable', 'string', 'max:36', 'regex:/^[A-Za-z0-9_-]+$/'],
             'title'                             => 'required|string|max:120',
-            // Desde el lunes de la semana en curso (registrar algo hecho
-            // ayer) hasta un año vista.
-            'date'                              => 'required|date_format:Y-m-d|after_or_equal:'.$today->copy()->startOfWeek(Carbon::MONDAY)->toDateString().'|before_or_equal:'.$today->copy()->addYear()->toDateString(),
+            'date'                              => 'required|date_format:Y-m-d|after_or_equal:'.$minDate.'|before_or_equal:'.$today->copy()->addYear()->toDateString(),
             'repeat_weeks'                      => 'nullable|integer|min:1|max:'.self::MAX_REPEAT_WEEKS,
             'blocks'                            => 'required|array|min:1|max:20',
             'blocks.*.title'                    => 'nullable|string|max:120',
@@ -66,6 +77,30 @@ class ClientCustomWorkoutController extends Controller
             'blocks.*.exercises.*.enabled_metrics'   => 'nullable|array',
             'blocks.*.exercises.*.enabled_metrics.*' => 'string',
             'blocks.*.exercises.*.notes'        => 'nullable|string|max:1000',
+        ], [
+            'title.required'         => 'El entrenamiento necesita un nombre.',
+            'title.max'              => 'El nombre es demasiado largo (máximo 120 caracteres).',
+            'date.required'          => 'Elige un día para el entrenamiento.',
+            'date.date_format'       => 'La fecha no es válida.',
+            'date.after_or_equal'    => 'Solo puedes crear entrenamientos a partir de la semana en curso.',
+            'date.before_or_equal'   => 'Solo puedes planificar hasta un año vista.',
+            'repeat_weeks.max'       => 'Puedes repetirlo como máximo '.self::MAX_REPEAT_WEEKS.' semanas.',
+            'repeat_weeks.integer'   => 'El número de semanas no es válido.',
+            'repeat_weeks.min'       => 'El número de semanas no es válido.',
+            'blocks.required'        => 'Añade al menos una sección con ejercicios.',
+            'blocks.max'             => 'Como máximo puedes tener 20 secciones.',
+            'blocks.*.exercises.max' => 'Como máximo puedes tener 40 ejercicios por sección.',
+            'blocks.*.exercises.*.exercise_id.exists' => 'Uno de los ejercicios ya no existe. Quítalo y vuelve a añadirlo.',
+            // Genéricos (el locale del backend es 'en'): cualquier otro fallo
+            // de validación se muestra en castellano en la app.
+            'required'               => 'Revisa los datos del entrenamiento: falta información.',
+            'present'                => 'Revisa los datos del entrenamiento: falta información.',
+            'array'                  => 'Revisa los datos del entrenamiento.',
+            'string'                 => 'Revisa los datos del entrenamiento.',
+            'integer'                => 'Revisa los datos del entrenamiento.',
+            'regex'                  => 'Petición no válida. Cierra y vuelve a abrir el creador.',
+            'max'                    => 'Alguno de los textos es demasiado largo.',
+            'exists'                 => 'Uno de los ejercicios ya no existe. Quítalo y vuelve a añadirlo.',
         ]);
 
         $blocks = collect($request->blocks)
@@ -75,6 +110,9 @@ class ClientCustomWorkoutController extends Controller
 
         if ($blocks->isEmpty()) {
             return json_message_response('Añade al menos un ejercicio al entrenamiento.', 422);
+        }
+        if ($blocks->sum(fn ($b) => count($b['exercises'])) > self::MAX_EXERCISES) {
+            return json_message_response('Como máximo puedes tener '.self::MAX_EXERCISES.' ejercicios en un entrenamiento.', 422);
         }
 
         $allowedMetrics = Metric::pluck('key')->all();
@@ -98,11 +136,10 @@ class ClientCustomWorkoutController extends Controller
 
                 $prescribed = collect((array) ($ex['prescribed'] ?? []))
                     ->only($allowedPrescribedKeys)
-                    ->map(fn ($v) => is_scalar($v) ? (string) $v : null)
-                    ->filter(fn ($v) => $v !== null && $v !== '')
+                    ->map(fn ($v, $k) => self::normalizePrescribedValue((string) $k, $v))
+                    ->filter(fn ($v) => $v !== null)
                     ->all();
-                $series = (int) ($prescribed['series'] ?? 0);
-                $prescribed['series'] = (string) max(1, min(20, $series ?: 3));
+                $prescribed['series'] = $prescribed['series'] ?? '3';
 
                 $exercises[] = [
                     'exercise_id'     => (int) $ex['exercise_id'],
@@ -122,9 +159,35 @@ class ClientCustomWorkoutController extends Controller
         $user = auth('sanctum')->user();
         $repeatWeeks = (int) ($request->repeat_weeks ?? 1);
         $firstDate = Carbon::parse($request->date);
-        $seriesUuid = $repeatWeeks > 1 ? (string) Str::uuid() : null;
+        $requestId = $request->client_request_id;
+        // Siempre hay un id de serie: el que manda la app (idempotencia) o
+        // uno nuevo. Con 1 sola semana simplemente agrupa una única fila.
+        $seriesUuid = $requestId ?: (string) Str::uuid();
+        $replayed = false;
 
-        $created = DB::transaction(function () use ($user, $request, $normalizedBlocks, $repeatWeeks, $firstDate, $seriesUuid) {
+        $created = DB::transaction(function () use ($user, $request, $normalizedBlocks, $repeatWeeks, $firstDate, $seriesUuid, $requestId, &$replayed) {
+            // Serializa las creaciones de un mismo cliente (bloqueo de su
+            // fila de users): dos peticiones simultáneas con el mismo
+            // client_request_id no pueden pasar las dos la comprobación de
+            // abajo, ni crear dos calendarios personales a la vez.
+            \App\Models\User::whereKey($user->id)->lockForUpdate()->first();
+
+            if ($requestId) {
+                $existing = ProgramDayAssignment::whereHas('workoutTemplate', fn ($q) => $q
+                        ->where('client_series_uuid', $requestId)
+                        ->where('created_by_client_id', $user->id))
+                    ->orderBy('scheduled_date')
+                    ->get();
+                if ($existing->isNotEmpty()) {
+                    $replayed = true;
+                    return $existing->map(fn ($a) => [
+                        'assignment_id'       => $a->id,
+                        'workout_template_id' => $a->workout_template_id,
+                        'date'                => Carbon::parse($a->scheduled_date)->toDateString(),
+                    ])->all();
+                }
+            }
+
             $program = ClientProfileCalendarController::getOrCreatePersonalProgram($user->id, $user->coach_id ?: $user->id);
             $mapper = new CalendarDateMapper();
             $anchor = Carbon::parse(ClientProfileCalendarController::PERSONAL_ANCHOR_DATE);
@@ -153,7 +216,10 @@ class ClientCustomWorkoutController extends Controller
             return $out;
         });
 
+        $repeatWeeks = count($created);
+
         return json_custom_response([
+            'replayed' => $replayed,
             'message' => $repeatWeeks > 1
                 ? "Entrenamiento creado y repetido durante {$repeatWeeks} semanas."
                 : 'Entrenamiento creado.',
@@ -271,7 +337,7 @@ class ClientCustomWorkoutController extends Controller
             return [
                 'program_client_assignment_id' => $ca->id,
                 'training_program_id'          => $program->id,
-                'title'                        => $program->title,
+                'title'                        => $program->title ?: 'Mi programa',
                 'start_date'                   => Carbon::parse($ca->start_date)->toDateString(),
                 'end_date'                     => $ca->fecha_fin ? Carbon::parse($ca->fecha_fin)->toDateString() : null,
                 'num_weeks'                    => (int) $program->num_weeks,
@@ -282,6 +348,55 @@ class ClientCustomWorkoutController extends Controller
         })->values();
 
         return json_custom_response(['data' => $items]);
+    }
+
+    /**
+     * Deja cada valor prescrito en un formato que la sesión en vivo, el
+     * registro de series y el motor de carga saben leer -- aunque llegue de
+     * una versión vieja de la app o de un cliente manipulado. null = se
+     * descarta la clave.
+     */
+    public static function normalizePrescribedValue(string $key, $value): ?string
+    {
+        if (!is_scalar($value)) return null;
+        $raw = trim(str_replace(',', '.', (string) $value));
+        if ($raw === '') return null;
+
+        $number = function (string $v, float $min, float $max, int $decimals): ?string {
+            if (!preg_match('/^\d+(\.\d+)?$/', $v)) return null;
+            $n = round(min($max, max($min, (float) $v)), $decimals);
+            $out = number_format($n, $decimals, '.', '');
+            // Quita ceros decimales sobrantes ("22.50" -> "22.5", "60.00" ->
+            // "60") -- solo si hay parte decimal: "120" debe seguir siendo 120.
+            return str_contains($out, '.') ? rtrim(rtrim($out, '0'), '.') : $out;
+        };
+
+        switch ($key) {
+            case 'series':
+                return preg_match('/^\d+$/', $raw) ? (string) max(1, min(20, (int) $raw)) : '3';
+            case 'reps':
+                // "10" o rango "8-10" (el orden se corrige); cualquier otra
+                // cosa se queda con su primer número, o se descarta.
+                if (preg_match('/^(\d{1,3})\s*-\s*(\d{1,3})$/', $raw, $m)) {
+                    [$a, $b] = [max(1, (int) $m[1]), max(1, (int) $m[2])];
+                    return $a === $b ? (string) $a : min($a, $b).'-'.max($a, $b);
+                }
+                return preg_match('/\d{1,3}/', $raw, $m) ? (string) max(1, (int) $m[0]) : null;
+            case 'carga':
+                return $number($raw, 0, 1000, 2);
+            case 'descanso':
+            case 'tiempo':
+                if (preg_match('/^(\d{1,3}):(\d{1,2})$/', $raw, $m)) {
+                    $raw = (string) ((int) $m[1] * 60 + (int) $m[2]);
+                }
+                return $number($raw, 0, $key === 'descanso' ? 3600 : 36000, 0);
+            case 'rir':
+                return $number($raw, 0, 10, 1);
+            case 'rpe':
+                return $number($raw, 1, 10, 1);
+            default:
+                return mb_substr($raw, 0, 20);
+        }
     }
 
     private function createTemplate($user, string $title, array $blocks, ?string $seriesUuid): WorkoutTemplate
