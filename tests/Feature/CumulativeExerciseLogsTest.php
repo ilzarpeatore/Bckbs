@@ -130,4 +130,84 @@ class CumulativeExerciseLogsTest extends TestCase
         $top = $this->getJson('/api/v1/my-top-exercises?days=7&end_date='.Carbon::tomorrow()->toDateString())->assertOk();
         $this->assertSame(9, $top->json('data.0.sets'));
     }
+
+    public function test_unticking_all_sets_counts_as_zero(): void
+    {
+        [$pda, [$wte]] = $this->assignmentFor('2026-09-24', [$this->exercise]);
+        $this->tickSetsOneByOne($pda, $wte, 3);
+        $this->assertSame(3, $this->volume()['totalSeries']);
+
+        // Desmarca las 3: la app manda la lista vacía (antes -> 422 y la
+        // foto de 3 series seguía contando).
+        $this->postJson('/api/v1/my-calendar-log-sets', [
+            'workout_template_exercise_id' => $wte, 'program_day_assignment_id' => $pda,
+            'logged_sets' => [],
+        ])->assertOk();
+
+        $last = ClientExerciseLog::orderByDesc('id')->first();
+        $this->assertSame([], $last->logged_sets);
+        $this->assertSame(0, $this->volume()['totalSeries']);
+
+        $top = $this->getJson('/api/v1/my-top-exercises?days=7&end_date='.Carbon::tomorrow()->toDateString())->assertOk();
+        $top->assertJsonCount(0, 'data'); // ni sesión ni series
+
+        // Y una sesión vacía no se ofrece como "la última vez" del ejercicio.
+        $detail = $this->getJson('/api/v1/my-calendar-day-detail?program_day_assignment_id='.$pda)->assertOk();
+        $this->assertNull($detail->json('data.blocks.0.exercises.0.last_performance'));
+
+        // Sin el campo sigue siendo un error de validación.
+        $this->postJson('/api/v1/my-calendar-log-sets', [
+            'workout_template_exercise_id' => $wte, 'program_day_assignment_id' => $pda,
+        ])->assertStatus(422);
+    }
+
+    /** Serie suelta (sin día de calendario), como el entrenamiento libre de la app. */
+    private function logStandalone(?string $sessionKey, int $sets): void
+    {
+        $payload = [
+            'exercise_id' => $this->exercise,
+            'logged_sets' => array_fill(0, $sets, ['reps' => 10, 'carga' => 50, 'rir' => 2]),
+        ];
+        if ($sessionKey !== null) {
+            $payload['session_key'] = $sessionKey;
+        }
+        $this->postJson('/api/v1/my-calendar-log-sets', $payload)->assertOk();
+    }
+
+    public function test_session_key_separates_standalone_sessions_on_the_same_day(): void
+    {
+        // Mañana: 3 series marcadas una a una en la sesión A.
+        foreach ([1, 2, 3] as $n) $this->logStandalone('sess-A:2026-09-24', $n);
+        // Tarde: 2 series en la sesión B, mismo ejercicio, mismo día.
+        foreach ([1, 2] as $n) $this->logStandalone('sess-B:2026-09-24', $n);
+
+        $this->assertSame('sess-A:2026-09-24', ClientExerciseLog::orderBy('id')->first()->session_key);
+        // 3 + 2, no solo la última foto del día (2) ni la suma de fotos (9).
+        $this->assertSame(5, $this->volume()['totalSeries']);
+
+        $top = $this->getJson('/api/v1/my-top-exercises?days=7&end_date='.Carbon::tomorrow()->toDateString())->assertOk();
+        $this->assertSame(2, $top->json('data.0.sessions'));
+        $this->assertSame(5, $top->json('data.0.sets'));
+    }
+
+    public function test_same_session_key_collapses_snapshots_and_old_rows_keep_day_grouping(): void
+    {
+        foreach ([1, 2, 3, 4] as $n) $this->logStandalone('sess-A', $n);
+        $this->assertSame(4, $this->volume()['totalSeries']);
+
+        // Filas sin session_key (versión vieja de la app): se agrupan por
+        // día como siempre, aparte de la sesión con clave.
+        foreach ([1, 2] as $n) $this->logStandalone(null, $n);
+        $this->assertSame(4 + 2, $this->volume()['totalSeries']);
+    }
+
+    public function test_session_key_is_validated(): void
+    {
+        $this->postJson('/api/v1/my-calendar-log-sets', [
+            'exercise_id' => $this->exercise, 'logged_sets' => [], 'session_key' => 'con espacios',
+        ])->assertStatus(422);
+        $this->postJson('/api/v1/my-calendar-log-sets', [
+            'exercise_id' => $this->exercise, 'logged_sets' => [], 'session_key' => str_repeat('a', 65),
+        ])->assertStatus(422);
+    }
 }

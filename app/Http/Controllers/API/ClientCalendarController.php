@@ -292,10 +292,18 @@ class ClientCalendarController extends Controller
         // orderByDesc('id'): 'created_at' es de precision de segundo y varias
         // series del mismo ejercicio pueden insertarse en el mismo segundo -
         // 'id' refleja el orden real de insercion sin empates.
+        //
+        // latestSnapshots + hasSets (2026-09-24): una sesión cuyo estado
+        // final es "todas las series desmarcadas" (logged_sets = []) no
+        // es la última vez que hizo el ejercicio -- ni esa foto vacía ni
+        // las fotos anteriores de esa misma sesión deben usarse como
+        // referencia (ver ClientExerciseLog::scopeLatestSnapshots()).
         $logs = ClientExerciseLog::where('client_id', $client_id)
+            ->latestSnapshots($client_id)
             ->whereIn('exercise_id', $allExerciseIds)
             ->orderByDesc('id')
             ->get()
+            ->filter(fn ($log) => $log->hasSets())
             ->unique('exercise_id')
             ->keyBy('exercise_id');
 
@@ -475,8 +483,19 @@ class ClientCalendarController extends Controller
         $request->validate([
             'workout_template_exercise_id' => 'nullable|exists:workout_template_exercises,id',
             'exercise_id'                   => 'required_without:workout_template_exercise_id|nullable|exists:exercises,id',
-            'logged_sets'                   => 'required|array',
+            // 'present' y no 'required' (2026-09-24): 'required' rechaza un
+            // array vacío, así que cuando el cliente desmarcaba TODAS las
+            // series de un ejercicio la app no podía registrarlo y la última
+            // foto (con series) seguía contando en volumen/estadísticas.
+            // Ahora [] se guarda como una foto más: 0 series (ver
+            // ClientExerciseLog::scopeLatestSnapshots()).
+            'logged_sets'                   => 'present|array',
             'program_day_assignment_id'     => 'nullable|integer',
+            // Id de sesión que genera la app al empezar el entrenamiento;
+            // separa sesiones sueltas del mismo día (ver migración
+            // 2026_09_24_120000 y scopeLatestSnapshots()). Opcional: las
+            // versiones viejas de la app no lo mandan.
+            'session_key'                   => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9_:\-]+$/'],
             'notes'                         => 'nullable|string|max:2000',
         ]);
 
@@ -533,8 +552,11 @@ class ClientCalendarController extends Controller
             'workout_template_exercise_id'  => $request->workout_template_exercise_id,
             'exercise_id'                   => $exercise_id,
             'program_day_assignment_id'     => $request->program_day_assignment_id,
+            'session_key'                   => $request->session_key,
             'performed_date'                => now()->toDateString(),
-            'logged_sets'                   => $clean_sets,
+            // array_values: [] tiene que guardarse como lista JSON "[]",
+            // nunca como objeto.
+            'logged_sets'                   => array_values($clean_sets),
             'notes'                         => $request->notes,
         ]);
 
@@ -936,6 +958,12 @@ class ClientCalendarController extends Controller
 
         $agg = [];
         foreach ($logs as $log) {
+            // Sesión que acabó con todas las series desmarcadas
+            // (logged_sets = [], 2026-09-24): ese ejercicio no se hizo --
+            // ni suma series ni cuenta como sesión.
+            if (!$log->hasSets()) {
+                continue;
+            }
             $agg[$log->exercise_id]['sessions'] = ($agg[$log->exercise_id]['sessions'] ?? 0) + 1;
             $agg[$log->exercise_id]['sets'] = ($agg[$log->exercise_id]['sets'] ?? 0) + count($log->logged_sets ?? []);
         }

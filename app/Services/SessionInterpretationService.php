@@ -130,7 +130,11 @@ class SessionInterpretationService
             ->orderByDesc('id')
             ->first();
 
-        if (!$log) {
+        // 2026-09-24: la última foto puede ser logged_sets = [] (el cliente
+        // desmarcó TODAS las series, ver ClientCalendarController::logSets)
+        // -- ese ejercicio no se hizo en esta sesión: ni cuenta como sesión
+        // de calibración ni genera exercise_session_metrics.
+        if (!$log || !$log->hasSets()) {
             return;
         }
 

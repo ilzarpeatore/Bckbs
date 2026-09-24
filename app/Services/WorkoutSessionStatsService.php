@@ -112,6 +112,10 @@ class WorkoutSessionStatsService
             ->orderByDesc('performed_date')
             ->orderByDesc('id')
             ->get()
+            // 2026-09-24: una sesión que acabó con todas las series
+            // desmarcadas (logged_sets = []) no es una sesión de referencia
+            // -- no debe ocupar un hueco de la ventana TREND_WINDOW.
+            ->filter(fn (ClientExerciseLog $log) => $log->hasSets())
             ->groupBy('exercise_id');
 
         foreach ($exerciseIds as $exerciseId) {
