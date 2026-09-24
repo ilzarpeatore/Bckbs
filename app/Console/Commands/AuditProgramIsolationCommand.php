@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\TrainingProgram;
+use App\Models\WorkoutTemplate;
 use App\Services\TemplateIsolationGuard;
 use Illuminate\Console\Command;
 
@@ -53,7 +54,7 @@ class AuditProgramIsolationCommand extends Command
         }
 
         // 2b) Plantillas del catálogo (demo / públicas para todos) usadas por un día de cliente.
-        $catalogIds = AppModelsWorkoutTemplate::where(function ($q) {
+        $catalogIds = WorkoutTemplate::where(function ($q) {
             $q->where('is_demo', true)->orWhere('is_public', true);
         })->pluck('id');
         foreach ($catalogIds as $templateId) {
