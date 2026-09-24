@@ -12,6 +12,8 @@ class NutritionQuestionnaireAnswer extends Model
     protected $fillable = [
         'user_id',
         'allergies_intolerances',
+        'medications',
+        'supplements',
         'disliked_foods',
         'liked_foods',
         'current_meals_per_day',

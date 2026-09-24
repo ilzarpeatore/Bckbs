@@ -10,7 +10,8 @@ use Illuminate\Database\Seeder;
 class StandardProfileFormSeeder extends Seeder
 {
     /**
-     * Cuestionario fijo "Perfil y Salud Inicial": se auto-asigna a TODO
+     * (DESACTIVADO desde 2026-09-24, ver más abajo `auto_assign_all_clients`.)
+     * Cuestionario fijo "Perfil y Salud Inicial": se auto-asignaba a TODO
      * cliente nuevo en el registro (ver UserController::register()).
      * No es un formulario ad-hoc que un coach asigna manualmente uno por
      * uno — está marcado con `auto_assign_all_clients = true`.
@@ -47,7 +48,12 @@ class StandardProfileFormSeeder extends Seeder
                 'coach_id' => $ownerId,
                 'description' => 'Formulario estándar de bienvenida: datos personales, de salud y de entrenamiento. Se completa una sola vez tras el registro.',
                 'recurrence' => null, // questionnaire (no recurrente)
-                'auto_assign_all_clients' => true,
+                // 2026-09-24: YA NO se auto-asigna. Casi todas sus preguntas las recoge el
+                // registro/onboarding v2 (medicamentos y suplementos pasaron al cuestionario de
+                // nutrición) y ningún servicio lee sus respuestas. El formulario se conserva
+                // solo por las respuestas históricas. Ver la migración
+                // 2026_09_24_200100_stop_auto_assigning_profile_form.
+                'auto_assign_all_clients' => false,
             ]
         );
 

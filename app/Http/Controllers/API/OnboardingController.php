@@ -177,6 +177,8 @@ class OnboardingController extends Controller
     {
         $request->validate([
             'allergies_intolerances'      => 'required|string',
+            'medications'                 => 'nullable|string',
+            'supplements'                 => 'nullable|string',
             'disliked_foods'              => 'nullable|string',
             'liked_foods'                 => 'nullable|string',
             'current_meals_per_day'       => 'required|integer|min:1|max:8',
@@ -197,6 +199,10 @@ class OnboardingController extends Controller
             ['user_id' => $user->id],
             [
                 'allergies_intolerances'     => $request->allergies_intolerances,
+                // Solo si la app los envía: una versión anterior de la app (que aún no los pregunta)
+                // no debe borrar lo que el cliente ya hubiera rellenado.
+                ...($request->has('medications') ? ['medications' => $request->medications] : []),
+                ...($request->has('supplements') ? ['supplements' => $request->supplements] : []),
                 'disliked_foods'             => $request->disliked_foods,
                 'liked_foods'                => $request->liked_foods,
                 'current_meals_per_day'      => $request->current_meals_per_day,
