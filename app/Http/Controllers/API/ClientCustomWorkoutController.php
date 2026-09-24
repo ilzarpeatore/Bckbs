@@ -65,14 +65,19 @@ class ClientCustomWorkoutController extends Controller
         // semanas pasadas reales.
         $minDate = $today->copy()->subDay()->startOfWeek(Carbon::MONDAY)->toDateString();
 
-        $request->validate(array_merge([
+        // Mismo orden de reglas que antes de extraer workoutRules() (title
+        // antes que date): el primer error, que es el 'message' que enseña
+        // la app, no cambia. El operador + conserva el orden de la izquierda.
+        $sharedRules = $this->workoutRules();
+        $request->validate([
             // Idempotencia: la app manda un id por pantalla de creación. Si
             // la petición se repite (timeout de red y el usuario vuelve a
             // pulsar Guardar) se devuelve lo ya creado en vez de duplicarlo.
             'client_request_id'                 => ['nullable', 'string', 'max:36', 'regex:/^[A-Za-z0-9_-]+$/'],
+            'title'                             => $sharedRules['title'],
             'date'                              => 'required|date_format:Y-m-d|after_or_equal:'.$minDate.'|before_or_equal:'.$today->copy()->addYear()->toDateString(),
             'repeat_weeks'                      => 'nullable|integer|min:1|max:'.self::MAX_REPEAT_WEEKS,
-        ], $this->workoutRules()), array_merge([
+        ] + $sharedRules, array_merge([
             'date.required'          => 'Elige un día para el entrenamiento.',
             'date.date_format'       => 'La fecha no es válida.',
             'date.after_or_equal'    => 'Solo puedes crear entrenamientos a partir de la semana en curso.',
