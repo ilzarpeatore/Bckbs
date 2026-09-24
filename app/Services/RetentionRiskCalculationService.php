@@ -171,6 +171,12 @@ class RetentionRiskCalculationService
         // NOTA Carbon 3: diffInDays() ya no es absoluto por defecto (cambio
         // de comportamiento respecto a Carbon 2) -- abs() explícito en todo
         // el archivo para no depender del orden receptor/argumento.
+        // (2026-09-24) Sin filtrar a propósito: un entrenamiento que se
+        // creó el propio cliente (ClientCustomWorkoutController) y completó
+        // SÍ es actividad real -- baja la inactividad. Lo que nunca hace es
+        // contar como sesión programada: el componente de compliance sale de
+        // computeAdherence(), que los excluye (ProgramDayAssignment::
+        // coachPlanned()), así que saltarse uno no sube el riesgo.
         $last = WorkoutSessionReview::where('user_id', $clientId)->max('completed_at');
         if ($last) {
             $ref = Carbon::parse($last)->startOfDay();

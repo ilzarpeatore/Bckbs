@@ -2,6 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\API\ClientCalendarController;
+use App\Http\Controllers\API\ClientProfileCalendarController;
+use App\Jobs\EvaluateSessionProgressionRules;
+use App\Jobs\ProcessSessionInterpretation;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\Role;
@@ -9,7 +13,12 @@ use App\Models\TrainingProgram;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Models\WorkoutTemplate;
+use App\Models\WorkoutTemplateBlock;
+use App\Models\WorkoutTemplateExercise;
+use App\Services\CalendarDateMapper;
+use App\Services\SessionProgressionRuleEngine;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
@@ -311,5 +320,107 @@ class ClientCustomWorkoutTest extends TestCase
         Carbon::setTestNow(Carbon::parse('2026-09-28 00:30:00'));
         Sanctum::actingAs($this->makeUser());
         $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-22']))->assertOk();
+    }
+
+    /** Lo que hace assignDirect() del panel: plantilla del coach en el calendario personal del cliente. */
+    private function coachAssign(User $client, User $coach, string $date, array $exerciseIds = []): ProgramDayAssignment
+    {
+        $program = ClientProfileCalendarController::getOrCreatePersonalProgram($client->id, $coach->id);
+        $template = WorkoutTemplate::create(['coach_id' => $coach->id, 'title' => 'Del coach '.$date]);
+        $block = WorkoutTemplateBlock::create(['workout_template_id' => $template->id, 'title' => 'Principal', 'order' => 1]);
+        foreach (array_values($exerciseIds) as $i => $exerciseId) {
+            WorkoutTemplateExercise::create([
+                'workout_template_block_id' => $block->id, 'exercise_id' => $exerciseId, 'sequence' => $i + 1,
+                'prescribed' => ['series' => '3', 'reps' => '10', 'carga' => '50'], 'enabled_metrics' => ['reps', 'carga', 'rir'],
+            ]);
+        }
+        $wd = (new CalendarDateMapper())->toWeekAndDay(Carbon::parse(ClientProfileCalendarController::PERSONAL_ANCHOR_DATE), Carbon::parse($date));
+
+        return ProgramDayAssignment::create([
+            'training_program_id' => $program->id, 'week_number' => $wd['week_number'], 'day_of_week' => $wd['day_of_week'],
+            'workout_template_id' => $template->id, 'scheduled_date' => $date,
+        ]);
+    }
+
+    private function makePaidClient(User $coach): User
+    {
+        $client = $this->makeUser($coach->id);
+        $client->forceFill(['is_personal_client' => true])->save();
+
+        return $client->fresh();
+    }
+
+    public function test_custom_session_does_not_feed_the_load_engine_but_coach_session_does(): void
+    {
+        $coach = $this->makeUser();
+        $client = $this->makePaidClient($coach);
+        $this->assertSame('personal', $client->access_tier);
+        Sanctum::actingAs($client);
+
+        $customId = $this->postJson('/api/v1/my-custom-workouts', $this->payload())->json('data.assignments.0.assignment_id');
+        $coachPda = $this->coachAssign($client, $coach, '2026-09-24', [$this->exerciseA]);
+
+        Bus::fake([ProcessSessionInterpretation::class, EvaluateSessionProgressionRules::class]);
+
+        $this->postJson('/api/v1/my-calendar-finish-session', ['program_day_assignment_id' => $customId, 'duration_seconds' => 1800])
+            ->assertOk();
+        Bus::assertNotDispatched(ProcessSessionInterpretation::class);
+        Bus::assertNotDispatched(EvaluateSessionProgressionRules::class);
+        // El resto del cierre sigue igual: la review existe.
+        $this->assertTrue(WorkoutSessionReview::where('program_day_assignment_id', $customId)->exists());
+
+        $this->postJson('/api/v1/my-calendar-finish-session', ['program_day_assignment_id' => $coachPda->id, 'duration_seconds' => 1800])
+            ->assertOk();
+        Bus::assertDispatched(ProcessSessionInterpretation::class);
+        Bus::assertDispatched(EvaluateSessionProgressionRules::class);
+    }
+
+    public function test_load_engine_never_targets_a_custom_workout_as_next_session(): void
+    {
+        $coach = $this->makeUser();
+        $client = $this->makePaidClient($coach);
+        Sanctum::actingAs($client);
+
+        // Personalizado mañana con el ejercicio A; sesión del coach pasado mañana.
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-25']))->assertOk();
+        $engine = app(SessionProgressionRuleEngine::class);
+        $this->assertNull($engine->resolveNextAssignmentForExercise($client->id, $this->exerciseA));
+
+        $coachPda = $this->coachAssign($client, $coach, '2026-09-26', [$this->exerciseA]);
+        $this->assertSame($coachPda->id, $engine->resolveNextAssignmentForExercise($client->id, $this->exerciseA)?->id);
+    }
+
+    public function test_custom_workouts_never_count_as_scheduled_for_adherence(): void
+    {
+        $coach = $this->makeUser();
+        $client = $this->makeUser($coach->id);
+        Sanctum::actingAs($client);
+
+        // Martes: sesión del coach + un personalizado el mismo día (antes
+        // podía "tapar" a la del coach). Miércoles: personalizado saltado.
+        $coachPda = $this->coachAssign($client, $coach, '2026-09-22', [$this->exerciseA]);
+        $sameDayCustom = $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-22']))->json('data.assignments.0.assignment_id');
+        $this->postJson('/api/v1/my-custom-workouts', $this->payload(['date' => '2026-09-23']))->assertOk();
+
+        $adherence = ClientCalendarController::computeAdherence($client->id, 7);
+        $this->assertSame('program', $adherence['mode']);
+        $this->assertSame(1, $adherence['scheduledCount']);   // solo la del coach
+        $this->assertSame(0, $adherence['completedCount']);
+
+        // Completar el personalizado no mueve el ratio...
+        WorkoutSessionReview::create(['user_id' => $client->id, 'program_day_assignment_id' => $sameDayCustom, 'completed_at' => now()]);
+        $adherence = ClientCalendarController::computeAdherence($client->id, 7);
+        $this->assertSame(0, $adherence['completedCount']);
+        $this->assertEquals(0, $adherence['ratio']);
+
+        // ...completar la del coach sí, y el personalizado saltado del
+        // miércoles no baja el 100% ni corta la racha.
+        WorkoutSessionReview::create(['user_id' => $client->id, 'program_day_assignment_id' => $coachPda->id, 'completed_at' => now()]);
+        $adherence = ClientCalendarController::computeAdherence($client->id, 7);
+        $this->assertSame(1, $adherence['scheduledCount']);
+        $this->assertSame(1, $adherence['completedCount']);
+        $this->assertEquals(1, $adherence['ratio']);
+        $this->assertSame(1, $adherence['currentStreak']);
+        $this->assertSame([['date' => '2026-09-22', 'completed' => true]], $adherence['days']);
     }
 }

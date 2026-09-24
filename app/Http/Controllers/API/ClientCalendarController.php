@@ -223,7 +223,13 @@ class ClientCalendarController extends Controller
                         // el detalle real (peso/reps propuestos) se pide
                         // aparte en getDayDetail() cuando el cliente abre el
                         // entrenamiento.
-                        'has_load_suggestion' => $templatesWithSuggestion->has($a->workout_template_id),
+                        // (2026-09-24) Nunca en un entrenamiento creado por el
+                        // propio cliente: las sugerencias son sobre el plan
+                        // del coach, y el motor no escribe en sus plantillas
+                        // (ver SessionProgressionRuleEngine::
+                        // resolveNextAssignmentForExercise()).
+                        'has_load_suggestion' => optional($a->workoutTemplate)->created_by_client_id === null
+                            && $templatesWithSuggestion->has($a->workout_template_id),
                         // AÑADIDO (2026-09-24): programa al que pertenece (la
                         // lista "Mi programa" abierta desde Home > Entrenamientos
                         // filtra por él) y si es un entrenamiento que creó el
@@ -312,8 +318,12 @@ class ClientCalendarController extends Controller
         // (pendiente siempre, aplicado dentro de la ventana) que
         // getMyMonth(), aqui con el valor completo (peso/reps propuestos,
         // regla) para pintar el detalle real en la ficha del ejercicio.
+        // (2026-09-24) Sin sugerencias de carga en un entrenamiento creado
+        // por el propio cliente -- mismo criterio que has_load_suggestion en
+        // getMyMonth().
         $loadSuggestions = collect();
-        if (Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
+        if ($assignment->workoutTemplate->created_by_client_id === null
+            && Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
             $loadSuggestions = NextSessionTarget::relevantForClient($client_id)
                 ->whereIn('exercise_id', $allExerciseIds)
                 ->with('rule')
@@ -620,12 +630,21 @@ class ClientCalendarController extends Controller
         // en su propio endpoint/observer y sigue funcionando igual para
         // todos los clientes.
         if (Gate::forUser($user)->allows('paid-tier')) {
-            ProcessSessionInterpretation::dispatch($review);
-            // Motor de Auto-Regulación de Carga (Fase 2) — corre justo
-            // después (QUEUE_CONNECTION=sync -> en línea, en orden), ya
-            // que depende de las exercise_session_metrics que el job
-            // anterior acaba de generar. Mismo gate, no se repite.
-            EvaluateSessionProgressionRules::dispatch($review);
+            // (2026-09-24) Entrenamiento creado por el PROPIO cliente
+            // (ClientCustomWorkoutController): el prescrito lo tecleó él, no
+            // su coach -- no se interpreta ni se evalúan reglas de
+            // progresión (Fases 1-2), o cada sesión personalizada llenaría la
+            // cola de sugerencias pendientes del coach con propuestas sobre
+            // un plan que no es suyo. Todo lo demás (review, calorías,
+            // logros de sesión, racha/compliance) sigue igual.
+            if (!$review->isClientCustomSession()) {
+                ProcessSessionInterpretation::dispatch($review);
+                // Motor de Auto-Regulación de Carga (Fase 2) — corre justo
+                // después (QUEUE_CONNECTION=sync -> en línea, en orden), ya
+                // que depende de las exercise_session_metrics que el job
+                // anterior acaba de generar. Mismo gate, no se repite.
+                EvaluateSessionProgressionRules::dispatch($review);
+            }
 
             // Fase 3 (documento §3.2/reconciliación): $achievements ya se
             // calculaba pero era efímero (solo en esta response) — se
@@ -875,7 +894,20 @@ class ClientCalendarController extends Controller
             $program = $assignment->trainingProgram;
             $startDate = Carbon::parse($assignment->start_date);
 
+            // coachPlanned() (2026-09-24): los entrenamientos que se crea el
+            // propio cliente (ClientCustomWorkoutController) NO son sesiones
+            // programadas -- saltarse uno nunca baja la adherencia, ni corta
+            // la racha, ni sube el riesgo de abandono (compliance de
+            // RetentionRiskCalculationService) ni cuenta para hito_compliance
+            // (EvaluateSessionAchievements), que salen todos de aquí. Hacer
+            // uno tampoco sube el ratio (no está en el denominador ni en el
+            // numerador). Como actividad sí cuenta donde se mide "entrenó
+            // hace poco": el modo freeform de abajo y la inactividad del
+            // riesgo de abandono leen workout_session_reviews sin filtrar.
+            // Además evita que un personalizado el mismo día que una sesión
+            // del coach "tape" a esta en $scheduled (una entrada por fecha).
             $dayRows = ProgramDayAssignment::where('training_program_id', $program->id)
+                ->coachPlanned()
                 ->whereNotNull('workout_template_id')
                 ->get()
                 ->groupBy(fn ($a) => $a->week_number.'-'.$a->day_of_week);

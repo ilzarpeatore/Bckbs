@@ -32,4 +32,29 @@ class WorkoutSessionReview extends Model
     {
         return $this->belongsTo(WorkoutTemplate::class, 'workout_template_id', 'id');
     }
+
+    /**
+     * true si la sesión cerrada es un entrenamiento que creó el PROPIO
+     * cliente desde la app (workout_template.created_by_client_id, ver
+     * ClientCustomWorkoutController) -- por día de calendario o, en un
+     * workout suelto, por la plantilla directa.
+     *
+     * (2026-09-24) Esas sesiones NO alimentan el Motor de Auto-Regulación de
+     * Carga: el prescrito lo tecleó el cliente, no el coach, así que ni
+     * sirve para evaluar reglas de progresión ni debe llenar la cola de
+     * sugerencias pendientes del coach. Ver finishSession() y
+     * SessionInterpretationService::processReview().
+     */
+    public function isClientCustomSession(): bool
+    {
+        $templateId = $this->workout_template_id;
+        if ($this->program_day_assignment_id) {
+            $templateId = ProgramDayAssignment::withTrashed()
+                ->whereKey($this->program_day_assignment_id)
+                ->value('workout_template_id');
+        }
+        $template = $templateId ? WorkoutTemplate::withTrashed()->find($templateId) : null;
+
+        return $template !== null && $template->created_by_client_id !== null;
+    }
 }
