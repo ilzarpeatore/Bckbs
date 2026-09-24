@@ -25,6 +25,7 @@ storage/framework/sessions/
 storage/framework/views/
 storage/logs/
 storage/app/backups/
+storage/app/program-imports/
 *.bak.*
 storage/app/public/
 storage/imports/

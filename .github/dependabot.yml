@@ -1,16 +1,31 @@
 version: 2
 updates:
+  # Parches y versiones menores de PHP en un único PR semanal (cada merge a
+  # main despliega al VPS: mejor un deploy agrupado que uno por paquete).
+  # Los saltos de versión mayor siguen llegando en PRs sueltos para revisarlos
+  # uno a uno.
   - package-ecosystem: "composer"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      composer-minor-patch:
+        update-types: ["minor", "patch"]
 
+  # Assets del panel Blade antiguo: deploy.yml NO ejecuta npm (solo composer),
+  # así que estas dependencias no llegan a producción. Límite 0 = sin PRs de
+  # versión rutinarios; las alertas de seguridad de Dependabot siguen
+  # funcionando igual.
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 0
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      github-actions:
+        patterns: ["*"]

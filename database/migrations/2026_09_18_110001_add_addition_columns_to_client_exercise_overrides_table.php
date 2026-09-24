@@ -34,7 +34,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement('ALTER TABLE client_exercise_overrides MODIFY workout_template_exercise_id BIGINT UNSIGNED NULL');
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            // Fuera de MySQL (solo sqlite en tests) se usa ->change() nativo de
+            // Laravel 11; MySQL en producción sigue con el SQL de siempre.
+            Schema::table('client_exercise_overrides', function (Blueprint $table) {
+                $table->unsignedBigInteger('workout_template_exercise_id')->nullable()->change();
+            });
+        } else {
+            DB::statement('ALTER TABLE client_exercise_overrides MODIFY workout_template_exercise_id BIGINT UNSIGNED NULL');
+        }
 
         Schema::table('client_exercise_overrides', function (Blueprint $table) {
             $table->unsignedBigInteger('workout_template_block_id')->nullable()->after('workout_template_exercise_id');
@@ -57,6 +65,14 @@ return new class extends Migration
             $table->dropColumn(['workout_template_block_id', 'client_block_override_id', 'exercise_id', 'sequence']);
         });
 
-        DB::statement('ALTER TABLE client_exercise_overrides MODIFY workout_template_exercise_id BIGINT UNSIGNED NOT NULL');
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            // Fuera de MySQL (solo sqlite en tests) se usa ->change() nativo de
+            // Laravel 11; MySQL en producción sigue con el SQL de siempre.
+            Schema::table('client_exercise_overrides', function (Blueprint $table) {
+                $table->unsignedBigInteger('workout_template_exercise_id')->nullable(false)->change();
+            });
+        } else {
+            DB::statement('ALTER TABLE client_exercise_overrides MODIFY workout_template_exercise_id BIGINT UNSIGNED NOT NULL');
+        }
     }
 };

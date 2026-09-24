@@ -26,12 +26,28 @@ return new class extends Migration
             $table->unsignedBigInteger('fatsecret_recipe_id')->nullable()->after('recipe_id');
         });
 
-        DB::statement('ALTER TABLE meal_plan_template_items MODIFY recipe_id BIGINT UNSIGNED NULL');
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            // Fuera de MySQL (solo sqlite en tests) se usa ->change() nativo de
+            // Laravel 11; MySQL en producción sigue con el SQL de siempre.
+            Schema::table('meal_plan_template_items', function (Blueprint $table) {
+                $table->unsignedBigInteger('recipe_id')->nullable()->change();
+            });
+        } else {
+            DB::statement('ALTER TABLE meal_plan_template_items MODIFY recipe_id BIGINT UNSIGNED NULL');
+        }
     }
 
     public function down(): void
     {
-        DB::statement('ALTER TABLE meal_plan_template_items MODIFY recipe_id BIGINT UNSIGNED NOT NULL');
+        if (DB::connection()->getDriverName() !== 'mysql') {
+            // Fuera de MySQL (solo sqlite en tests) se usa ->change() nativo de
+            // Laravel 11; MySQL en producción sigue con el SQL de siempre.
+            Schema::table('meal_plan_template_items', function (Blueprint $table) {
+                $table->unsignedBigInteger('recipe_id')->nullable(false)->change();
+            });
+        } else {
+            DB::statement('ALTER TABLE meal_plan_template_items MODIFY recipe_id BIGINT UNSIGNED NOT NULL');
+        }
 
         Schema::table('meal_plan_template_items', function (Blueprint $table) {
             $table->dropColumn('fatsecret_recipe_id');
