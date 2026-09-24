@@ -25,7 +25,13 @@ use Illuminate\Validation\ValidationException;
 class ProgramSessionMatrixService
 {
     /** Claves de `prescribed` que se editan desde la matriz. */
-    public const EDITABLE_KEYS = ['series', 'reps', 'carga', 'rir', 'rpe', 'descanso'];
+    public const EDITABLE_KEYS = ['series', 'reps', 'carga', 'rir', 'rpe', 'descanso', 'tempo', 'duracion'];
+
+    /**
+     * Métricas opcionales que, si se rellena su valor, deben estar habilitadas en `enabled_metrics`
+     * del ejercicio para que la app las muestre (si no, el valor existe pero el cliente no lo ve).
+     */
+    private const METRICS_ENABLED_BY_VALUE = ['tempo', 'duracion'];
 
     /**
      * Clave y etiqueta del "tipo de sesión" a partir del título de la plantilla:
@@ -206,7 +212,7 @@ class ProgramSessionMatrixService
     {
         return DB::transaction(function () use ($program, $coachId, $changes, $deload) {
             $unlinked = [];
-            $applied = ['update' => 0, 'add' => 0, 'remove' => 0, 'substitute' => 0];
+            $applied = ['update' => 0, 'add' => 0, 'remove' => 0, 'substitute' => 0, 'reorder' => 0];
             // assignment_id => [old row id => new row id, 'blocks' => [old block id => new block id]]
             $remap = [];
 
@@ -291,14 +297,23 @@ class ProgramSessionMatrixService
             ]);
 
             $sequence = (WorkoutTemplateExercise::where('workout_template_block_id', $block->id)->max('sequence') ?? 0) + 1;
+            $prescribed = $this->cleanPrescribed($change['prescribed'] ?? [], []);
+            $metrics = $this->cleanMetrics($change['enabled_metrics'] ?? null) ?? ['reps', 'carga', 'descanso', 'rir'];
             WorkoutTemplateExercise::create([
                 'workout_template_block_id' => $block->id,
                 'exercise_id'               => (int) $change['exercise_id'],
                 'sequence'                  => $sequence,
-                'prescribed'                => $this->cleanPrescribed($change['prescribed'] ?? [], []),
-                'enabled_metrics'           => $this->cleanMetrics($change['enabled_metrics'] ?? null) ?? ['reps', 'carga', 'descanso', 'rir'],
+                'prescribed'                => $prescribed,
+                'enabled_metrics'           => $this->withMetricsForValues($metrics, $prescribed),
+                'notes'                     => $this->cleanNotes($change['notes'] ?? null),
             ]);
             $applied['add']++;
+            return;
+        }
+
+        if ($type === 'reorder') {
+            $this->reorder($template, $assignmentId, (array) ($change['order'] ?? []), $map);
+            $applied['reorder']++;
             return;
         }
 
@@ -324,6 +339,16 @@ class ProgramSessionMatrixService
                 if ($metrics !== null) {
                     $data['enabled_metrics'] = $metrics;
                 }
+            }
+            // Un valor de tempo/duración solo lo ve el cliente si la métrica está habilitada.
+            if (isset($data['prescribed'])) {
+                $withValues = $this->withMetricsForValues($data['enabled_metrics'] ?? ($row->enabled_metrics ?? []), $data['prescribed']);
+                if ($withValues !== ($row->enabled_metrics ?? [])) {
+                    $data['enabled_metrics'] = $withValues;
+                }
+            }
+            if (array_key_exists('notes', $change)) {
+                $data['notes'] = $this->cleanNotes($change['notes']);
             }
             if ($data !== []) {
                 $row->update($data);
@@ -356,6 +381,70 @@ class ProgramSessionMatrixService
         }
 
         return $result;
+    }
+
+    /** Notas del ejercicio: texto o null (vacío = sin nota). */
+    private function cleanNotes($notes): ?string
+    {
+        if ($notes === null) {
+            return null;
+        }
+        $notes = trim((string) $notes);
+
+        return $notes === '' ? null : $notes;
+    }
+
+    /**
+     * Añade a enabled_metrics las métricas opcionales cuyo valor está relleno en `prescribed`
+     * (tempo, duración), sin quitar ninguna. Conserva el orden existente.
+     *
+     * @param  array<int,string>  $metrics
+     * @param  array<string,mixed>  $prescribed
+     * @return array<int,string>
+     */
+    private function withMetricsForValues(array $metrics, array $prescribed): array
+    {
+        $metrics = array_values($metrics);
+        foreach (self::METRICS_ENABLED_BY_VALUE as $key) {
+            $value = $prescribed[$key] ?? null;
+            if ($value !== null && trim((string) $value) !== '' && !in_array($key, $metrics, true)) {
+                $metrics[] = $key;
+            }
+        }
+
+        return $metrics;
+    }
+
+    /**
+     * Reordena los ejercicios de una sesión: `order` es la lista de ids de fila en el orden deseado.
+     * Dentro de CADA bloque, los ejercicios pasan a `sequence` 1..n siguiendo ese orden; los que no
+     * aparezcan en la lista conservan su orden relativo y van al final. No mueve ejercicios entre bloques.
+     *
+     * @param  array<int,mixed>  $order
+     */
+    private function reorder(WorkoutTemplate $template, int $assignmentId, array $order, ?array $map): void
+    {
+        $position = [];
+        foreach (array_values($order) as $i => $id) {
+            $position[$map[(int) $id] ?? (int) $id] = $i;
+        }
+
+        $blocks = WorkoutTemplateBlock::where('workout_template_id', $template->id)->with('exercises')->get();
+        $known = $blocks->flatMap(fn ($b) => $b->exercises->pluck('id'))->flip();
+        foreach (array_keys($position) as $id) {
+            if (!$known->has($id)) {
+                throw ValidationException::withMessages(['changes' => 'Un ejercicio a reordenar no pertenece a la sesión '.$assignmentId.'.']);
+            }
+        }
+
+        foreach ($blocks as $block) {
+            $sorted = $block->exercises->sortBy(fn ($e) => [$position[$e->id] ?? PHP_INT_MAX, $e->sequence, $e->id])->values();
+            foreach ($sorted as $i => $exercise) {
+                if ((int) $exercise->sequence !== $i + 1) {
+                    $exercise->update(['sequence' => $i + 1]);
+                }
+            }
+        }
     }
 
     /** enabled_metrics debe incluir "rir" o "rpe" (sensación subjetiva obligatoria). Null = sin cambio. */

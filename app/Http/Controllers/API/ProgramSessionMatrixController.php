@@ -36,7 +36,10 @@ class ProgramSessionMatrixController extends Controller
         $request->validate([
             'training_program_id'      => 'required|exists:training_programs,id',
             'changes'                  => 'present|array|max:2000',
-            'changes.*.type'           => 'required|in:update,add,remove,substitute',
+            'changes.*.type'           => 'required|in:update,add,remove,substitute,reorder',
+            'changes.*.order'          => 'nullable|array',
+            'changes.*.order.*'        => 'integer',
+            'changes.*.notes'          => 'nullable|string|max:5000',
             'changes.*.assignment_id'  => 'required|integer',
             'changes.*.row_id'         => 'required_if:changes.*.type,update,remove,substitute|nullable|integer',
             'changes.*.exercise_id'    => 'required_if:changes.*.type,add,substitute|nullable|integer|exists:exercises,id',
