@@ -274,7 +274,20 @@ class RealCalendarController extends Controller
             return json_message_response('Esa semana no tenía ningún entrenamiento que duplicar.', 200);
         }
 
-        DB::transaction(function () use ($source_assignments, $request) {
+        if ((int) $request->source_week === (int) $request->target_week) {
+            return json_message_response('La semana de origen y la de destino son la misma.', 422);
+        }
+
+        // La semana de destino pasa a ser una COPIA de la de origen: se reemplaza su contenido
+        // (soft delete, recuperable). Antes se APILABA encima, así que duplicar sobre una semana
+        // ya poblada la dejaba con todo duplicado -- y la rejilla del admin solo muestra la primera
+        // sesión de cada día, por lo que no se veía (caso "Mesociclo 1 OSAS Octubre").
+        $replaced = 0;
+        DB::transaction(function () use ($source_assignments, $request, &$replaced) {
+            $replaced = ProgramDayAssignment::where('training_program_id', $request->training_program_id)
+                ->where('week_number', $request->target_week)
+                ->delete();
+
             foreach ($source_assignments as $a) {
                 ProgramDayAssignment::create([
                     'training_program_id' => $request->training_program_id,
@@ -285,7 +298,7 @@ class RealCalendarController extends Controller
             }
         });
 
-        return json_message_response('Semana duplicada ('.$source_assignments->count().' entrenamiento(s)).');
+        return json_message_response('Semana duplicada ('.$source_assignments->count().' entrenamiento(s))'.($replaced ? ", reemplazando los {$replaced} que ya tenía la semana de destino." : '.'));
     }
 
     /** NUEVO: vacía todos los entrenamientos de una semana (sin borrar la semana en sí, solo su contenido). */
@@ -387,12 +400,22 @@ class RealCalendarController extends Controller
 
         $source = ProgramDayAssignment::find($request->assignment_id);
 
-        $new_assignment = ProgramDayAssignment::create([
-            'training_program_id' => $source->training_program_id,
-            'week_number'          => $request->new_week_number,
-            'day_of_week'          => $request->new_day_of_week,
-            'workout_template_id'  => $source->workout_template_id,
-        ]);
+        // El día de destino pasa a tener SOLO esta sesión (reemplaza lo que hubiera, soft delete):
+        // apilarla dejaba dos sesiones el mismo día, y la rejilla del admin solo muestra la primera.
+        $new_assignment = DB::transaction(function () use ($source, $request) {
+            ProgramDayAssignment::where('training_program_id', $source->training_program_id)
+                ->where('week_number', $request->new_week_number)
+                ->where('day_of_week', $request->new_day_of_week)
+                ->where('id', '!=', $source->id)
+                ->delete();
+
+            return ProgramDayAssignment::create([
+                'training_program_id' => $source->training_program_id,
+                'week_number'          => $request->new_week_number,
+                'day_of_week'          => $request->new_day_of_week,
+                'workout_template_id'  => $source->workout_template_id,
+            ]);
+        });
 
         return json_custom_response(['data' => $new_assignment]);
     }
