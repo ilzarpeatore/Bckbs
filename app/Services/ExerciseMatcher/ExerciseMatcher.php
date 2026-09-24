@@ -85,6 +85,31 @@ final class ExerciseMatcher
         return array_values(array_filter($ranked, fn ($r) => $r['confidence'] >= $this->threshold));
     }
 
+    /**
+     * Da de alta en el matcher un ejercicio creado DESPUÉS de cargar las firmas de BD.
+     *
+     * Las firmas se cargan una sola vez (y se cachean 1 h). Sin esto, un ejercicio que el
+     * importador acaba de crear no existe para el matcher: la siguiente sesión que lo
+     * menciona no lo encuentra y lo vuelve a crear (4 sesiones = 4 ejercicios idénticos).
+     * También se invalida la caché compartida para que el siguiente import lo vea.
+     */
+    public function register(Exercise $exercise): void
+    {
+        $eqTitle = $exercise->equipment_id ? Equipment::where('id', $exercise->equipment_id)->value('title') : null;
+        $muscles = [];
+        $bpIds = (array) ($exercise->bodypart_ids ?? []);
+        if ($bpIds !== []) {
+            $muscles = array_values(BodyPart::whereIn('id', $bpIds)->pluck('title')->all());
+        }
+
+        $this->dbSignatures[] = [
+            'exercise'  => $exercise,
+            'signature' => Signature::fromDb($exercise->title, $eqTitle, $muscles),
+        ];
+
+        Cache::forget('exercise_matcher_db_signatures_v1');
+    }
+
     /** Top-K sin filtrar por umbral (para reporte de no-matcheados). */
     public function topCandidates(string $title, ?string $sourceEquipment = null, array $sourceMuscles = [], ?string $mappedEquipment = null, int $limit = 5): array
     {

@@ -30,6 +30,7 @@ final class ProgramsImporter
 {
     private ExerciseMatcher $matcher;
     private array $templateCache = [];   // hash => workout_template_id
+    private array $createdExercises = []; // "nombre normalizado|equipo" => exercise_id creado en este import
     private array $report = [];          // filas del reporte CSV
     private array $stats = [
         'programs_created' => 0,
@@ -362,11 +363,29 @@ final class ProgramsImporter
             return null;
         }
 
+        // Mismo ejercicio ya creado antes en ESTE import (otra sesión/semana que lo repite):
+        // se reutiliza aunque el matcher no lo devuelva (p. ej. umbral o firma distinta).
+        $createdKey = $this->createdExerciseKey($name, $sourceEquipment);
+        if (isset($this->createdExercises[$createdKey])) {
+            $this->stats['exercises_matched']++;
+
+            return $this->createdExercises[$createdKey];
+        }
+
         $exercise = $this->createExercise($name, $sourceEquipment, $muscles, $ex);
         $this->stats['exercises_created']++;
         $this->levelCounts['created']++;
 
+        $this->createdExercises[$createdKey] = (int) $exercise->id;
+        // el matcher solo conoce los ejercicios de BD al arrancar: sin esto no ve el recién creado
+        $this->matcher->register($exercise);
+
         return $exercise->id;
+    }
+
+    private function createdExerciseKey(string $name, ?string $equipment): string
+    {
+        return \App\Services\ExerciseMatcher\Normalizer::normalize($name) . '|' . mb_strtolower(trim((string) $equipment));
     }
 
     private function createExercise(string $name, ?string $equipment, array $muscles, array $ex): Exercise
