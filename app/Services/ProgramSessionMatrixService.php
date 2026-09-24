@@ -108,6 +108,9 @@ class ProgramSessionMatrixService
                 'id'        => $program->id,
                 'title'     => $program->title,
                 'num_weeks' => $program->num_weeks,
+                // Clientes que usan ESTE programa de biblioteca directamente (sin copia propia): editar
+                // aquí cambia su calendario en vivo. Vacío en copias de cliente y programas sin asignar.
+                'direct_clients' => TemplateIsolationGuard::directClientsOfProgram($program),
             ],
             'slots' => $out,
         ];

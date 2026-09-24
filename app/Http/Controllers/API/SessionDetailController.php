@@ -17,6 +17,7 @@ use App\Models\NextSessionTarget;
 use App\Models\User;
 use App\Notifications\CommonNotification;
 use App\Services\MuscleVolumeService;
+use App\Services\TemplateIsolationGuard;
 use App\Traits\HasYoutubeThumbnail;
 use Illuminate\Support\Facades\Gate;
 use Carbon\Carbon;
@@ -637,6 +638,13 @@ class SessionDetailController extends Controller
         ]);
 
         $source = ProgramDayAssignment::find($request->assignment_id);
+
+        // AISLAMIENTO: desde el calendario de un cliente solo se duplica dentro de SU programa
+        // (copia o calendario personal), nunca sobre un programa de la biblioteca o de otro cliente.
+        if ($request->filled('client_id') && $blocked = TemplateIsolationGuard::assignmentOutsideClient($source, (int) $request->client_id)) {
+            return $blocked;
+        }
+
         $program = \App\Models\TrainingProgram::find($source->training_program_id);
         $mapper = new \App\Services\CalendarDateMapper();
 
@@ -702,6 +710,15 @@ class SessionDetailController extends Controller
 
         if (!$owns) {
             abort(403, 'Este cliente no tiene acceso a este entrenamiento.');
+        }
+
+        // AISLAMIENTO: además de estar asignado, el programa no puede ser la copia de OTRO cliente.
+        $program = \App\Models\TrainingProgram::find($assignment->training_program_id);
+        if ($program !== null) {
+            $owner = TemplateIsolationGuard::ownerKey($program);
+            if ($owner !== TemplateIsolationGuard::LIBRARY && $owner !== 'client:'.$clientId) {
+                abort(403, 'Este entrenamiento pertenece al programa de otro cliente.');
+            }
         }
 
         return $assignment;

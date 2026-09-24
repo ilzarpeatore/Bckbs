@@ -12,6 +12,7 @@ use App\Models\UserFavouriteWorkoutTemplate;
 use App\Models\ClientExerciseLog;
 use App\Traits\HasYoutubeThumbnail;
 use App\Services\PackageAccessService;
+use App\Services\TemplateIsolationGuard;
 
 class WorkoutTemplateController extends Controller
 {
@@ -175,6 +176,11 @@ class WorkoutTemplateController extends Controller
 
         $workout = WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id);
 
+        // AISLAMIENTO: nunca se modifica una plantilla que use más de un cliente / la biblioteca.
+        if ($blocked = TemplateIsolationGuard::violation($workout->id)) {
+            return $blocked;
+        }
+
         $workout->update($request->only(['title', 'description', 'is_exclusive', 'is_public']));
 
         // AÑADIDO (pedido explícito 2026-09-18): antes solo store() aceptaba
@@ -197,7 +203,13 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_templates,id',
         ]);
 
-        WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id)->delete();
+        $workout = WorkoutTemplate::where('coach_id', auth()->id())->findOrFail($request->id);
+
+        if ($blocked = TemplateIsolationGuard::violation($workout->id)) {
+            return $blocked;
+        }
+
+        $workout->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Workout']));
     }
@@ -213,6 +225,10 @@ class WorkoutTemplateController extends Controller
         $workout = WorkoutTemplate::where('coach_id', auth()->id())->find($request->workout_template_id);
         if ($workout == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($workout->id)) {
+            return $blocked;
         }
 
         $order = WorkoutTemplateBlock::where('workout_template_id', $request->workout_template_id)->max('order') ?? 0;
@@ -244,6 +260,10 @@ class WorkoutTemplateController extends Controller
 
         if ($workout == null || $section == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Workout']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($workout->id)) {
+            return $blocked;
         }
 
         $order = WorkoutTemplateBlock::where('workout_template_id', $workout->id)->max('order') ?? 0;
@@ -285,6 +305,11 @@ class WorkoutTemplateController extends Controller
         $block = WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
             $q->where('coach_id', auth()->id());
         })->findOrFail($request->id);
+
+        if ($blocked = TemplateIsolationGuard::violation($block->workout_template_id)) {
+            return $blocked;
+        }
+
         $block->update($request->only(['title', 'instructions', 'order']));
 
         return json_message_response(__('message.save_form', ['form' => 'Block']));
@@ -296,9 +321,15 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_template_blocks,id',
         ]);
 
-        WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
+        $block = WorkoutTemplateBlock::whereHas('workoutTemplate', function ($q) {
             $q->where('coach_id', auth()->id());
-        })->findOrFail($request->id)->delete();
+        })->findOrFail($request->id);
+
+        if ($blocked = TemplateIsolationGuard::violation($block->workout_template_id)) {
+            return $blocked;
+        }
+
+        $block->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Block']));
     }
@@ -316,6 +347,10 @@ class WorkoutTemplateController extends Controller
         })->find($request->workout_template_block_id);
         if ($block == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Block']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($block->workout_template_id)) {
+            return $blocked;
         }
 
         if ($request->filled('id')) {
@@ -400,6 +435,10 @@ class WorkoutTemplateController extends Controller
             return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
         }
 
+        if ($blocked = TemplateIsolationGuard::violation($exercise->block->workout_template_id)) {
+            return $blocked;
+        }
+
         $prescribed = $exercise->prescribed ?? [];
         $prescribed[$request->field] = $request->value;
         $exercise->update(['prescribed' => $prescribed]);
@@ -413,9 +452,15 @@ class WorkoutTemplateController extends Controller
             'id' => 'required|exists:workout_template_exercises,id',
         ]);
 
-        WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
+        $exercise = WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
             $q->where('coach_id', auth()->id());
-        })->findOrFail($request->id)->delete();
+        })->findOrFail($request->id);
+
+        if ($blocked = TemplateIsolationGuard::violation($exercise->block->workout_template_id)) {
+            return $blocked;
+        }
+
+        $exercise->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Exercise']));
     }
@@ -433,6 +478,10 @@ class WorkoutTemplateController extends Controller
 
         if ($exercise == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($exercise->block->workout_template_id)) {
+            return $blocked;
         }
 
         $exercise->update(['notes' => $request->notes]);
@@ -453,6 +502,10 @@ class WorkoutTemplateController extends Controller
 
         if ($block == null) {
             return json_message_response(__('message.not_found_entry', ['name' => 'Block']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($block->workout_template_id)) {
+            return $blocked;
         }
 
         $block->update(['instructions' => $request->instructions]);

@@ -10,6 +10,7 @@ use App\Models\ProgramDayAssignment;
 use App\Models\WorkoutTemplate;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\CalendarDateMapper;
+use App\Services\TemplateIsolationGuard;
 use Carbon\Carbon;
 
 class ClientProfileCalendarController extends Controller
@@ -292,8 +293,20 @@ class ClientProfileCalendarController extends Controller
 
     public function removeAssignment(Request $request)
     {
-        $request->validate(['assignment_id' => 'required|exists:program_day_assignments,id']);
-        ProgramDayAssignment::where('id', $request->assignment_id)->delete();
+        $request->validate([
+            'assignment_id' => 'required|exists:program_day_assignments,id',
+            'client_id'     => 'nullable|exists:users,id',
+        ]);
+
+        // AISLAMIENTO: quitar un día de un programa de la BIBLIOTECA (o de otro
+        // cliente) lo quitaría para todos los que lo comparten -- solo se
+        // permite sobre la copia propia del cliente o su calendario personal.
+        $assignment = ProgramDayAssignment::findOrFail($request->assignment_id);
+        if ($blocked = TemplateIsolationGuard::assignmentOutsideClient($assignment, $request->filled('client_id') ? (int) $request->client_id : null)) {
+            return $blocked;
+        }
+
+        $assignment->delete();
         return json_message_response('Entrenamiento quitado.');
     }
 
