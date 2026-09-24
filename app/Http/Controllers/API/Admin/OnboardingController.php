@@ -8,6 +8,8 @@ use App\Models\ParQAnswer;
 use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\NutritionQuestionnaireAnswer;
 use Illuminate\Http\Request;
+use App\Services\AuditLogger;
+use App\Services\OnboardingAnswersService;
 use App\Support\FuzzySearch;
 
 /**
@@ -101,6 +103,77 @@ class OnboardingController extends Controller
         ];
 
         return json_custom_response($response);
+    }
+
+    /**
+     * Edición admin de las respuestas del onboarding de un cliente (2026-09-24, ítem 25 del
+     * roadmap). Usa las mismas reglas y el mismo guardado que la app del cliente
+     * (OnboardingAnswersService), así que el cliente ve el cambio en "Mis respuestas del
+     * onboarding" al momento. Cada cambio queda en audit_logs con el admin y los CAMPOS
+     * modificados (no los valores: son datos de salud).
+     */
+    public function updateParQ(Request $request)
+    {
+        $user = $this->targetClient($request);
+        $request->validate(OnboardingAnswersService::parqRules($user));
+
+        return $this->saveAudited($user, 'par_q', ParQAnswer::where('user_id', $user->id)->first(), fn () => OnboardingAnswersService::saveParq($user, $request));
+    }
+
+    public function updateTrainingQuestionnaire(Request $request)
+    {
+        $user = $this->targetClient($request);
+        $request->validate(OnboardingAnswersService::trainingRules());
+
+        return $this->saveAudited($user, 'training_questionnaire', TrainingQuestionnaireAnswer::where('user_id', $user->id)->first(), fn () => OnboardingAnswersService::saveTraining($user, $request));
+    }
+
+    public function updateNutritionQuestionnaire(Request $request)
+    {
+        $user = $this->targetClient($request);
+        $request->validate(OnboardingAnswersService::nutritionRules());
+
+        return $this->saveAudited($user, 'nutrition_questionnaire', NutritionQuestionnaireAnswer::where('user_id', $user->id)->first(), fn () => OnboardingAnswersService::saveNutrition($user, $request));
+    }
+
+    private function targetClient(Request $request): User
+    {
+        $request->validate(['user_id' => 'required|exists:users,id']);
+
+        return User::findOrFail($request->user_id);
+    }
+
+    private function saveAudited(User $user, string $section, $before, \Closure $save)
+    {
+        $beforeAttrs = $before ? $before->getAttributes() : [];
+        $answer = $save();
+        $changed = [];
+        foreach ($answer->getAttributes() as $k => $v) {
+            if (in_array($k, ['id', 'user_id', 'created_at', 'updated_at'], true)) {
+                continue;
+            }
+            $norm = fn ($x) => is_bool($x) ? (string) (int) $x : (string) ($x ?? '');
+            if (!$before || $norm($beforeAttrs[$k] ?? null) !== $norm($v)) {
+                $changed[] = $k;
+            }
+        }
+
+        AuditLogger::log(
+            $before ? 'update' : 'create',
+            'onboarding_' . $section,
+            $user->id,
+            'Respuestas del onboarding editadas por un admin. Campos: ' . ($changed ? implode(', ', $changed) : 'sin cambios'),
+        );
+
+        $user->refresh();
+
+        return json_custom_response([
+            'data' => [
+                $section => $answer,
+                'flagged_for_review' => (bool) $user->flagged_for_review,
+                'flagged_for_review_at' => $user->flagged_for_review_at,
+            ],
+        ]);
     }
 
     /**

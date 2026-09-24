@@ -1084,6 +1084,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // Ronda 7 (docs/Motor_Autorregulacion_Analisis.md): corregir el nivel
     // de experiencia autoevaluado por el cliente.
     Route::post('admin-onboarding-training-experience-update', [API\Admin\OnboardingController::class, 'updateTrainingExperience']);
+    // Edición admin de las respuestas del onboarding (mismas reglas que la app, ver OnboardingAnswersService).
+    Route::post('admin-onboarding-par-q-update', [API\Admin\OnboardingController::class, 'updateParQ']);
+    Route::post('admin-onboarding-training-questionnaire-update', [API\Admin\OnboardingController::class, 'updateTrainingQuestionnaire']);
+    Route::post('admin-onboarding-nutrition-questionnaire-update', [API\Admin\OnboardingController::class, 'updateNutritionQuestionnaire']);
 
     // ═══ V2: App Feedback ═════════════════════════════════════════════
     Route::get('admin-app-feedback-list', [API\Admin\AppFeedbackController::class, 'getList']);
