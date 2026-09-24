@@ -52,6 +52,18 @@ class AuditProgramIsolationCommand extends Command
             }
         }
 
+        // 2b) Plantillas del catálogo (demo / públicas para todos) usadas por un día de cliente.
+        $catalogIds = AppModelsWorkoutTemplate::where(function ($q) {
+            $q->where('is_demo', true)->orWhere('is_public', true);
+        })->pluck('id');
+        foreach ($catalogIds as $templateId) {
+            $clientOwners = array_filter(TemplateIsolationGuard::ownersOfTemplate((int) $templateId), fn ($o) => str_starts_with($o, 'client:'));
+            if ($clientOwners !== []) {
+                $violations++;
+                $this->error("VIOLACIÓN: la plantilla de catálogo {$templateId} (demo/pública) la usa directamente ".implode(', ', $clientOwners).'.');
+            }
+        }
+
         // 3) Programas de biblioteca asignados directamente (sin copia propia): el cliente comparte fila con la biblioteca.
         $directs = ProgramClientAssignment::where('activo', true)->get()
             ->groupBy('training_program_id')

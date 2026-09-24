@@ -216,17 +216,23 @@ class UserController extends Controller
         $mapper = new CalendarDateMapper();
         $wd = $mapper->toWeekAndDay(Carbon::parse($anchor), Carbon::now());
 
-        ProgramDayAssignment::firstOrCreate(
-            [
-                'training_program_id' => $program->id,
-                'week_number'         => $wd['week_number'],
-                'day_of_week'         => $wd['day_of_week'],
-            ],
-            [
-                'workout_template_id' => $demoTemplate->id,
-                'scheduled_date'      => now()->toDateString(),
-            ]
-        );
+        $dayKey = [
+            'training_program_id' => $program->id,
+            'week_number'         => $wd['week_number'],
+            'day_of_week'         => $wd['day_of_week'],
+        ];
+
+        if (ProgramDayAssignment::where($dayKey)->exists()) {
+            return;
+        }
+
+        // AISLAMIENTO: cada usuario recibe SU COPIA de la plantilla demo, nunca la de la
+        // biblioteca -- si no, el primer usuario se quedaría con la propia plantilla demo
+        // (y sus ediciones se copiarían a los siguientes registros).
+        ProgramDayAssignment::create($dayKey + [
+            'workout_template_id' => $demoTemplate->cloneStructure()->id,
+            'scheduled_date'      => now()->toDateString(),
+        ]);
     }
 
     public function login(Request $request)

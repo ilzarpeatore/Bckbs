@@ -230,7 +230,7 @@ class ProgramSessionMatrixService
 
                 // Plantilla compartida -> clonar solo para esta asignación antes de tocarla.
                 $sharedCount = ProgramDayAssignment::where('workout_template_id', $template->id)->count();
-                if ($sharedCount > 1) {
+                if ($sharedCount > 1 || TemplateIsolationGuard::isSharedAcrossOwners((int) $template->id)) {
                     $clone = $template->cloneStructure();
                     $clone->load('blocks.exercises');
                     $assignment->update(['workout_template_id' => $clone->id]);

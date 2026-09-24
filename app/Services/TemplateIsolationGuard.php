@@ -41,16 +41,25 @@ class TemplateIsolationGuard
             ->pluck('training_program_id')
             ->unique()
             ->all();
-        if ($programIds === []) {
-            return [];
+
+        $owners = $programIds === []
+            ? []
+            : TrainingProgram::whereIn('id', $programIds)
+                ->get(['id', 'client_id', 'personal_client_id'])
+                ->map(fn (TrainingProgram $p) => self::ownerKey($p))
+                ->unique()
+                ->values()
+                ->all();
+
+        // Las plantillas del catálogo (demo o públicas para todos los clientes) son de la BIBLIOTECA
+        // aunque aún no tengan ningún día: si un día de cliente las usara directamente, editarlas
+        // cambiaría el catálogo para todos.
+        $flags = \App\Models\WorkoutTemplate::whereKey($templateId)->first(['id', 'is_demo', 'is_public']);
+        if ($flags !== null && ($flags->is_demo || $flags->is_public) && !in_array(self::LIBRARY, $owners, true)) {
+            $owners[] = self::LIBRARY;
         }
 
-        return TrainingProgram::whereIn('id', $programIds)
-            ->get(['id', 'client_id', 'personal_client_id'])
-            ->map(fn (TrainingProgram $p) => self::ownerKey($p))
-            ->unique()
-            ->values()
-            ->all();
+        return $owners;
     }
 
     public static function isSharedAcrossOwners(int $templateId): bool
