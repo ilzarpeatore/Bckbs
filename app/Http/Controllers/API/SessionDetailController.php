@@ -638,6 +638,9 @@ class SessionDetailController extends Controller
         ]);
 
         $source = ProgramDayAssignment::find($request->assignment_id);
+        if ($source === null) {
+            return json_message_response('Esa sesión ya no existe.', 404);
+        }
 
         // AISLAMIENTO: desde el calendario de un cliente solo se duplica dentro de SU programa
         // (copia o calendario personal), nunca sobre un programa de la biblioteca o de otro cliente.
