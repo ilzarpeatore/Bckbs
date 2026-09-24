@@ -18,7 +18,7 @@ class ScreenReviewMarkController extends Controller
     {
         $request->validate([
             'route_name' => 'required|string|max:255',
-            'status'     => 'required|in:delete,done,confused',
+            'status'     => 'required|in:delete,done,confused,comment',
             'note'       => 'nullable|string',
         ]);
 
