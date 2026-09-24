@@ -173,6 +173,24 @@ class ClientCalendarController extends Controller
                     ->groupBy('model_id')
                     ->map(fn ($group) => $group->first()->getUrl());
 
+            // Entrenamientos personalizados que se repiten (misma serie
+            // semanal, client_series_uuid) -- la app solo ofrece "borrar este
+            // y los siguientes" cuando de verdad hay más de uno. Una sola
+            // consulta por programa, y solo en el calendario personal.
+            $seriesCounts = collect();
+            if ($program->is_personal) {
+                $uuids = $assignments->flatten()
+                    ->map(fn ($a) => optional($a->workoutTemplate)->client_series_uuid)
+                    ->filter()->unique()->values()->all();
+                if (!empty($uuids)) {
+                    $seriesCounts = \App\Models\WorkoutTemplate::where('created_by_client_id', $client_id)
+                        ->whereIn('client_series_uuid', $uuids)
+                        ->selectRaw('client_series_uuid, COUNT(*) as cnt')
+                        ->groupBy('client_series_uuid')
+                        ->pluck('cnt', 'client_series_uuid');
+                }
+            }
+
             foreach ($grid_dates as $date) {
                 $wd = $mapper->toWeekAndDay($start_date, $date);
                 if ($wd['week_number'] < 1 || $wd['week_number'] > $program->num_weeks) continue;
@@ -205,7 +223,13 @@ class ClientCalendarController extends Controller
                         // el detalle real (peso/reps propuestos) se pide
                         // aparte en getDayDetail() cuando el cliente abre el
                         // entrenamiento.
-                        'has_load_suggestion' => $templatesWithSuggestion->has($a->workout_template_id),
+                        // (2026-09-24) Nunca en un entrenamiento creado por el
+                        // propio cliente: las sugerencias son sobre el plan
+                        // del coach, y el motor no escribe en sus plantillas
+                        // (ver SessionProgressionRuleEngine::
+                        // resolveNextAssignmentForExercise()).
+                        'has_load_suggestion' => optional($a->workoutTemplate)->created_by_client_id === null
+                            && $templatesWithSuggestion->has($a->workout_template_id),
                         // AÑADIDO (2026-09-24): programa al que pertenece (la
                         // lista "Mi programa" abierta desde Home > Entrenamientos
                         // filtra por él) y si es un entrenamiento que creó el
@@ -215,6 +239,7 @@ class ClientCalendarController extends Controller
                         'is_personal'         => (bool) $program->is_personal,
                         'is_custom'           => optional($a->workoutTemplate)->created_by_client_id !== null
                             && (int) $a->workoutTemplate->created_by_client_id === (int) $client_id,
+                        'is_repeating'        => (int) $seriesCounts->get(optional($a->workoutTemplate)->client_series_uuid ?? '', 0) > 1,
                     ]);
                 }
             }
@@ -242,6 +267,17 @@ class ClientCalendarController extends Controller
 
         if ($assignment->workout_template_id == null) {
             return json_custom_response(['data' => ['workout_day_id' => $assignment->id, 'sequence' => $assignment->day_of_week, 'is_rest' => 1, 'blocks' => []]]);
+        }
+
+        // El día existe pero su plantilla se borró desde el panel (soft
+        // delete: workout_template_id sigue relleno pero la relación viene
+        // null). Antes esto reventaba con un 500 más abajo
+        // ($assignment->workoutTemplate->blocks) y la app lo trataba como un
+        // fallo de red ("Reintentar", inútil). 404 = "ya no existe": la app
+        // descarta la sesión en curso guardada y lo explica al cliente
+        // (workout_session_screen.tsx, 2026-09-24).
+        if ($assignment->workoutTemplate === null) {
+            abort(404, 'Este entrenamiento ya no existe.');
         }
 
         // Batch-load overrides and logs BEFORE the loop
@@ -273,10 +309,18 @@ class ClientCalendarController extends Controller
         // orderByDesc('id'): 'created_at' es de precision de segundo y varias
         // series del mismo ejercicio pueden insertarse en el mismo segundo -
         // 'id' refleja el orden real de insercion sin empates.
+        //
+        // latestSnapshots + hasSets (2026-09-24): una sesión cuyo estado
+        // final es "todas las series desmarcadas" (logged_sets = []) no
+        // es la última vez que hizo el ejercicio -- ni esa foto vacía ni
+        // las fotos anteriores de esa misma sesión deben usarse como
+        // referencia (ver ClientExerciseLog::scopeLatestSnapshots()).
         $logs = ClientExerciseLog::where('client_id', $client_id)
+            ->latestSnapshots($client_id)
             ->whereIn('exercise_id', $allExerciseIds)
             ->orderByDesc('id')
             ->get()
+            ->filter(fn ($log) => $log->hasSets())
             ->unique('exercise_id')
             ->keyBy('exercise_id');
 
@@ -285,8 +329,12 @@ class ClientCalendarController extends Controller
         // (pendiente siempre, aplicado dentro de la ventana) que
         // getMyMonth(), aqui con el valor completo (peso/reps propuestos,
         // regla) para pintar el detalle real en la ficha del ejercicio.
+        // (2026-09-24) Sin sugerencias de carga en un entrenamiento creado
+        // por el propio cliente -- mismo criterio que has_load_suggestion en
+        // getMyMonth().
         $loadSuggestions = collect();
-        if (Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
+        if (optional($assignment->workoutTemplate)->created_by_client_id === null
+            && Gate::forUser(auth('sanctum')->user())->allows('paid-tier')) {
             $loadSuggestions = NextSessionTarget::relevantForClient($client_id)
                 ->whereIn('exercise_id', $allExerciseIds)
                 ->with('rule')
@@ -456,8 +504,19 @@ class ClientCalendarController extends Controller
         $request->validate([
             'workout_template_exercise_id' => 'nullable|exists:workout_template_exercises,id',
             'exercise_id'                   => 'required_without:workout_template_exercise_id|nullable|exists:exercises,id',
-            'logged_sets'                   => 'required|array',
+            // 'present' y no 'required' (2026-09-24): 'required' rechaza un
+            // array vacío, así que cuando el cliente desmarcaba TODAS las
+            // series de un ejercicio la app no podía registrarlo y la última
+            // foto (con series) seguía contando en volumen/estadísticas.
+            // Ahora [] se guarda como una foto más: 0 series (ver
+            // ClientExerciseLog::scopeLatestSnapshots()).
+            'logged_sets'                   => 'present|array',
             'program_day_assignment_id'     => 'nullable|integer',
+            // Id de sesión que genera la app al empezar el entrenamiento;
+            // separa sesiones sueltas del mismo día (ver migración
+            // 2026_09_24_120000 y scopeLatestSnapshots()). Opcional: las
+            // versiones viejas de la app no lo mandan.
+            'session_key'                   => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9_:\-]+$/'],
             'notes'                         => 'nullable|string|max:2000',
         ]);
 
@@ -514,8 +573,11 @@ class ClientCalendarController extends Controller
             'workout_template_exercise_id'  => $request->workout_template_exercise_id,
             'exercise_id'                   => $exercise_id,
             'program_day_assignment_id'     => $request->program_day_assignment_id,
+            'session_key'                   => $request->session_key,
             'performed_date'                => now()->toDateString(),
-            'logged_sets'                   => $clean_sets,
+            // array_values: [] tiene que guardarse como lista JSON "[]",
+            // nunca como objeto.
+            'logged_sets'                   => array_values($clean_sets),
             'notes'                         => $request->notes,
         ]);
 
@@ -579,12 +641,21 @@ class ClientCalendarController extends Controller
         // en su propio endpoint/observer y sigue funcionando igual para
         // todos los clientes.
         if (Gate::forUser($user)->allows('paid-tier')) {
-            ProcessSessionInterpretation::dispatch($review);
-            // Motor de Auto-Regulación de Carga (Fase 2) — corre justo
-            // después (QUEUE_CONNECTION=sync -> en línea, en orden), ya
-            // que depende de las exercise_session_metrics que el job
-            // anterior acaba de generar. Mismo gate, no se repite.
-            EvaluateSessionProgressionRules::dispatch($review);
+            // (2026-09-24) Entrenamiento creado por el PROPIO cliente
+            // (ClientCustomWorkoutController): el prescrito lo tecleó él, no
+            // su coach -- no se interpreta ni se evalúan reglas de
+            // progresión (Fases 1-2), o cada sesión personalizada llenaría la
+            // cola de sugerencias pendientes del coach con propuestas sobre
+            // un plan que no es suyo. Todo lo demás (review, calorías,
+            // logros de sesión, racha/compliance) sigue igual.
+            if (!$review->isClientCustomSession()) {
+                ProcessSessionInterpretation::dispatch($review);
+                // Motor de Auto-Regulación de Carga (Fase 2) — corre justo
+                // después (QUEUE_CONNECTION=sync -> en línea, en orden), ya
+                // que depende de las exercise_session_metrics que el job
+                // anterior acaba de generar. Mismo gate, no se repite.
+                EvaluateSessionProgressionRules::dispatch($review);
+            }
 
             // Fase 3 (documento §3.2/reconciliación): $achievements ya se
             // calculaba pero era efímero (solo en esta response) — se
@@ -834,7 +905,20 @@ class ClientCalendarController extends Controller
             $program = $assignment->trainingProgram;
             $startDate = Carbon::parse($assignment->start_date);
 
+            // coachPlanned() (2026-09-24): los entrenamientos que se crea el
+            // propio cliente (ClientCustomWorkoutController) NO son sesiones
+            // programadas -- saltarse uno nunca baja la adherencia, ni corta
+            // la racha, ni sube el riesgo de abandono (compliance de
+            // RetentionRiskCalculationService) ni cuenta para hito_compliance
+            // (EvaluateSessionAchievements), que salen todos de aquí. Hacer
+            // uno tampoco sube el ratio (no está en el denominador ni en el
+            // numerador). Como actividad sí cuenta donde se mide "entrenó
+            // hace poco": el modo freeform de abajo y la inactividad del
+            // riesgo de abandono leen workout_session_reviews sin filtrar.
+            // Además evita que un personalizado el mismo día que una sesión
+            // del coach "tape" a esta en $scheduled (una entrada por fecha).
             $dayRows = ProgramDayAssignment::where('training_program_id', $program->id)
+                ->coachPlanned()
                 ->whereNotNull('workout_template_id')
                 ->get()
                 ->groupBy(fn ($a) => $a->week_number.'-'.$a->day_of_week);
@@ -906,7 +990,9 @@ class ClientCalendarController extends Controller
         $limit = (int) $request->input('limit', 20);
         $bodyPartId = $request->input('body_part_id') !== null ? (int) $request->input('body_part_id') : null;
 
-        $query = ClientExerciseLog::where('client_id', $user->id);
+        // latestSnapshots: una fila por ejercicio y sesión (ver ClientExerciseLog),
+        // si no "sesiones" y "series" salían multiplicadas.
+        $query = ClientExerciseLog::where('client_id', $user->id)->latestSnapshots($user->id);
         $query->where('performed_date', '<=', $end->toDateString());
         if ($days > 0) {
             $query->where('performed_date', '>=', $end->copy()->subDays($days - 1)->toDateString());
@@ -915,6 +1001,12 @@ class ClientCalendarController extends Controller
 
         $agg = [];
         foreach ($logs as $log) {
+            // Sesión que acabó con todas las series desmarcadas
+            // (logged_sets = [], 2026-09-24): ese ejercicio no se hizo --
+            // ni suma series ni cuenta como sesión.
+            if (!$log->hasSets()) {
+                continue;
+            }
             $agg[$log->exercise_id]['sessions'] = ($agg[$log->exercise_id]['sessions'] ?? 0) + 1;
             $agg[$log->exercise_id]['sets'] = ($agg[$log->exercise_id]['sets'] ?? 0) + count($log->logged_sets ?? []);
         }

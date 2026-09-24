@@ -96,16 +96,26 @@ class WorkoutSessionStatsService
         $todayLogsByExercise = ClientExerciseLog::where('client_id', $userId)
             ->whereIn('exercise_id', $exerciseIds)
             ->whereDate('performed_date', $today)
-            ->orderByDesc('created_at')
+            // id, no created_at: varias series de la misma sesión caen en el
+            // mismo segundo y el empate podía coger una foto parcial.
+            ->orderByDesc('id')
             ->get()
             ->groupBy('exercise_id');
 
+        // latestSnapshots: la ventana de tendencia debe ser de SESIONES
+        // anteriores, no de las fotos parciales de una misma sesión (filas
+        // acumuladas, ver ClientExerciseLog).
         $recentLogsByExercise = ClientExerciseLog::where('client_id', $userId)
+            ->latestSnapshots($userId)
             ->whereIn('exercise_id', $exerciseIds)
             ->where('performed_date', '<', $today)
             ->orderByDesc('performed_date')
-            ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->get()
+            // 2026-09-24: una sesión que acabó con todas las series
+            // desmarcadas (logged_sets = []) no es una sesión de referencia
+            // -- no debe ocupar un hueco de la ventana TREND_WINDOW.
+            ->filter(fn (ClientExerciseLog $log) => $log->hasSets())
             ->groupBy('exercise_id');
 
         foreach ($exerciseIds as $exerciseId) {

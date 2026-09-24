@@ -80,10 +80,17 @@ class WorkoutTemplateController extends Controller
         $logsByExercise = collect();
         if ($request->client_id) {
             $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
+            // latestSnapshots + hasSets (2026-09-24): una sesión cuyo estado
+            // final es "todas las series desmarcadas" (logged_sets = []) no
+            // es la última vez que hizo el ejercicio -- ni esa foto vacía ni
+            // las fotos anteriores de esa misma sesión deben usarse como
+            // referencia (ver ClientExerciseLog::scopeLatestSnapshots()).
             $logsByExercise = \App\Models\ClientExerciseLog::where('client_id', $request->client_id)
+                ->latestSnapshots((int) $request->client_id)
                 ->whereIn('exercise_id', $allExerciseIds)
                 ->orderByDesc('id')
                 ->get()
+                ->filter(fn ($log) => $log->hasSets())
                 ->unique('exercise_id')
                 ->keyBy('exercise_id');
         }
@@ -473,10 +480,17 @@ class WorkoutTemplateController extends Controller
             // orderByDesc('id'): 'created_at' es de precision de segundo y
             // puede empatar entre varias series de la misma sesion - 'id'
             // refleja el orden real de insercion sin empates.
+            // latestSnapshots + hasSets (2026-09-24): una sesión cuyo estado
+            // final es "todas las series desmarcadas" (logged_sets = []) no
+            // es la última vez que hizo el ejercicio -- ni esa foto vacía ni
+            // las fotos anteriores de esa misma sesión deben usarse como
+            // referencia (ver ClientExerciseLog::scopeLatestSnapshots()).
             $logs = ClientExerciseLog::where('client_id', $user->id)
+                ->latestSnapshots($user->id)
                 ->whereIn('exercise_id', $allExerciseIds)
                 ->orderByDesc('id')
                 ->get()
+                ->filter(fn ($log) => $log->hasSets())
                 ->unique('exercise_id')
                 ->keyBy('exercise_id');
         }

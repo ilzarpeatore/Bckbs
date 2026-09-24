@@ -1448,7 +1448,12 @@ class SessionProgressionRuleEngine
             return null;
         }
 
+        // coachPlanned() (2026-09-24): la sugerencia aprobada se escribe como
+        // ClientExerciseOverride en la próxima sesión con ese ejercicio --
+        // nunca en un entrenamiento que se creó el propio cliente (pisaría el
+        // prescrito que tecleó él).
         return ProgramDayAssignment::whereIn('training_program_id', $programIds)
+            ->coachPlanned()
             ->whereNotNull('workout_template_id')
             ->whereDate('scheduled_date', '>=', now()->toDateString())
             ->whereHas('workoutTemplate.blocks.exercises', fn ($q) => $q->where('exercise_id', $exerciseId))

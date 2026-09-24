@@ -8,14 +8,12 @@ use Tests\TestCase;
 class ExampleTest extends TestCase
 {
     /**
-     * A basic test example.
-     *
-     * @return void
+     * La raíz del panel web (HomeController::index) va detrás de
+     * middleware auth: un invitado debe acabar en el login, no ver el
+     * dashboard (el 200 del scaffolding original no aplica a esta app).
      */
-    public function testBasicTest()
+    public function testGuestIsRedirectedToLogin()
     {
-        $response = $this->get('/');
-
-        $response->assertStatus(200);
+        $this->get('/')->assertRedirect('/login');
     }
 }

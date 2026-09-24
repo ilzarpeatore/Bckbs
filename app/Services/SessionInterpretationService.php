@@ -87,6 +87,14 @@ class SessionInterpretationService
      */
     public function processReview(WorkoutSessionReview $review): void
     {
+        // (2026-09-24) Red de seguridad además del filtro de finishSession():
+        // una sesión de un entrenamiento creado por el propio cliente nunca
+        // genera exercise_session_metrics -- tampoco desde el backfill
+        // (backfillHistoryForClient), que llama aquí directamente.
+        if ($review->isClientCustomSession()) {
+            return;
+        }
+
         $clientId = (int) $review->user_id;
         $programDayAssignmentId = $review->program_day_assignment_id;
         $performedDate = optional($review->completed_at)->toDateString() ?? now()->toDateString();
@@ -130,7 +138,11 @@ class SessionInterpretationService
             ->orderByDesc('id')
             ->first();
 
-        if (!$log) {
+        // 2026-09-24: la última foto puede ser logged_sets = [] (el cliente
+        // desmarcó TODAS las series, ver ClientCalendarController::logSets)
+        // -- ese ejercicio no se hizo en esta sesión: ni cuenta como sesión
+        // de calibración ni genera exercise_session_metrics.
+        if (!$log || !$log->hasSets()) {
             return;
         }
 

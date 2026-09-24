@@ -182,7 +182,13 @@ class SessionDetailController extends Controller
         // getDetail al editar una plantilla para un cliente. Se excluyen
         // los logs de ESTA MISMA sesión para no mostrarse a sí misma como
         // "última vez" cuando la sesión ya está completada.
+        // latestSnapshots + hasSets (2026-09-24): una sesión cuyo estado
+        // final es "todas las series desmarcadas" (logged_sets = []) no
+        // es la última vez que hizo el ejercicio -- ni esa foto vacía ni
+        // las fotos anteriores de esa misma sesión deben usarse como
+        // referencia (ver ClientExerciseLog::scopeLatestSnapshots()).
         $lastPerformances = ClientExerciseLog::where('client_id', $request->client_id)
+            ->latestSnapshots((int) $request->client_id)
             ->whereIn('exercise_id', $allExerciseIds)
             ->where(function ($q) use ($isStandalone, $request, $sessionDate) {
                 if ($isStandalone) {
@@ -195,6 +201,7 @@ class SessionDetailController extends Controller
             })
             ->orderByDesc('id')
             ->get()
+            ->filter(fn ($log) => $log->hasSets())
             ->unique('exercise_id')
             ->keyBy('exercise_id');
 
@@ -478,7 +485,10 @@ class SessionDetailController extends Controller
     {
         $request->validate(['client_id' => 'required|exists:users,id']);
 
+        // latestSnapshots: sin esto cada serie aparecía repetida una vez por
+        // cada serie marcada después (filas acumuladas, ver ClientExerciseLog).
         $logs = ClientExerciseLog::where('client_id', $request->client_id)
+            ->latestSnapshots((int) $request->client_id)
             ->with('exercise:id,title')
             ->orderByDesc('id')
             ->limit(200)

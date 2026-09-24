@@ -118,7 +118,11 @@ class ExerciseInfoController extends Controller
             ->orderByDesc('performed_date')
             ->orderByDesc('created_at')
             ->get()
-            ->unique('performed_date'); // el log más reciente de cada día = estado final de esa sesión
+            ->unique('performed_date') // el log más reciente de cada día = estado final de esa sesión
+            // 2026-09-24: si ese estado final es "todas las series
+            // desmarcadas" (logged_sets = [], ver logSets) el ejercicio no
+            // se llegó a hacer ese día -- no se lista como sesión.
+            ->filter(fn ($log) => $log->hasSets());
 
         $sessions = $logs->map(function ($log) use ($client_id, $request) {
             $wte = $log->workoutTemplateExercise;

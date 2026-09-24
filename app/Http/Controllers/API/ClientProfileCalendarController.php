@@ -325,7 +325,10 @@ class ClientProfileCalendarController extends Controller
                 'comment'           => $r->comment,
             ]);
 
+        // latestSnapshots: la misma nota viaja en cada fila acumulada del
+        // ejercicio -- sin esto salía repetida una vez por serie marcada.
         $notes = \App\Models\ClientExerciseLog::where('client_id', $request->client_id)
+            ->latestSnapshots((int) $request->client_id)
             ->whereNotNull('notes')
             ->where('notes', '!=', '')
             ->with('exercise:id,title')

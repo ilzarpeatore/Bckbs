@@ -309,7 +309,12 @@ class AdaptiveWeekPlanner
                 continue;
             }
 
+            // coachPlanned() (2026-09-24): la semana adaptativa recorta el
+            // plan del COACH -- un entrenamiento que se creó el propio
+            // cliente no es una sesión a recortar/mantener (y con
+            // keyBy('day_of_week') podía tapar la sesión del coach de ese día).
             $pdasByDay = ProgramDayAssignment::where('training_program_id', $program->id)
+                ->coachPlanned()
                 ->where('week_number', $weekNumber)
                 ->whereNotNull('workout_template_id')
                 ->with('workoutTemplate.blocks.exercises.exercise')

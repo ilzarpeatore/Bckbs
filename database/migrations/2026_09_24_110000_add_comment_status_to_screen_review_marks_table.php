@@ -13,11 +13,22 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // "MODIFY ... ENUM" es solo MySQL/MariaDB: no-op en sqlite (entorno
+        // de tests, phpunit.xml), mismo patrón que
+        // 2026_08_13_172722_add_stripe_to_plan_subscriptions_payment_method_enum.
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
         DB::statement("ALTER TABLE screen_review_marks MODIFY status ENUM('delete','done','confused','comment') NOT NULL");
     }
 
     public function down(): void
     {
+        if (!in_array(DB::connection()->getDriverName(), ['mysql', 'mariadb'], true)) {
+            return;
+        }
+
         DB::table('screen_review_marks')->where('status', 'comment')->update(['status' => 'confused']);
         DB::statement("ALTER TABLE screen_review_marks MODIFY status ENUM('delete','done','confused') NOT NULL");
     }
