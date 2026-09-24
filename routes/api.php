@@ -235,6 +235,11 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // sección "Entrenamientos" del Home.
         Route::post('my-custom-workouts', [ API\ClientCustomWorkoutController::class, 'store' ]);
         Route::post('my-custom-workouts-delete', [ API\ClientCustomWorkoutController::class, 'destroy' ]);
+        // AÑADIDO (2026-09-24): editar un entrenamiento personalizado ya
+        // creado (detalle para abrir el editor + guardar esta ocurrencia o
+        // esta y las siguientes de la serie).
+        Route::get('my-custom-workout-detail', [ API\ClientCustomWorkoutController::class, 'detail' ]);
+        Route::post('my-custom-workouts-update', [ API\ClientCustomWorkoutController::class, 'update' ]);
         Route::get('my-active-programs', [ API\ClientCustomWorkoutController::class, 'activePrograms' ]);
 
         // AÑADIDO: volumen por grupo muscular (heatmap + progreso semanal/mensual).
