@@ -11,7 +11,9 @@ use App\Models\WorkoutTemplate;
 use App\Models\WorkoutTemplateBlock;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\ExerciseMatcher\Dictionaries;
+use App\Services\ExerciseMatcher\ExerciseEquivalenceResolver;
 use App\Services\ExerciseMatcher\ExerciseMatcher;
+use App\Services\ExerciseMatcher\Normalizer;
 use App\Services\ExerciseMatcher\Signature;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -30,6 +32,7 @@ final class ProgramsImporter
 {
     private ExerciseMatcher $matcher;
     private array $templateCache = [];   // hash => workout_template_id
+    private array $equivalences = [];      // nombre normalizado => ['exercise_id' => int, 'reason' => string] (IA)
     private array $createdExercises = []; // "nombre normalizado|equipo" => exercise_id creado en este import
     private array $report = [];          // filas del reporte CSV
     private array $stats = [
@@ -75,11 +78,48 @@ final class ProgramsImporter
         $results = [];
         $programs = (array) ($canonical['programs'] ?? []);
 
+        $this->prefetchEquivalences($canonical);
+
         foreach ($programs as $program) {
             $results[] = $this->importProgram((array) $program);
         }
 
         return ['results' => $results, 'stats' => $this->stats()];
+    }
+
+    /**
+     * Los nombres que el matcher por reglas no reconoce se envían de una vez a la IA junto con el
+     * catálogo: si dice cuál es el mismo ejercicio, se usa ese en lugar de crear uno nuevo.
+     */
+    private function prefetchEquivalences(array $canonical): void
+    {
+        $resolver = new ExerciseEquivalenceResolver(config('services.anthropic.api_key'));
+        if (!$resolver->enabled()) {
+            return;
+        }
+
+        $unmatched = [];
+        $walk = function ($node) use (&$walk, &$unmatched) {
+            if (!is_array($node)) {
+                return;
+            }
+            if (isset($node['exercises']) && is_array($node['exercises'])) {
+                foreach ($node['exercises'] as $ex) {
+                    $name = trim((string) (is_array($ex) ? ($ex['name'] ?? '') : ''));
+                    if ($name !== '' && $this->matcher->match($name, $ex['equipment'] ?? null, (array) ($ex['muscles'] ?? []), $ex['equipment'] ?? null) === null) {
+                        $unmatched[$name] = true;
+                    }
+                }
+            }
+            foreach ($node as $child) {
+                $walk($child);
+            }
+        };
+        $walk($canonical);
+
+        foreach ($resolver->resolve(array_keys($unmatched)) as $name => $answer) {
+            $this->equivalences[Normalizer::normalize($name)] = $answer;
+        }
     }
 
     private function importProgram(array $program): array
@@ -363,6 +403,16 @@ final class ProgramsImporter
             return null;
         }
 
+        // La IA reconoció el nombre como un ejercicio que ya existe en el catálogo (traducción/anglicismo)
+        $eq = $this->equivalences[Normalizer::normalize($name)] ?? null;
+        if ($eq !== null) {
+            $this->stats['exercises_matched']++;
+            $this->stats['exercises_matched_ai'] = ($this->stats['exercises_matched_ai'] ?? 0) + 1;
+            $this->reportRow($name, (int) $eq['exercise_id'], null, null, 'equivalente por IA: ' . $eq['reason']);
+
+            return (int) $eq['exercise_id'];
+        }
+
         // Mismo ejercicio ya creado antes en ESTE import (otra sesión/semana que lo repite):
         // se reutiliza aunque el matcher no lo devuelva (p. ej. umbral o firma distinta).
         $createdKey = $this->createdExerciseKey($name, $sourceEquipment);
@@ -582,7 +632,11 @@ final class ProgramsImporter
                             (array) ($ex['muscles'] ?? []),
                             $ex['equipment'] ?? null,
                         );
-                        if ($match === null) {
+                        $aiEq = $match === null ? ($this->equivalences[Normalizer::normalize((string) ($ex['name'] ?? ''))] ?? null) : null;
+                        if ($aiEq !== null) {
+                            $this->reportRow((string) ($ex['name'] ?? ''), (int) $aiEq['exercise_id'], null, null, 'equivalente por IA (dry-run): ' . $aiEq['reason']);
+                        }
+                        if ($match === null && $aiEq === null) {
                             $cands = $this->matcher->topCandidates(
                                 (string) ($ex['name'] ?? ''),
                                 $ex['equipment'] ?? null,

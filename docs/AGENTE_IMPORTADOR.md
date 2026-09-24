@@ -257,3 +257,7 @@ El agente importador **no genera el Excel** (eso lo hace otro agente/humano) y *
 | Comando de integridad (cron semanal, ver `app/Console/Kernel.php`) | `app/Console/Commands/CheckProgramsIntegrityCommand.php` |
 | Constructor de la salida JSON (`review_required`, payload, error, CSV) | `app/Services/ProgramsImport/ImportJsonReport.php` — usado tanto por el comando CLI como por el endpoint HTTP |
 | Pruebas de la salida `--json` (puras, sin BD) | `tests/Unit/ImportJsonReportTest.php` |
+
+## Equivalencia de nombres con IA (2026-09-24)
+
+El matcher por reglas no entiende traducciones ni anglicismos ("leg curl" = "curl de piernas", "pec deck" = "peck deck"), asi que un ejercicio que ya existia se volvia a crear. `ExerciseEquivalenceResolver` (activado con `ANTHROPIC_API_KEY` en el `.env`) manda, en UNA llamada por import, el catalogo activo (id + titulo) y los nombres que el matcher no reconoce; el modelo solo puede devolver ids existentes o null. Los resultados se cachean por nombre. Sin key, o si la API falla, el importador sigue exactamente como antes. Las filas del reporte muestran `equivalente por IA: <motivo>` para revisarlas.

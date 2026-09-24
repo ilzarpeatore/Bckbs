@@ -52,6 +52,13 @@ return [
         'api_key' => env('DEEPL_API_KEY'),
     ],
 
+    // Equivalencia de nombres de ejercicios del importador con IA
+    // (ExerciseEquivalenceResolver). Sin key el importador funciona igual,
+    // solo con el matcher por reglas.
+    'anthropic' => [
+        'api_key' => env('ANTHROPIC_API_KEY'),
+    ],
+
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
