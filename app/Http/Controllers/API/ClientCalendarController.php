@@ -206,6 +206,15 @@ class ClientCalendarController extends Controller
                         // aparte en getDayDetail() cuando el cliente abre el
                         // entrenamiento.
                         'has_load_suggestion' => $templatesWithSuggestion->has($a->workout_template_id),
+                        // AÑADIDO (2026-09-24): programa al que pertenece (la
+                        // lista "Mi programa" abierta desde Home > Entrenamientos
+                        // filtra por él) y si es un entrenamiento que creó el
+                        // propio cliente (badge "Personalizado" + permiso de
+                        // borrado, ver ClientCustomWorkoutController).
+                        'training_program_id' => $program->id,
+                        'is_personal'         => (bool) $program->is_personal,
+                        'is_custom'           => optional($a->workoutTemplate)->created_by_client_id !== null
+                            && (int) $a->workoutTemplate->created_by_client_id === (int) $client_id,
                     ]);
                 }
             }

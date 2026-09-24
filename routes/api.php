@@ -229,6 +229,14 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // AÑADIDO: reorganizar el calendario semanal ("Guardar cambios" tras arrastrar entre días).
         Route::post('my-calendar-move-assignments', [ API\ClientCalendarController::class, 'moveAssignments' ]);
 
+        // AÑADIDO (2026-09-24): entrenamientos personalizados creados por el
+        // propio cliente (se guardan en su calendario personal, ver
+        // ClientCustomWorkoutController) + programas asignados para la
+        // sección "Entrenamientos" del Home.
+        Route::post('my-custom-workouts', [ API\ClientCustomWorkoutController::class, 'store' ]);
+        Route::post('my-custom-workouts-delete', [ API\ClientCustomWorkoutController::class, 'destroy' ]);
+        Route::get('my-active-programs', [ API\ClientCustomWorkoutController::class, 'activePrograms' ]);
+
         // AÑADIDO: volumen por grupo muscular (heatmap + progreso semanal/mensual).
         Route::get('my-muscle-volume', [ API\ClientCalendarController::class, 'getMyMuscleVolume' ]);
         Route::post('muscle-volume-compute', [ API\ClientCalendarController::class, 'computeMuscleVolume' ]);
