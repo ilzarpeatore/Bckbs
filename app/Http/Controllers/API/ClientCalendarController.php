@@ -269,6 +269,17 @@ class ClientCalendarController extends Controller
             return json_custom_response(['data' => ['workout_day_id' => $assignment->id, 'sequence' => $assignment->day_of_week, 'is_rest' => 1, 'blocks' => []]]);
         }
 
+        // El día existe pero su plantilla se borró desde el panel (soft
+        // delete: workout_template_id sigue relleno pero la relación viene
+        // null). Antes esto reventaba con un 500 más abajo
+        // ($assignment->workoutTemplate->blocks) y la app lo trataba como un
+        // fallo de red ("Reintentar", inútil). 404 = "ya no existe": la app
+        // descarta la sesión en curso guardada y lo explica al cliente
+        // (workout_session_screen.tsx, 2026-09-24).
+        if ($assignment->workoutTemplate === null) {
+            abort(404, 'Este entrenamiento ya no existe.');
+        }
+
         // Batch-load overrides and logs BEFORE the loop
         $allOverrides = ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
             ->where('client_id', $client_id)
