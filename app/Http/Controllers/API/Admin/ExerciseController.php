@@ -29,7 +29,9 @@ class ExerciseController extends BaseController
             $query->search($request);
         } elseif ($request->filled('search')) {
             $columns = array_values(array_filter($model->getFillable(), fn ($f) => !in_array($f, ['password', 'remember_token'])));
-            FuzzySearch::apply($query, $columns, $request->search);
+            // La tolerancia a erratas solo mira el titulo/nombre (el resto de columnas son texto largo y meten ruido).
+            $fuzzy = in_array('title', $columns, true) ? ['title'] : (in_array('name', $columns, true) ? ['name'] : null);
+            FuzzySearch::apply($query, $columns, $request->search, $fuzzy);
         }
 
         if ($request->filled('status')) {
