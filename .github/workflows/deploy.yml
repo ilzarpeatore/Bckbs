@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# Nunca dos despliegues a la vez en el VPS (git pull + migrate + caches
+# pisándose): el segundo espera a que termine el primero, sin cancelarlo.
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest

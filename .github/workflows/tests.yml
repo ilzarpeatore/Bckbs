@@ -1,0 +1,42 @@
+name: Tests
+
+# Suite completa de PHPUnit (sqlite en memoria, ver phpunit.xml) en cada PR
+# y en cada push a main -- antes no había ningún check de tests y el deploy
+# a producción salía sin haber corrido ninguno.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo_sqlite, sqlite3, intl, gd, zip, bcmath
+          coverage: none
+
+      - name: Directorio de caché de Composer
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Instalar dependencias
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Preparar .env
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Ejecutar tests
+        run: php artisan test
