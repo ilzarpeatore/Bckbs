@@ -23,4 +23,7 @@ enum ExceptionCategory: string
     // hay una fila que identifique "el patrón", como en INACTIVIDAD),
     // idempotencia vía CoachExceptionFeedService::hasPendingForClientCategory().
     case PATRON_RECORTE_RECURRENTE = 'patron_recorte_recurrente';
+    // El cliente finalizó una sesión de su programa sin registrar ninguna serie
+    // (ver EmptySessionAlertService). Sin migración: category es varchar(40).
+    case SESION_SIN_REGISTRO = 'sesion_sin_registro';
 }

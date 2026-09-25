@@ -632,6 +632,14 @@ class ClientCalendarController extends Controller
             ]
         );
 
+        // Finalizo sin apuntar ninguna serie -> aviso al coach (Panel de
+        // Excepciones + push). Nunca debe romper el cierre de la sesion.
+        try {
+            app(\App\Services\EmptySessionAlertService::class)->evaluate($review);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         $achievements = WorkoutSessionStatsService::computeAchievements($user->id, $request->exercise_ids ?? []);
 
         // Motor de Auto-Regulación de Carga (Fase 1) — gate de tier
