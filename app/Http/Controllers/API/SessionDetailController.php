@@ -400,6 +400,14 @@ class SessionDetailController extends Controller
                 'date'              => $sessionDate,
                 'difficulty_label'  => $review ? (self::DIFFICULTY_LABELS[$review->difficulty_rating] ?? null) : null,
                 'comment'           => $review->comment ?? null,
+                // Hay reseña => el cliente pulso "Finalizar" (la sesion cuenta
+                // como completada aunque no exista NINGUN log de series). Sin
+                // esto el admin solo podia deducir "completada" de los logs y
+                // mostraba el editor de la sesion en vez de decir que el
+                // cliente no apunto nada (caso Ayoub, 2026-09-25).
+                'completed'         => (bool) $review,
+                'duration_seconds'  => $review->duration_seconds ?? null,
+                'calories_burned'   => $review->calories_burned ?? null,
                 'total_sets'        => $total_sets,
                 'total_volume'      => round($total_volume, 1),
                 'total_reps'        => $total_reps,
@@ -430,8 +438,21 @@ class SessionDetailController extends Controller
             ->with(['programDayAssignment.workoutTemplate', 'workoutTemplate'])
             ->orderByDesc('completed_at')
             ->limit(100)
-            ->get()
-            ->map(function ($r) {
+            ->get();
+
+        // Sesiones de programa con AL MENOS una serie registrada. Una reseña sin
+        // logs (el cliente finalizo sin apuntar nada) se marca has_logs=false
+        // para que el panel lo avise en el calendario. null = workout suelto,
+        // no se puede saber por asignacion.
+        $assignmentsWithLogs = ClientExerciseLog::where('client_id', $request->client_id)
+            ->whereIn('program_day_assignment_id', $reviews->pluck('program_day_assignment_id')->filter()->unique()->values())
+            ->whereRaw('JSON_LENGTH(logged_sets) > 0')
+            ->distinct()
+            ->pluck('program_day_assignment_id')
+            ->flip();
+
+        $reviews = $reviews
+            ->map(function ($r) use ($assignmentsWithLogs) {
                 $template = optional($r->programDayAssignment)->workoutTemplate ?? $r->workoutTemplate;
                 $media = $template ? $template->getFirstMedia('image') : null;
 
@@ -447,6 +468,9 @@ class SessionDetailController extends Controller
                     'calories_burned'           => $r->calories_burned,
                     'difficulty_rating'         => $r->difficulty_rating,
                     'difficulty_label'          => self::DIFFICULTY_LABELS[$r->difficulty_rating] ?? null,
+                    'has_logs'                  => $r->program_day_assignment_id
+                        ? $assignmentsWithLogs->has($r->program_day_assignment_id)
+                        : null,
                 ];
             });
 
