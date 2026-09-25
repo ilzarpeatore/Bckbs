@@ -102,6 +102,10 @@ class Kernel extends ConsoleKernel
             ->dailyAt('05:30')
             ->timezone('Europe/Madrid')
             ->onFailure(function () {
+                \App\Services\StaffAlertService::send(
+                    'Aislamiento entre clientes: violación detectada',
+                    'La auditoría diaria (programs:audit-isolation) ha detectado un programa o una plantilla compartidos entre clientes. Ejecuta el comando por SSH para ver el detalle.'
+                );
                 foreach (\App\Models\User::where('user_type', 'admin')->get() as $admin) {
                     $admin->notify(new \App\Notifications\CommonNotification('isolation_violation', [
                         'id'      => 0,

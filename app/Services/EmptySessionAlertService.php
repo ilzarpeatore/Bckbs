@@ -60,6 +60,12 @@ class EmptySessionAlertService
         );
 
         if ($item) {
+            StaffAlertService::send(
+                "Sesión sin registrar — {$name}",
+                "{$name} finalizó \"{$title}\" sin registrar ninguna serie"
+                    . ($minutes ? " (duración {$minutes} min)" : '') . ".\n\n"
+                    . 'Ficha: ' . StaffAlertService::adminUrl("/users/{$client->id}/entrenamiento")
+            );
             $coach->notify(new CommonNotification('session_without_logs', [
                 'id'      => $item->id,
                 'type'    => 'session_without_logs',

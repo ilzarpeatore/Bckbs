@@ -17,6 +17,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Avisos al equipo (StaffAlertService)
+    |--------------------------------------------------------------------------
+    |
+    | Correos (separados por comas) que reciben los avisos operativos: cliente
+    | que finaliza una sesion sin registrar series, violacion de aislamiento
+    | entre clientes... Vacio = no se manda ningun correo (el aviso sigue en el
+    | Panel de Excepciones). Los push a admin/coach no llegan a nadie hoy: ningun
+    | admin tiene expo_push_token.
+    |
+    */
+
+    'staff_alerts' => array_values(array_filter(array_map('trim', explode(',', (string) env('STAFF_ALERT_EMAILS', ''))))),
+
+    // URL base del panel admin, para los enlaces de los correos de aviso.
+    'admin_panel_url' => env('ADMIN_PANEL_URL', 'https://admin-testapp.bestronger.es'),
+
+    /*
+    |--------------------------------------------------------------------------
     | Mailer Configurations
     |--------------------------------------------------------------------------
     |
