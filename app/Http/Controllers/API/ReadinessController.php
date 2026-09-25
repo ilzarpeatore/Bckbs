@@ -201,4 +201,31 @@ class ReadinessController extends Controller
 
         return ($invert ? (1 - $ratio) : $ratio) * 100;
     }
+
+    /**
+     * Historial propio de readiness diario (pantalla Check-ins > Historial de la app).
+     * Mismo shape que ClientProfileCalendarController::getReadinessChecks (admin), pero
+     * siempre del usuario autenticado: nunca acepta un client_id.
+     *
+     * GET v1/readiness-history?limit=60  (limit 1..120, por defecto 60)
+     */
+    public function history(Request $request)
+    {
+        $request->validate(['limit' => 'nullable|integer|min:1|max:120']);
+
+        $checks = DailyReadinessCheck::where('user_id', auth('sanctum')->id())
+            ->orderByDesc('date')
+            ->limit((int) ($request->limit ?? 60))
+            ->get()
+            ->map(fn ($c) => [
+                'id'             => $c->id,
+                'date'           => optional($c->date)->toDateString(),
+                'sleep_quality'  => $c->sleep_quality,
+                'soreness_level' => $c->soreness_level,
+                'energy_level'   => $c->energy_level,
+                'stress_level'   => $c->stress_level,
+            ]);
+
+        return json_custom_response(['data' => $checks]);
+    }
 }

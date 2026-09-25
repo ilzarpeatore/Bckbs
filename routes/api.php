@@ -267,6 +267,13 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // AÑADIDO (item 1 del roadmap): readiness real (combined_score/band/acwr
         // de readiness_scores), ver ReadinessController::latest().
         Route::get('readiness-scores-latest', [ API\ReadinessController::class, 'latest' ]);
+        // AÑADIDO (2026-09-26): historial propio de readiness (Check-ins > Historial).
+        Route::get('readiness-history', [ API\ReadinessController::class, 'history' ]);
+
+        // AÑADIDO (2026-09-26): estadisticas publicas opt-in del perfil de otro usuario + ajuste de privacidad.
+        Route::get('user-public-stats', [ API\PrivacyStatsController::class, 'show' ]);
+        Route::get('my-privacy-settings', [ API\PrivacyStatsController::class, 'mySettings' ]);
+        Route::post('my-privacy-settings', [ API\PrivacyStatsController::class, 'updateMySettings' ]);
 
         // AÑADIDO: rutas para ClientHabitController, que ya estaba
         // implementado (espejo cliente de HabitController) pero nunca se
@@ -350,6 +357,9 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
     Route::get('form-assigned-calendar', [API\FormController::class, 'getAssignedCalendar']);
     Route::get('form-detail', [API\FormController::class, 'getDetail']);
     Route::post('form-submit', [API\FormController::class, 'submit']);
+    // AÑADIDO (2026-09-26): historial propio de check-ins enviados + detalle de solo lectura.
+    Route::get('form-my-submissions', [API\FormController::class, 'mySubmissions']);
+    Route::get('form-submission-detail', [API\FormController::class, 'submissionDetail']);
     // SEGURIDAD (auditoría 2026-09-13): eliminada 'form-feedback' -- duplicado
     // sin protección de admin-form-feedback (Admin\FormController, tras
     // admin.api). Cualquier usuario normal podía dejar coach_feedback en el

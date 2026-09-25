@@ -251,4 +251,65 @@ class FormController extends Controller
 
         return json_message_response(__('message.save_form', ['form' => 'Form Assignment']));
     }
+
+    /**
+     * Historial propio de check-ins/formularios enviados (Check-ins > Historial).
+     * GET form-my-submissions?limit=100  -- solo envios de asignaciones del usuario autenticado.
+     */
+    public function mySubmissions(Request $request)
+    {
+        $request->validate(['limit' => 'nullable|integer|min:1|max:200']);
+
+        $submissions = FormSubmission::whereHas('formAssignment', fn ($q) => $q->where('client_id', auth('sanctum')->id()))
+            ->with('formAssignment.form:id,title,recurrence')
+            ->withCount('answers')
+            ->orderByDesc('submitted_at')
+            ->limit((int) ($request->limit ?? 100))
+            ->get()
+            ->map(fn ($s) => [
+                'id'            => $s->id,
+                'form_id'       => optional($s->formAssignment)->form_id,
+                'form_title'    => optional(optional($s->formAssignment)->form)->title,
+                'recurrence'    => optional(optional($s->formAssignment)->form)->recurrence,
+                'submitted_at'  => optional($s->submitted_at)->toDateTimeString(),
+                'answers_count' => $s->answers_count,
+            ]);
+
+        return json_custom_response(['data' => $submissions]);
+    }
+
+    /**
+     * Detalle de solo lectura de UN envio propio: preguntas y respuestas (+ el feedback
+     * del coach, que ya se le notifica al cliente). 404 si no existe o es de otro usuario
+     * (no se distingue, para no revelar que existe).
+     * GET form-submission-detail?id=
+     */
+    public function submissionDetail(Request $request)
+    {
+        $request->validate(['id' => 'required|integer']);
+
+        $submission = FormSubmission::whereKey($request->id)
+            ->whereHas('formAssignment', fn ($q) => $q->where('client_id', auth('sanctum')->id()))
+            ->with(['formAssignment.form:id,title', 'answers.question:id,question_text,type,order'])
+            ->first();
+
+        if (!$submission) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'check-in']), 404);
+        }
+
+        return json_custom_response(['data' => [
+            'id'             => $submission->id,
+            'form_title'     => optional(optional($submission->formAssignment)->form)->title,
+            'submitted_at'   => optional($submission->submitted_at)->toDateTimeString(),
+            'coach_feedback' => $submission->coach_feedback,
+            'answers'        => $submission->answers
+                ->sortBy(fn ($a) => optional($a->question)->order ?? 0)
+                ->values()
+                ->map(fn ($a) => [
+                    'question' => optional($a->question)->question_text,
+                    'type'     => optional($a->question)->type,
+                    'answer'   => $a->answer_value,
+                ]),
+        ]]);
+    }
 }

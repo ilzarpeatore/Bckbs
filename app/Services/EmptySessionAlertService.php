@@ -81,8 +81,19 @@ class EmptySessionAlertService
     {
         return ClientExerciseLog::where('client_id', $clientId)
             ->where('program_day_assignment_id', $programDayAssignmentId)
-            ->whereRaw('JSON_LENGTH(logged_sets) > 0')
+            ->whereRaw(self::nonEmptyLoggedSetsSql())
             ->exists();
+    }
+
+    /**
+     * Condición SQL "este log tiene al menos una serie". JSON_LENGTH en MySQL (producción);
+     * json_array_length en sqlite (los tests de PHPUnit), que no tiene JSON_LENGTH.
+     */
+    public static function nonEmptyLoggedSetsSql(): string
+    {
+        return \DB::connection()->getDriverName() === 'sqlite'
+            ? 'json_array_length(logged_sets) > 0'
+            : 'JSON_LENGTH(logged_sets) > 0';
     }
 
     /**
