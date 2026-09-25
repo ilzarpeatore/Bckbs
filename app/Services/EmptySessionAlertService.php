@@ -91,7 +91,7 @@ class EmptySessionAlertService
      * en último término, el admin principal (el ítem aparece igualmente en la
      * campana, el dashboard y la ficha del cliente, que listan sin filtrar por coach).
      */
-    private function resolveCoach(User $client): ?User
+    public function resolveCoach(User $client): ?User
     {
         if ($client->coach_id && ($coach = User::find($client->coach_id))) {
             return $coach;

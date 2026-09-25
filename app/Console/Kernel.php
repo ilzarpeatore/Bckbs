@@ -115,6 +115,12 @@ class Kernel extends ConsoleKernel
                     ]));
                 }
             });
+        // Clientes que finalizan sesiones sin registrar series (2+ en 14 días): ítem
+        // en el Panel de Excepciones + correo (StaffAlertService). Solo avisa; los
+        // ítems que ya no aplican se resuelven solos. Ver AuditEmptySessionsCommand.
+        $schedule->command('sessions:audit-empty')
+            ->dailyAt('05:45')
+            ->timezone('Europe/Madrid');
         $time = SettingData ('QUOTE', 'QUOTE_TIME') ?? '05:00';
         $timezone = SettingData ('string', 'timezone') ?? config('app.timezone');
         

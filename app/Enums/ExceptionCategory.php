@@ -26,4 +26,7 @@ enum ExceptionCategory: string
     // El cliente finalizó una sesión de su programa sin registrar ninguna serie
     // (ver EmptySessionAlertService). Sin migración: category es varchar(40).
     case SESION_SIN_REGISTRO = 'sesion_sin_registro';
+    // Patrón: 2+ sesiones finalizadas sin series en pocos días (comando sessions:audit-empty).
+    // Un único ítem vivo por cliente, distinto del aviso puntual de arriba.
+    case PATRON_SESIONES_SIN_REGISTRO = 'patron_sesiones_sin_registro';
 }
