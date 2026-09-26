@@ -551,6 +551,7 @@ class WorkoutTemplateController extends Controller
         // getDayDetail, del sistema de calendario) - mismo patron: ultimo
         // log por exercise_id, sin importar de que dia/asignacion vino.
         $logs = collect();
+        $recentPerformance = collect();
         if ($isAccessible && $user) {
             $allExerciseIds = $workout->blocks->flatMap(fn ($b) => $b->exercises->pluck('exercise_id')->values())->unique()->values()->all();
             // orderByDesc('id'): 'created_at' es de precision de segundo y
@@ -569,15 +570,16 @@ class WorkoutTemplateController extends Controller
                 ->filter(fn ($log) => $log->hasSets())
                 ->unique('exercise_id')
                 ->keyBy('exercise_id');
+            $recentPerformance = ClientExerciseLog::recentPerformanceFor((int) $user->id, $allExerciseIds);
         }
 
-        $blocks = !$isAccessible ? [] : $workout->blocks->map(function ($block) use ($logs) {
+        $blocks = !$isAccessible ? [] : $workout->blocks->map(function ($block) use ($logs, $recentPerformance) {
             return [
                 'id'           => $block->id,
                 'title'        => $block->title,
                 'instructions' => $block->instructions,
                 'order'        => $block->order,
-                'exercises'    => $block->exercises->map(function ($e) use ($logs) {
+                'exercises'    => $block->exercises->map(function ($e) use ($logs, $recentPerformance) {
                     $exercise = $e->exercise;
                     $thumb = $exercise && $exercise->video_url
                         ? $this->youtubeThumbnail($exercise->video_url)
@@ -601,6 +603,7 @@ class WorkoutTemplateController extends Controller
                         // ClientCalendarController::getDayDetail).
                         'body_part_id'    => $this->primaryBodyPartId($exercise),
                         'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
+                        'recent_performance' => $recentPerformance->get($e->exercise_id),
                     ];
                 }),
             ];

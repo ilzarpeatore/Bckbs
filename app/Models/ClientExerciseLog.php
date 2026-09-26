@@ -83,6 +83,36 @@ class ClientExerciseLog extends Model
         return is_array($this->logged_sets) && count($this->logged_sets) > 0;
     }
 
+    /**
+     * Historial reciente de series por ejercicio, del más nuevo al más viejo
+     * (una entrada por sesión: la última foto de cada una, sin fotos vacías).
+     * Lo usa la app cliente para precargar la carga con "la última que usó
+     * dentro del rango de reps que le toca" (2026-09-26): `last_performance`
+     * solo trae la última sesión, y si esa fue con otro rango de reps no hay
+     * ninguna serie comparable.
+     *
+     * @param  array<int,int>  $exerciseIds
+     * @return \Illuminate\Support\Collection  exercise_id => [ ['date' => 'Y-m-d', 'sets' => [...]], ... ]
+     */
+    public static function recentPerformanceFor(int $clientId, array $exerciseIds, int $perExercise = 6)
+    {
+        if (count($exerciseIds) === 0) {
+            return collect();
+        }
+
+        return static::where('client_id', $clientId)
+            ->latestSnapshots($clientId)
+            ->whereIn('exercise_id', $exerciseIds)
+            ->orderByDesc('id')
+            ->get(['id', 'exercise_id', 'logged_sets', 'performed_date'])
+            ->filter(fn ($log) => $log->hasSets())
+            ->groupBy('exercise_id')
+            ->map(fn ($group) => $group->take($perExercise)->map(fn ($log) => [
+                'date' => $log->performed_date ? $log->performed_date->toDateString() : null,
+                'sets' => $log->logged_sets,
+            ])->values());
+    }
+
     public function client()
     {
         return $this->belongsTo(User::class, 'client_id', 'id');

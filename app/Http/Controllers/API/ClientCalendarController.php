@@ -324,6 +324,10 @@ class ClientCalendarController extends Controller
             ->unique('exercise_id')
             ->keyBy('exercise_id');
 
+        // Últimas sesiones por ejercicio (no solo la última), para que la app
+        // precargue la carga dentro del rango de reps prescrito.
+        $recentPerformance = ClientExerciseLog::recentPerformanceFor((int) $client_id, collect($allExerciseIds)->all());
+
         // Motor de Auto-Regulación de Carga: sugerencia mas reciente por
         // ejercicio de ESTE entrenamiento -- reutiliza el mismo criterio
         // (pendiente siempre, aplicado dentro de la ventana) que
@@ -366,7 +370,7 @@ class ClientCalendarController extends Controller
             array $enabledMetrics,
             ?int $sequence,
             bool $isAddition
-        ) use ($logs, $loadSuggestions) {
+        ) use ($logs, $loadSuggestions, $recentPerformance) {
             $last_log = $logs->get($exerciseId);
             $thumb = $exerciseModel && $exerciseModel->video_url
                 ? $this->youtubeThumbnail($exerciseModel->video_url)
@@ -391,6 +395,7 @@ class ClientCalendarController extends Controller
                 'coach_notes'     => $notes,
                 'enabled_metrics' => $enabledMetrics,
                 'last_performance' => $last_log ? ['sets' => $last_log->logged_sets] : null,
+                'recent_performance' => $recentPerformance->get($exerciseId),
                 'sequence'        => $sequence,
                 'load_suggestion' => $suggestion ? [
                     'id'              => $suggestion->id,
