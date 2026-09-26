@@ -4,6 +4,7 @@ namespace App\Http\Controllers\API\Admin;
 
 use App\Models\User;
 use App\Http\Resources\UserResource;
+use App\Services\AuditLogger;
 use App\Services\WelcomeMailService;
 use App\Exports\UserReportExport;
 use Illuminate\Http\Request;
@@ -84,6 +85,94 @@ class UserController extends BaseController
         ];
 
         return json_custom_response($response, 201);
+    }
+
+    /** Nombre para mostrar de un miembro del personal. */
+    private function staffName(User $u): string
+    {
+        return $u->display_name ?: (trim("{$u->first_name} {$u->last_name}") ?: $u->email);
+    }
+
+    /** Coach actual del cliente + personal que se puede asignar (coaches y admins activos). */
+    private function coachPayload(User $client): array
+    {
+        $current = $client->coach_id ? User::find($client->coach_id) : null;
+
+        return [
+            'client_id' => $client->id,
+            'coach'     => $current ? [
+                'id' => $current->id, 'name' => $this->staffName($current), 'user_type' => $current->user_type,
+            ] : null,
+            'options'   => User::whereIn('user_type', ['coach', 'admin'])
+                ->where('status', 'active')
+                ->orderBy('first_name')
+                ->get()
+                ->map(fn (User $u) => ['id' => $u->id, 'name' => $this->staffName($u), 'user_type' => $u->user_type])
+                ->values(),
+        ];
+    }
+
+    /** GET admin/users/{user}/coach */
+    public function coachShow(Request $request, $id)
+    {
+        $client = User::role('user')->find($id);
+        if (!$client) {
+            return json_message_response('User not found.', 404);
+        }
+
+        return json_custom_response(['data' => $this->coachPayload($client)]);
+    }
+
+    /**
+     * PUT admin/users/{user}/coach { coach_id: int|null }
+     *
+     * Asigna (o quita, con null) el entrenador de un cliente. Con coach_id
+     * vacío el motor de progresión no aplica ninguna regla y los avisos "al
+     * coach del cliente" (dolor, sesiones sin registrar...) se saltan al
+     * cliente, así que conviene que todo cliente tenga uno. Solo un admin
+     * (user_type=admin) puede reasignar: un coach no debe poder mover clientes
+     * de otro coach.
+     */
+    public function coachUpdate(Request $request, $id)
+    {
+        if ($request->user()?->user_type !== 'admin') {
+            return json_message_response('Solo un administrador puede asignar entrenadores.', 403);
+        }
+
+        $client = User::role('user')->find($id);
+        if (!$client) {
+            return json_message_response('User not found.', 404);
+        }
+
+        $request->validate(['coach_id' => 'present|nullable|integer']);
+
+        $newCoach = null;
+        if ($request->coach_id !== null) {
+            $newCoach = User::whereIn('user_type', ['coach', 'admin'])
+                ->where('status', 'active')
+                ->find($request->coach_id);
+            if (!$newCoach) {
+                return json_message_response('El entrenador elegido no existe o no está activo.', 422);
+            }
+        }
+
+        $previous = $client->coach_id ? User::find($client->coach_id) : null;
+        $client->coach_id = $newCoach?->id; // coach_id no es asignable en masa (no está en $fillable)
+        $client->save();
+
+        AuditLogger::log(
+            'update',
+            'users',
+            $client->id,
+            sprintf(
+                'Entrenador de %s: %s → %s.',
+                $client->email,
+                $previous ? $this->staffName($previous) : 'sin entrenador',
+                $newCoach ? $this->staffName($newCoach) : 'sin entrenador'
+            )
+        );
+
+        return json_custom_response(['data' => $this->coachPayload($client->fresh())]);
     }
 
     public function update(Request $request, $id)
