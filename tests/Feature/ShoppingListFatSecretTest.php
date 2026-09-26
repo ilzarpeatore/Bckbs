@@ -176,4 +176,24 @@ class ShoppingListFatSecretTest extends TestCase
     {
         $this->generate()->assertStatus(422);
     }
+
+    public function test_al_editar_las_fechas_de_una_lista_de_un_dia_el_rango_nuevo_manda(): void
+    {
+        $this->fatsecretRecipe(1, [['description' => '2 cups rice', 'number_of_units' => 2, 'measurement_description' => 'cup']], 1);
+        $this->meal(1);
+        $listId = $this->generate(['daily_plan_id' => null, 'start_date' => '2026-09-27', 'end_date' => '2026-09-27'])->assertOk()->json('data.id');
+        $this->assertNotNull(\App\Models\ShoppingList::find($listId)->daily_plan_id); // se queda con el plan de ese día
+
+        $otherPlan = DailyPlan::create(['user_id' => $this->client->id, 'date' => '2026-09-28']);
+        $this->fatsecretRecipe(2, [['description' => '3 eggs', 'number_of_units' => 3, 'measurement_description' => 'egg']], 1);
+        DailyPlanRecipe::create(['daily_plan_id' => $otherPlan->id, 'fatsecret_recipe_id' => 2, 'meal_type' => 'dinner', 'is_complete' => 0]);
+
+        $this->generate([
+            'shopping_list_id' => $listId, 'daily_plan_id' => null, 'start_date' => '2026-09-27', 'end_date' => '2026-09-28',
+        ])->assertOk();
+
+        $names = $this->items()->pluck('custom_item_name')->all();
+        $this->assertContains('Rice', $names);
+        $this->assertContains('Eggs', $names); // antes se ignoraba: mandaba el daily_plan_id viejo
+    }
 }
