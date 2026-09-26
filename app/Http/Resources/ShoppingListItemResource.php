@@ -19,8 +19,10 @@ class ShoppingListItemResource extends JsonResource
             'total_grams'       => $this->total_grams === null ? null : round((float) $this->total_grams, 2),
             'display_quantity'  => round((float) ($this->display_quantity ?? 0), 2),
             'measurement_unit_id'   => $this->measurement_unit_id,
-            'display_unit_title'    => optional($this->measurementUnit)->title,
-            'display_unit_symbol'   => optional($this->measurementUnit)->symbol,
+            // Sin unidad del catálogo (líneas de texto de FatSecret) se usa la etiqueta tal cual.
+            'display_unit_title'    => optional($this->measurementUnit)->title ?? $this->unit_label,
+            'display_unit_symbol'   => optional($this->measurementUnit)->symbol ?? $this->unit_label,
+            'unit_label'            => $this->unit_label,
             'is_checked'        => (bool) $this->is_checked,
             'manually_added'    => (bool) $this->manually_added,
             'created_at'        => $this->created_at,

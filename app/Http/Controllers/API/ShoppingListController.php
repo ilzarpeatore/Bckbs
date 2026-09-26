@@ -67,7 +67,10 @@ class ShoppingListController extends Controller
             }
         }
 
-        $dailyPlanId = $request->daily_plan_id ?: optional($refreshList)->daily_plan_id;
+        // Al editar una lista, las fechas nuevas mandan: una lista de un solo día recuerda su
+        // daily_plan_id y, sin esto, pisaría el rango elegido (el cambio de fechas no surtía efecto).
+        $datesGiven = $request->filled('start_date') && $request->filled('end_date');
+        $dailyPlanId = $request->daily_plan_id ?: ($datesGiven ? null : optional($refreshList)->daily_plan_id);
         $start_date = $request->start_date ?: optional($refreshList)->start_date;
         $end_date = $request->end_date ?: optional($refreshList)->end_date;
         $servings = $request->servings ?: optional($refreshList)->servings ?? 1;
@@ -186,7 +189,8 @@ class ShoppingListController extends Controller
             $data['is_checked'] = (bool) $request->is_checked;
         }
 
-        if ($request->has('custom_item_name') && (bool) $item->manually_added) {
+        // Se puede renombrar lo añadido a mano y las líneas de texto sin ingrediente local (FatSecret).
+        if ($request->has('custom_item_name') && ((bool) $item->manually_added || $item->ingredient_id === null)) {
             $data['custom_item_name'] = $request->custom_item_name;
         }
 
