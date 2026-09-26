@@ -501,6 +501,30 @@ class ClientCalendarController extends Controller
 
     public function logSets(Request $request)
     {
+        try {
+            $this->validateLogSets($request);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Diagnóstico (2026-09-26, caso Ayoub): antes un guardado de series
+            // rechazado por validación (ejercicio que ya no existe, session_key
+            // mal formada...) no dejaba ningún rastro en el servidor, así que
+            // "el cliente dice que las rellenó" no se podía comprobar.
+            \Log::warning('[logSets] guardado de series rechazado por validación', [
+                'client_id'                    => auth('sanctum')->id(),
+                'workout_template_exercise_id' => $request->workout_template_exercise_id,
+                'exercise_id'                  => $request->exercise_id,
+                'program_day_assignment_id'    => $request->program_day_assignment_id,
+                'session_key'                  => $request->session_key,
+                'sets_count'                   => is_array($request->logged_sets) ? count($request->logged_sets) : null,
+                'errors'                       => $e->errors(),
+            ]);
+            throw $e;
+        }
+
+        return $this->storeLoggedSets($request);
+    }
+
+    private function validateLogSets(Request $request): void
+    {
         $request->validate([
             'workout_template_exercise_id' => 'nullable|exists:workout_template_exercises,id',
             'exercise_id'                   => 'required_without:workout_template_exercise_id|nullable|exists:exercises,id',
@@ -519,7 +543,10 @@ class ClientCalendarController extends Controller
             'session_key'                   => ['nullable', 'string', 'max:64', 'regex:/^[A-Za-z0-9_:\-]+$/'],
             'notes'                         => 'nullable|string|max:2000',
         ]);
+    }
 
+    private function storeLoggedSets(Request $request)
+    {
         // CORREGIDO (IDOR): antes se guardaba directamente el
         // program_day_assignment_id recibido (solo validado con
         // exists:program_day_assignments,id) sin comprobar que fuera del
@@ -560,6 +587,13 @@ class ClientCalendarController extends Controller
                 $hasRpe = isset($set['rpe']) && $set['rpe'] !== '' && $set['rpe'] !== null;
 
                 if ($hasReps && $hasCarga && !$hasRir && !$hasRpe) {
+                    \Log::warning('[logSets] serie rechazada: falta RIR/RPE', [
+                        'client_id'                    => auth('sanctum')->id(),
+                        'workout_template_exercise_id' => $request->workout_template_exercise_id,
+                        'exercise_id'                  => $exercise_id,
+                        'session_key'                  => $request->session_key,
+                        'set_index'                    => $index,
+                    ]);
                     return json_message_response(
                         "La serie " . ($index + 1) . " necesita RIR o RPE para poder guardarse.",
                         422
