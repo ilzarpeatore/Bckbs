@@ -186,7 +186,8 @@ class ShoppingListController extends Controller
             $data['is_checked'] = (bool) $request->is_checked;
         }
 
-        if ($request->has('custom_item_name') && (bool) $item->manually_added) {
+        // Se puede renombrar lo añadido a mano y las líneas de texto sin ingrediente local (FatSecret).
+        if ($request->has('custom_item_name') && ((bool) $item->manually_added || $item->ingredient_id === null)) {
             $data['custom_item_name'] = $request->custom_item_name;
         }
 

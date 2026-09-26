@@ -4,12 +4,15 @@ namespace App\Services;
 
 use App\Models\DailyPlan;
 use App\Models\DailyPlanRecipe;
+use App\Models\FatSecretRecipeCache;
 use App\Models\IngredientUnitConversion;
 use App\Models\MeasurementUnit;
 use App\Models\ShoppingList;
 use App\Models\ShoppingListItem;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class DailyPlanShoppingListService
 {
@@ -54,16 +57,21 @@ class DailyPlanShoppingListService
             : __('message.daily_plan') . ' ' . $startDate . ' - ' . $endDate . ' ' . __('message.shopping_list');
 
         $consolidated = $this->consolidate($dailyPlanRecipes, $servings);
+        // Comidas asignadas desde FatSecret (sin ingredient_id local): líneas de texto.
+        $fatsecretLines = $this->consolidateFatSecret($dailyPlanRecipes, $servings);
 
-        return DB::transaction(function () use ($user, $filters, $singleDailyPlanId, $startDate, $endDate, $defaultTitle, $consolidated, $refreshList, $servings) {
+        return DB::transaction(function () use ($user, $filters, $singleDailyPlanId, $startDate, $endDate, $defaultTitle, $consolidated, $fatsecretLines, $refreshList, $servings) {
             $shoppingList = $refreshList;
-            $checkedByIngredient = collect();
+            $checkedKeys = collect();
 
             if ($shoppingList) {
-                $checkedByIngredient = $shoppingList->items()
+                // Lo ya marcado como comprado se conserva al regenerar: por ingrediente
+                // para los locales y por nombre+unidad para las líneas de texto.
+                $checkedKeys = $shoppingList->items()
                     ->where('manually_added', 0)
                     ->where('is_checked', 1)
-                    ->pluck('is_checked', 'ingredient_id');
+                    ->get()
+                    ->mapWithKeys(fn ($i) => [$this->itemKey($i->ingredient_id, $i->custom_item_name, $i->unit_label) => true]);
 
                 $shoppingList->update([
                     'daily_plan_id' => $singleDailyPlanId,
@@ -88,16 +96,26 @@ class DailyPlanShoppingListService
                 ]);
             }
 
-            if (!empty($consolidated)) {
-                foreach ($consolidated as &$item) {
-                    $item['is_checked'] = (int) ($checkedByIngredient[$item['ingredient_id']] ?? 0);
-                    $item['shopping_list_id'] = $shoppingList->id;
-                    $item['created_at'] = now();
-                    $item['updated_at'] = now();
-                }
-                unset($item);
-
-                ShoppingListItem::insert(array_values($consolidated));
+            // Todas las filas con las mismas columnas: insert() en bloque las exige.
+            $rows = [];
+            foreach (array_merge(array_values($consolidated), array_values($fatsecretLines)) as $item) {
+                $key = $this->itemKey($item['ingredient_id'] ?? null, $item['custom_item_name'] ?? null, $item['unit_label'] ?? null);
+                $rows[] = [
+                    'shopping_list_id'    => $shoppingList->id,
+                    'ingredient_id'       => $item['ingredient_id'] ?? null,
+                    'custom_item_name'    => $item['custom_item_name'] ?? null,
+                    'total_grams'         => $item['total_grams'] ?? null,
+                    'display_quantity'    => $item['display_quantity'] ?? null,
+                    'measurement_unit_id' => $item['measurement_unit_id'] ?? null,
+                    'unit_label'          => $item['unit_label'] ?? null,
+                    'is_checked'          => (int) ($checkedKeys[$key] ?? 0),
+                    'manually_added'      => 0,
+                    'created_at'          => now(),
+                    'updated_at'          => now(),
+                ];
+            }
+            if (!empty($rows)) {
+                ShoppingListItem::insert($rows);
             }
 
             return ShoppingList::withCount('items')->findOrFail($shoppingList->id);
@@ -214,6 +232,130 @@ class DailyPlanShoppingListService
         unset($item);
 
         return $consolidated;
+    }
+
+    /** Clave estable de una línea para conservar "comprado" al regenerar la lista. */
+    protected function itemKey($ingredientId, ?string $name, ?string $unit): string
+    {
+        if ($ingredientId) {
+            return 'i:' . $ingredientId;
+        }
+
+        return 't:' . $this->normalizeText((string) $name) . '|' . $this->normalizeUnit((string) $unit);
+    }
+
+    protected function normalizeText(string $s): string
+    {
+        return trim(preg_replace('/\s+/', ' ', Str::ascii(mb_strtolower($s))));
+    }
+
+    /** "tbsps" y "tbsp" (o "tazas" y "taza") son la misma unidad. */
+    protected function normalizeUnit(string $unit): string
+    {
+        $u = $this->normalizeText($unit);
+
+        return strlen($u) > 3 ? rtrim($u, 's') : $u;
+    }
+
+    /**
+     * Ingredientes de las comidas de FatSecret -> líneas de texto consolidadas.
+     * La receta trae cantidades para TODAS sus raciones (number_of_servings) y
+     * la comida del plan es una ración, así que se divide entre las raciones de
+     * la receta y se multiplica por las raciones de la lista. Las que no están
+     * en la caché de recetas (nunca se abrieron) se omiten y se dejan en el log.
+     */
+    protected function consolidateFatSecret($dailyPlanRecipes, float $servings = 1): array
+    {
+        $meals = $dailyPlanRecipes->filter(fn ($m) => !empty($m->fatsecret_recipe_id));
+        if ($meals->isEmpty()) {
+            return [];
+        }
+
+        $caches = FatSecretRecipeCache::whereIn('fatsecret_recipe_id', $meals->pluck('fatsecret_recipe_id')->unique()->all())
+            ->get()
+            ->keyBy('fatsecret_recipe_id');
+
+        $lines = [];
+        foreach ($meals as $meal) {
+            $cache = $caches->get($meal->fatsecret_recipe_id);
+            if (!$cache || !is_array($cache->ingredients)) {
+                Log::warning('[shopping-list] receta FatSecret sin detalle en caché, se omite', [
+                    'fatsecret_recipe_id' => $meal->fatsecret_recipe_id,
+                    'daily_plan_recipe_id' => $meal->id,
+                ]);
+                continue;
+            }
+
+            $recipeServings = max(1.0, (float) ($cache->number_of_servings ?: 1));
+            foreach ($cache->ingredients as $ingredient) {
+                $description = trim((string) ($ingredient['description'] ?? ''));
+                if ($description === '') {
+                    continue;
+                }
+
+                [$name, $unit, $quantity] = $this->parseFatSecretLine($description, $ingredient);
+                if ($name === '') {
+                    continue;
+                }
+
+                $key = $this->normalizeText($name) . '|' . $this->normalizeUnit($unit);
+                $lines[$key] ??= ['name' => $name, 'unit' => $unit, 'quantity' => 0.0];
+                $lines[$key]['quantity'] += ($quantity / $recipeServings) * $servings;
+            }
+        }
+
+        return array_map(fn ($l) => [
+            'ingredient_id'       => null,
+            'custom_item_name'    => $l['name'],
+            'total_grams'         => null,
+            'display_quantity'    => $l['quantity'] > 0 ? round($l['quantity'], 2) : null,
+            'measurement_unit_id' => null,
+            'unit_label'          => $l['unit'] !== '' ? $l['unit'] : null,
+        ], array_values($lines));
+    }
+
+    /**
+     * "1 1/4 tsps garlic, minced" -> ['Garlic', 'tsps', 1.25]. Quita la cantidad inicial, la
+     * unidad (si la hay, en español o inglés) y lo que sigue a la primera coma (preparación).
+     * La cantidad sale de number_of_units si viene y, si no, de lo escrito en la descripción.
+     */
+    protected function parseFatSecretLine(string $description, array $ingredient): array
+    {
+        $rest = $description;
+        $written = 0.0;
+        if (preg_match('/^\s*(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?)(?:\s*[-–]\s*(?:\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:[.,]\d+)?))?\s*/u', $rest, $m)) {
+            $written = $this->parseQuantity($m[1]);
+            $rest = substr($rest, strlen($m[0]));
+        }
+
+        $unit = '';
+        $units = 'cucharadas?|cucharaditas?|tazas?|tbsps?|tsps?|cups?|oz|onzas?|libras?|lbs?|g|gr|gramos?|kg|kilos?|ml|l|litros?|dientes?|rebanadas?|lonchas?|latas?|piezas?|unidades?|pizcas?|pinch(?:es)?|slices?|cloves?|cans?|packages?|sprigs?';
+        if (preg_match('/^(' . $units . ')\b\.?\s*(?:de |of )?/iu', $rest, $m)) {
+            $unit = mb_strtolower($m[1]);
+            $rest = substr($rest, strlen($m[0]));
+        }
+
+        $name = trim(explode(',', $rest)[0]);
+        $name = trim(preg_replace('/\s*\(.*?\)\s*/u', ' ', $name));
+        $name = $name === '' ? '' : mb_strtoupper(mb_substr($name, 0, 1)) . mb_substr($name, 1);
+
+        $units = (float) ($ingredient['number_of_units'] ?? 0);
+        $quantity = $units > 0 ? $units : $written;
+
+        return [$name, $unit, $quantity];
+    }
+
+    protected function parseQuantity(string $raw): float
+    {
+        $raw = str_replace(',', '.', trim($raw));
+        if (preg_match('/^(\d+)\s+(\d+)\/(\d+)$/', $raw, $m)) {
+            return (float) $m[1] + ((float) $m[2] / max(1, (float) $m[3]));
+        }
+        if (preg_match('/^(\d+)\/(\d+)$/', $raw, $m)) {
+            return (float) $m[1] / max(1, (float) $m[2]);
+        }
+
+        return (float) $raw;
     }
 
     protected function deriveDisplayQuantity(int $ingredientId, ?int $measurementUnitId, float $totalGrams, ?int $gramUnitId): array
