@@ -10,6 +10,7 @@ use App\Models\ProgramDayAssignment;
 use App\Models\WorkoutTemplate;
 use App\Models\WorkoutTemplateExercise;
 use App\Services\CalendarDateMapper;
+use App\Services\EmptySessionAlertService;
 use App\Services\TemplateIsolationGuard;
 use Carbon\Carbon;
 
@@ -320,6 +321,8 @@ class ClientProfileCalendarController extends Controller
     {
         $request->validate(['client_id' => 'required|exists:users,id']);
 
+        $emptySessionAlerts = app(EmptySessionAlertService::class);
+
         $reviews = \App\Models\WorkoutSessionReview::where('user_id', $request->client_id)
             ->whereNotNull('completed_at')
             ->with(['programDayAssignment.workoutTemplate:id,title', 'workoutTemplate:id,title'])
@@ -336,6 +339,19 @@ class ClientProfileCalendarController extends Controller
                 'calories_burned'   => $r->calories_burned,
                 'difficulty_rating' => $r->difficulty_rating,
                 'comment'           => $r->comment,
+                // AÑADIDO (2026-09-27): `completed_at` no null no significa que se
+                // registrara ninguna serie real -- caso Ayoub (EmptySessionAlertService),
+                // sesiones finalizadas con volumen 0 y cero filas en
+                // client_exercise_logs, pintadas en verde como "hechas". Cualquier
+                // consumidor de este endpoint que decida "el cliente ya entrenó" a
+                // partir de esta lista (ej. Agente de Onboarding, primera sesión real)
+                // debe mirar este campo, no solo `completed_at`. Entrenamientos sueltos
+                // sin program_day_assignment_id no tienen plan del coach que comprobar
+                // -- mismo criterio que EmptySessionAlertService::evaluate(), se dan
+                // por válidos sin comprobar.
+                'has_logged_sets'   => $r->program_day_assignment_id
+                    ? $emptySessionAlerts->hasLoggedSets((int) $r->user_id, (int) $r->program_day_assignment_id)
+                    : true,
             ]);
 
         // latestSnapshots: la misma nota viaja en cada fila acumulada del
