@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Setting;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -31,7 +32,10 @@ class TrainingTechniques
      *   steps       paso a paso
      *   mistakes    errores comunes / seguridad
      *   logging     cómo apuntar esa serie en la app
-     * Primer borrador redactado por Claude (2026-09-27), pendiente de revisión del coach.
+     * Primer borrador redactado por Claude (2026-09-27). Son los textos POR
+     * DEFECTO: el coach los edita desde el panel (/tecnicas-especiales) y sus
+     * cambios se guardan en `settings` (catalog() los aplica encima). Las
+     * claves (slugs) son fijas: no se añaden ni se borran técnicas.
      */
     public const CATALOG = [
         'cluster_sets' => [
@@ -241,15 +245,102 @@ class TrainingTechniques
         ],
     ];
 
-    /** @return array<int, array{key: string, label: string, description: string, steps: string[], mistakes: string[], logging: string}> */
+    public const TEXT_FIELDS = ['label', 'description', 'steps', 'mistakes', 'logging'];
+
+    private const OVERRIDES_TYPE = 'training_techniques';
+    private const OVERRIDES_KEY = 'overrides';
+
+    /** @var array<string, array<string, mixed>>|null memo por petición */
+    private static ?array $overrides = null;
+
+    /**
+     * Catálogo efectivo: los textos por defecto con lo editado por el coach encima.
+     *
+     * @return array<string, array{label: string, description: string, steps: string[], mistakes: string[], logging: string, customized: bool}>
+     */
+    public static function catalog(): array
+    {
+        $overrides = self::overrides();
+        $out = [];
+        foreach (self::CATALOG as $key => $item) {
+            $custom = array_intersect_key($overrides[$key] ?? [], array_flip(self::TEXT_FIELDS));
+            $out[$key] = array_merge($item, $custom) + ['customized' => $custom !== []];
+        }
+
+        return $out;
+    }
+
+    /** @return array<int, array{key: string, label: string, description: string, steps: string[], mistakes: string[], logging: string, customized: bool}> */
     public static function list(): array
     {
         $out = [];
-        foreach (self::CATALOG as $key => $item) {
+        foreach (self::catalog() as $key => $item) {
             $out[] = ['key' => $key] + $item;
         }
 
         return $out;
+    }
+
+    /** Textos por defecto de una técnica (para «Restaurar» en el panel). */
+    public static function defaults(string $key): ?array
+    {
+        return self::CATALOG[$key] ?? null;
+    }
+
+    /**
+     * Guarda los textos editados de una técnica. Solo se guarda lo que difiere
+     * del texto por defecto, así los retoques futuros de los defectos siguen
+     * llegando a los campos que el coach no ha tocado.
+     */
+    public static function saveTexts(string $key, array $texts): void
+    {
+        $overrides = self::overrides();
+        $diff = [];
+        foreach (self::TEXT_FIELDS as $field) {
+            if (array_key_exists($field, $texts) && $texts[$field] !== self::CATALOG[$key][$field]) {
+                $diff[$field] = $texts[$field];
+            }
+        }
+        if ($diff === []) {
+            unset($overrides[$key]);
+        } else {
+            $overrides[$key] = $diff;
+        }
+        self::storeOverrides($overrides);
+    }
+
+    /** Vuelve a los textos por defecto de una técnica. */
+    public static function resetTexts(string $key): void
+    {
+        $overrides = self::overrides();
+        unset($overrides[$key]);
+        self::storeOverrides($overrides);
+    }
+
+    /** Olvida la memo (tests, o tras guardar). */
+    public static function flush(): void
+    {
+        self::$overrides = null;
+    }
+
+    private static function overrides(): array
+    {
+        if (self::$overrides === null) {
+            $row = Setting::where('type', self::OVERRIDES_TYPE)->where('key', self::OVERRIDES_KEY)->first();
+            $decoded = $row && $row->value ? json_decode($row->value, true) : [];
+            self::$overrides = is_array($decoded) ? $decoded : [];
+        }
+
+        return self::$overrides;
+    }
+
+    private static function storeOverrides(array $overrides): void
+    {
+        Setting::updateOrCreate(
+            ['type' => self::OVERRIDES_TYPE, 'key' => self::OVERRIDES_KEY],
+            ['value' => json_encode($overrides, JSON_UNESCAPED_UNICODE)]
+        );
+        self::$overrides = $overrides;
     }
 
     /**
@@ -266,11 +357,14 @@ class TrainingTechniques
             return null;
         }
         $norm = self::normalize($value);
+        $catalog = self::catalog();
         foreach (self::CATALOG as $key => ['label' => $label]) {
             if ($key === self::OTHER) {
                 continue;
             }
-            if ($norm === self::normalize($key) || $norm === self::normalize($label)) {
+            // Vale tanto el nombre original como el que haya puesto el coach en el panel
+            $labels = [$label, $catalog[$key]['label']];
+            if ($norm === self::normalize($key) || in_array($norm, array_map([self::class, 'normalize'], $labels), true)) {
                 return [$key, null];
             }
         }

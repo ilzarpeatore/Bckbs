@@ -32,6 +32,7 @@ class TrainingTechniquesTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        TrainingTechniques::flush();
         Role::findOrCreate('admin', 'web');
 
         $this->coach = User::create([
@@ -169,5 +170,48 @@ class TrainingTechniquesTest extends TestCase
         $this->assertSame('otra', $prescribed[1]['tecnica']);
         $this->assertSame('Pausa arriba 2 s', $prescribed[1]['tecnica_otra']);
         $this->assertSame('todas', $prescribed[1]['tecnica_series']);
+    }
+
+    public function test_el_coach_edita_los_textos_y_la_app_los_recibe(): void
+    {
+        Sanctum::actingAs($this->coach);
+
+        $this->postJson('/api/admin/training-technique-save', [
+            'key'         => 'rest_pause',
+            'label'       => 'Rest-pause (BS)',
+            'description' => 'Mi explicación.',
+            'steps'       => ['Paso uno', '  ', 'Paso dos'],
+            'mistakes'    => [],
+            'logging'     => 'Apunta el total.',
+        ])->assertOk();
+
+        $app = collect($this->getJson('/api/v1/training-technique-list')->json('data'))->keyBy('key');
+        $this->assertSame('Rest-pause (BS)', $app['rest_pause']['label']);
+        $this->assertSame(['Paso uno', 'Paso dos'], $app['rest_pause']['steps']);
+        $this->assertSame([], $app['rest_pause']['mistakes']);
+        $this->assertTrue($app['rest_pause']['customized']);
+        $this->assertFalse($app['drop_sets']['customized']);
+
+        // El Excel reconoce tanto el nombre nuevo como el original
+        $this->assertSame(['rest_pause', null], TrainingTechniques::resolve('Rest-pause (BS)'));
+        $this->assertSame(['rest_pause', null], TrainingTechniques::resolve('rest-pause'));
+
+        // Restaurar vuelve a los textos por defecto
+        $this->postJson('/api/admin/training-technique-reset', ['key' => 'rest_pause'])->assertOk();
+        $app = collect($this->getJson('/api/v1/training-technique-list')->json('data'))->keyBy('key');
+        $this->assertSame('Rest-pause', $app['rest_pause']['label']);
+        $this->assertFalse($app['rest_pause']['customized']);
+    }
+
+    public function test_no_se_pueden_crear_tecnicas_nuevas_ni_guardar_sin_nombre(): void
+    {
+        Sanctum::actingAs($this->coach);
+
+        $this->postJson('/api/admin/training-technique-save', [
+            'key' => 'inventada', 'label' => 'X', 'description' => 'Y', 'steps' => [], 'mistakes' => [],
+        ])->assertStatus(422);
+        $this->postJson('/api/admin/training-technique-save', [
+            'key' => 'bfr', 'label' => '', 'description' => 'Y', 'steps' => [], 'mistakes' => [],
+        ])->assertStatus(422);
     }
 }
