@@ -38,6 +38,9 @@ class MacrocycleTitle
             $rest = substr_replace($rest, ' ', $m[0][1], strlen($m[0][0]));
         }
 
+        // "Mesociclo 1 (M1)": el "(M1)" redundante tampoco es parte del nombre del macrociclo
+        $rest = preg_replace('/\(\s*M\d+\s*\)|\bM\d+\b/u', ' ', $rest);
+
         $mentionsMacro = preg_match('/\bmacro(?:ciclo)?\b/iu', $rest) === 1;
         if ($mesocycle === null && !$mentionsMacro) {
             return null;

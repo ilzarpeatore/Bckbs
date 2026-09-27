@@ -202,6 +202,12 @@ class TrainingProgramController extends Controller
         return $parsed + ['manual' => false];
     }
 
+    /** Nº de mesociclo de un programa (manual o deducido del título), para el dashboard del macrociclo. */
+    public static function mesocycleNumberOf(TrainingProgram $program): ?int
+    {
+        return self::macrocycleOf($program)['mesocycle'] ?? null;
+    }
+
     /**
      * Asigna a mano un programa a un macrociclo (página /macrociclos).
      * macrocycle_name vacío/null quita la asignación manual y el programa

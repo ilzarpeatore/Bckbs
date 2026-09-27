@@ -35,6 +35,7 @@ class MacrocycleTitleTest extends TestCase
             ['Carlos Meso 3', 'Carlos', 3],
             ['Macrociclo Carlos', 'Macrociclo Carlos', null],
             ['Mesociclo 1', 'Sin nombre', 1],
+            ['Be Stronger — Macrociclo 2 · Mesociclo 1 (M1)', 'Be Stronger - Macrociclo 2', 1],
             ['Fuerza 5x5', null, null],
             ['Máquinas y mancuernas', null, null],
             ['', null, null],
