@@ -76,7 +76,7 @@ class FormController extends Controller
             'id'          => 'sometimes|exists:forms,id',
             'title'       => 'required|string|max:255',
             'description' => 'nullable|string',
-            'recurrence'  => 'nullable|string|in:daily,weekly,monthly',
+            'recurrence'  => 'nullable|string|in:daily,weekly,biweekly,monthly',
         ]);
 
         $data = [

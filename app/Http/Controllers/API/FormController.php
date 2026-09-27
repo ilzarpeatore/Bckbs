@@ -56,10 +56,14 @@ class FormController extends Controller
                 $assignment->is_due = false;
             } else {
                 $periodStart = match ($assignment->form->recurrence) {
-                    'daily'   => now()->startOfDay(),
-                    'weekly'  => now()->startOfWeek(),
-                    'monthly' => now()->startOfMonth(),
-                    default   => now()->startOfDay(),
+                    'daily'    => now()->startOfDay(),
+                    'weekly'   => now()->startOfWeek(),
+                    // Sin unidad de calendario nativa de 14 días (a diferencia de
+                    // día/semana/mes) -- ventana móvil desde el último envío, no
+                    // un "inicio de quincena" fijo.
+                    'biweekly' => now()->subDays(14),
+                    'monthly'  => now()->startOfMonth(),
+                    default    => now()->startOfDay(),
                 };
                 $assignment->is_due = $latest->submitted_at->lt($periodStart);
             }
