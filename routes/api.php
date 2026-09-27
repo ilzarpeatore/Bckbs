@@ -600,6 +600,10 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // desde la ficha del cliente. Solo user_type=admin puede reasignar (ver coachUpdate).
     Route::get('users/{user}/coach', [AdminUserController::class, 'coachShow'])->whereNumber('user');
     Route::put('users/{user}/coach', [AdminUserController::class, 'coachUpdate'])->whereNumber('user');
+    // Teléfono -> cliente_id (Agente de Soporte / Customer Success, sin hoja
+    // de mapeo manual). Debe ir ANTES del apiResource, igual que 'report'
+    // arriba, o el {user} de users/{user} se lo traga.
+    Route::get('users/lookup-by-phone', [AdminUserController::class, 'lookupByPhone']);
     // ->names('admin.users'): sin esto, el nombre implícito 'users.index'
     // choca con el resource del panel Blade legacy (routes/web.php,
     // Route::resource('users', UserController::class)) -- inofensivo en la

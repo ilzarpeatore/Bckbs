@@ -54,13 +54,21 @@ class UserController extends BaseController
 
     public function store(Request $request)
     {
+        // Igual que SettingController::updateProfile: se normaliza antes de
+        // validar, porque `setPhoneNumberAttribute` guarda sin '+' -- si no,
+        // "unique" compara el valor crudo contra lo ya guardado sin '+' y
+        // nunca detecta la colisión.
+        if ($request->filled('phone_number')) {
+            $request->merge(['phone_number' => str_replace('+', '', $request->phone_number)]);
+        }
+
         $request->validate([
             'first_name'   => 'required|string|max:255',
             'last_name'    => 'required|string|max:255',
             'email'        => 'required|email|unique:users,email',
             'username'     => 'required|unique:users,username',
             'password'     => 'required|string|min:8',
-            'phone_number' => 'nullable|string|max:20',
+            'phone_number' => 'nullable|string|max:20|unique:users,phone_number',
             'gender'       => 'nullable|in:male,female,other',
             'is_personal_client' => 'sometimes|boolean',
         ]);
@@ -110,6 +118,51 @@ class UserController extends BaseController
                 ->map(fn (User $u) => ['id' => $u->id, 'name' => $this->staffName($u), 'user_type' => $u->user_type])
                 ->values(),
         ];
+    }
+
+    /**
+     * GET admin/users/lookup-by-phone?phone=<numero>
+     *
+     * Resuelve teléfono -> cliente_id sin la hoja de mapeo manual que hoy
+     * usa el Agente de Soporte / Customer Success (gap documentado en
+     * docs/TAREAS_PENDIENTES.md, AgenticdesignBS, ítem 2.16/2.20). El
+     * número puede llegar en cualquier formato (con '+', espacios, el
+     * prefijo "whatsapp:" que manda Twilio) -- aquí se reduce a solo
+     * dígitos y se compara contra `phone_number` (guardado sin '+' por
+     * `setPhoneNumberAttribute`). Si no hay coincidencia exacta, se prueba
+     * también contra los últimos 9 dígitos (número de móvil español sin
+     * prefijo de país) porque no todos los clientes existentes tienen el
+     * número guardado con el prefijo -- WhatsApp siempre lo manda completo.
+     * Nunca elige entre varias coincidencias: si hay más de una, la
+     * responsabilidad de desambiguar es humana.
+     */
+    public function lookupByPhone(Request $request)
+    {
+        $request->validate(['phone' => 'required|string']);
+
+        $digits = preg_replace('/\D+/', '', $request->phone);
+        if ($digits === '') {
+            return json_message_response('Número de teléfono inválido.', 422);
+        }
+
+        $matches = User::role('user')->where('phone_number', $digits)->get();
+
+        if ($matches->isEmpty() && strlen($digits) > 9) {
+            $matches = User::role('user')->where('phone_number', substr($digits, -9))->get();
+        }
+
+        if ($matches->isEmpty()) {
+            return json_message_response('No se encontró ningún cliente con ese número.', 404);
+        }
+
+        if ($matches->count() > 1) {
+            return json_custom_response([
+                'message' => 'Más de un cliente coincide con ese número -- revisión manual necesaria.',
+                'data'    => UserResource::collection($matches),
+            ], 409);
+        }
+
+        return json_custom_response(['data' => new UserResource($matches->first())]);
     }
 
     /** GET admin/users/{user}/coach */
@@ -183,12 +236,16 @@ class UserController extends BaseController
             return json_message_response('User not found.', 404);
         }
 
+        if ($request->filled('phone_number')) {
+            $request->merge(['phone_number' => str_replace('+', '', $request->phone_number)]);
+        }
+
         $request->validate([
             'first_name'   => 'sometimes|required|string|max:255',
             'last_name'    => 'sometimes|required|string|max:255',
             'email'        => 'sometimes|required|email|unique:users,email,' . $id,
             'username'     => 'sometimes|required|unique:users,username,' . $id,
-            'phone_number' => 'nullable|string|max:20',
+            'phone_number' => 'nullable|string|max:20|unique:users,phone_number,' . $id,
             'gender'       => 'nullable|in:male,female,other',
             'status'       => 'sometimes|in:active,banned,pending',
             'password'     => 'nullable|string|min:8',
