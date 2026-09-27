@@ -56,6 +56,8 @@ Una fila = un ejercicio dentro de un bloque, dentro de un día, dentro de una se
 | 17 | `tempo` | texto | no | `30X1` | Notación estándar de tempo (excéntrica-pausa-concéntrica-pausa). |
 | 18 | `duracion_seg` | entero | no | `45` | Para ejercicios por tiempo en vez de por reps (plancha, cargadas, etc.) — en ese caso deja `reps` vacío. |
 | 19 | `notas` | texto | no | `al fallo la última serie` | Nota de ese ejercicio suelto (no de la sesión ni del bloque). |
+| 20 | `tecnica` | texto | no | `Rest-pause` | Técnica especial de ese ejercicio esa semana. Usa el nombre del catálogo: Cluster sets, Bisets, Superseries, Rest-pause, Rest-pause ampliado, Drop sets, Drop sets mecánicos, Series mecánicas, BFR (oclusión), Myo-reps, Parciales, Excéntricas lentas, Isométricas. Cualquier otro texto se guarda como técnica «Otra» con ese texto. El cliente la ve en la app con su explicación. |
+| 21 | `tecnica_series` | texto | no | `última` | `última` si la técnica va solo en la última serie; vacío o `todas` = en todas las series. |
 
 \* `ejercicio`, `series` y `reps` son obligatorias **salvo que la fila sea de descanso** (`es_descanso=TRUE`), en cuyo caso se dejan vacías.
 
@@ -86,10 +88,10 @@ A diferencia de otros formatos de importación de este sistema (que solo traen u
 
 ## Ejemplo mínimo (2 filas, ilustrativo)
 
-| semana | dia | nombre_dia | es_descanso | notas_dia | bloque | instrucciones_bloque | ejercicio | equipo | series | reps | rir | rpe | carga_kg | carga_pct | descanso_seg | tempo | duracion_seg | notas |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | 1 | Empuje A | FALSE | | Parte principal | | Press banca barra | Barra | 4 | 6-8 | 2 | | 80 | | 150 | | | |
-| 1 | 1 | Empuje A | FALSE | | Accesorio | | Elevaciones laterales | Mancuernas | 3 | 12-15 | 1 | | 10 | | 60 | | | |
+| semana | dia | nombre_dia | es_descanso | notas_dia | bloque | instrucciones_bloque | ejercicio | equipo | series | reps | rir | rpe | carga_kg | carga_pct | descanso_seg | tempo | duracion_seg | notas | tecnica | tecnica_series |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 1 | Empuje A | FALSE | | Parte principal | | Press banca barra | Barra | 4 | 6-8 | 2 | | 80 | | 150 | | | | | |
+| 1 | 1 | Empuje A | FALSE | | Accesorio | | Elevaciones laterales | Mancuernas | 3 | 12-15 | 1 | | 10 | | 60 | | | | Rest-pause | última |
 
 Para un ejemplo completo y real de 4 semanas × 5 sesiones, abre `excel.example.xlsx`.
 

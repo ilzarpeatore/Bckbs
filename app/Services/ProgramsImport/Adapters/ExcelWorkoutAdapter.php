@@ -197,6 +197,8 @@ final class ExcelWorkoutAdapter implements AdapterInterface
                 'load_kg'            => FlexArray::float($row, ['carga_kg'], null),
                 'weight_percent'     => FlexArray::float($row, ['carga_pct'], null),
                 'notes'              => FlexArray::string($row, ['notas'], null),
+                'technique'          => FlexArray::string($row, ['tecnica', 'técnica'], null),
+                'technique_sets'     => FlexArray::string($row, ['tecnica_series', 'técnica_series'], null),
                 'duration_sec'       => FlexArray::int($row, ['duracion_seg'], null),
             ];
             unset($blocks);

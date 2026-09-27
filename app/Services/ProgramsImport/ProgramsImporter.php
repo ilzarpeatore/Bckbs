@@ -3,6 +3,7 @@
 namespace App\Services\ProgramsImport;
 
 use App\Models\BodyPart;
+use App\Support\TrainingTechniques;
 use App\Models\Equipment;
 use App\Models\Exercise;
 use App\Models\ProgramDayAssignment;
@@ -542,6 +543,14 @@ final class ProgramsImporter
         if (($ex['duration_sec'] ?? null) !== null) {
             $p['duracion'] = (string) (int) $ex['duration_sec'];
         }
+        $technique = TrainingTechniques::resolve($ex['technique'] ?? null);
+        if ($technique !== null) {
+            [$p['tecnica'], $otra] = $technique;
+            $p['tecnica_series'] = TrainingTechniques::resolveSeries($ex['technique_sets'] ?? null);
+            if ($otra !== null) {
+                $p['tecnica_otra'] = mb_substr($otra, 0, 120);
+            }
+        }
 
         return $p;
     }
@@ -604,6 +613,8 @@ final class ProgramsImporter
                     'weight_percent' => $e['weight_percent'] ?? null,
                     'tempo'          => $e['tempo'] ?? null,
                     'duration_sec'   => $e['duration_sec'] ?? null,
+                    'technique'      => $e['technique'] ?? null,
+                    'technique_sets' => $e['technique_sets'] ?? null,
                 ], (array) ($b['exercises'] ?? [])),
             ], (array) ($day['blocks'] ?? [])),
         ];

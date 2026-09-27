@@ -80,6 +80,9 @@ class MacrocyclePlanService
                         'carga'          => self::str($p['carga'] ?? null),
                         'carga_pct'      => self::str($p['carga_pct'] ?? null),
                         'descanso'       => self::str($p['descanso'] ?? null),
+                        'tecnica'        => self::str($p['tecnica'] ?? null),
+                        'tecnica_series' => self::str($p['tecnica_series'] ?? null),
+                        'tecnica_otra'   => self::str($p['tecnica_otra'] ?? null),
                     ];
                 }
             }
