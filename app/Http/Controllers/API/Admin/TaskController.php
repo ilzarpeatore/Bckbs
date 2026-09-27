@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Task;
 use Illuminate\Http\Request;
 use App\Support\FuzzySearch;
+use App\Services\TaskEscalationAlertService;
 use Illuminate\Support\Facades\DB;
 
 class TaskController extends Controller
@@ -72,6 +73,8 @@ class TaskController extends Controller
         ]);
 
         $task->load(['author:id,first_name,last_name', 'client:id,first_name,last_name,email']);
+
+        app(TaskEscalationAlertService::class)->evaluate($task);
 
         return json_custom_response(['data' => $task, 'message' => 'Task created.'], 201);
     }

@@ -29,4 +29,10 @@ enum ExceptionCategory: string
     // Patrón: 2+ sesiones finalizadas sin series en pocos días (comando sessions:audit-empty).
     // Un único ítem vivo por cliente, distinto del aviso puntual de arriba.
     case PATRON_SESIONES_SIN_REGISTRO = 'patron_sesiones_sin_registro';
+    // Tarea priority=high creada vía POST task-store (TaskEscalationAlertService) --
+    // hoy la crean los Agentes de Soporte/Onboarding al escalar algo por WhatsApp,
+    // pero no distingue origen: cualquier tarea de alta prioridad con client_id
+    // entra aquí (docs/TAREAS_PENDIENTES.md de AgenticdesignBS, ítem 2.21).
+    // Sin migración: category es varchar(40).
+    case TAREA_ESCALADA_AGENTE = 'tarea_escalada_agente';
 }
