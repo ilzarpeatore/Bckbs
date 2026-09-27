@@ -24,30 +24,229 @@ class TrainingTechniques
 
     public const KEYS = ['tecnica', 'tecnica_series', 'tecnica_otra'];
 
-    /** slug => [label, descripción para el cliente] */
+    /**
+     * slug => ficha para el cliente (la app la abre al pulsar la técnica):
+     *   label       nombre
+     *   description qué es, en una o dos frases
+     *   steps       paso a paso
+     *   mistakes    errores comunes / seguridad
+     *   logging     cómo apuntar esa serie en la app
+     * Primer borrador redactado por Claude (2026-09-27), pendiente de revisión del coach.
+     */
     public const CATALOG = [
-        'cluster_sets'        => ['Cluster sets', 'Al llegar a RIR 1, pausa 10-15 s, haz 1-2 repeticiones más y repite el ciclo hasta 3 veces.'],
-        'bisets'              => ['Bisets', 'Dos ejercicios seguidos sin descanso entre ellos; descansa al terminar el par.'],
-        'superseries'         => ['Superseries', 'Dos ejercicios de músculos distintos seguidos, sin descanso entre ellos.'],
-        'rest_pause'          => ['Rest-pause', 'Llega al fallo, pausa 15-20 s y continúa hasta el fallo otra vez.'],
-        'rest_pause_ampliado' => ['Rest-pause ampliado', 'Tres mini-series hasta el fallo con 15 s de pausa entre ellas.'],
-        'drop_sets'           => ['Drop sets', 'Llega al fallo, baja la carga un 20-25 % y continúa hasta el fallo.'],
-        'drop_sets_mecanicos' => ['Drop sets mecánicos', 'Al llegar al fallo, cambia a una variante más fácil del ejercicio en vez de bajar el peso.'],
-        'series_mecanicas'    => ['Series mecánicas', 'Ejercicio A hasta RIR 1 y, sin descanso, un ejercicio B del mismo patrón hasta el fallo.'],
-        'bfr'                 => ['BFR (oclusión)', 'Con restricción parcial del flujo sanguíneo: 3 series de 20-30 repeticiones a RPE 7-8.'],
-        'myo_reps'            => ['Myo-reps', 'Una serie de activación cerca del fallo y después mini-series de 3-5 repeticiones con 3-5 respiraciones de pausa.'],
-        'parciales'           => ['Parciales', 'Al llegar al fallo, sigue con repeticiones parciales en el tramo más fuerte del movimiento.'],
-        'excentricas'         => ['Excéntricas lentas', 'Baja el peso de forma controlada, en 3-5 segundos, en cada repetición.'],
-        'isometricas'         => ['Isométricas', 'Mantén la posición indicada durante el tiempo marcado.'],
-        self::OTHER           => ['Otra', 'Técnica indicada por tu entrenador.'],
+        'cluster_sets' => [
+            'label'       => 'Cluster sets',
+            'description' => 'Divides la serie en mini-bloques con pausas muy cortas para hacer más repeticiones de calidad con el mismo peso.',
+            'steps'       => [
+                'Haz repeticiones hasta que te queden 1-2 en recámara (RIR 1).',
+                'Deja el peso apoyado o en posición segura y descansa 10-15 segundos.',
+                'Haz 1-2 repeticiones más con buena técnica.',
+                'Repite la pausa de 10-15 s y las 1-2 repeticiones hasta completar 3 mini-bloques.',
+            ],
+            'mistakes'    => [
+                'Alargar las pausas: más de 15-20 s ya es otra serie.',
+                'Llegar al fallo en cada mini-bloque; la idea es mantener la técnica limpia.',
+                'Usarlo en ejercicios donde no puedes descansar con seguridad con el peso encima.',
+            ],
+            'logging'     => 'Apunta en esa serie el total de repeticiones (las de la primera parte más las de los mini-bloques) y el peso usado.',
+        ],
+        'bisets' => [
+            'label'       => 'Bisets',
+            'description' => 'Dos ejercicios seguidos, sin descanso entre ellos. Descansas solo al terminar el par.',
+            'steps'       => [
+                'Prepara los dos ejercicios antes de empezar (pesos, máquina, banco).',
+                'Haz la serie del primer ejercicio.',
+                'Pasa directamente al segundo ejercicio, sin descansar.',
+                'Al terminar el segundo, descansa unos 90 segundos y repite el par.',
+            ],
+            'mistakes'    => [
+                'Descansar entre los dos ejercicios: el descanso va solo al final del par.',
+                'No tener preparado el segundo ejercicio y perder tiempo buscando material.',
+            ],
+            'logging'     => 'Apunta cada ejercicio en su propia tarjeta, con sus repeticiones y peso, como una serie normal.',
+        ],
+        'superseries' => [
+            'label'       => 'Superseries',
+            'description' => 'Dos ejercicios de músculos distintos (por ejemplo, empuje y tirón) seguidos, sin descanso entre ellos.',
+            'steps'       => [
+                'Prepara los dos ejercicios antes de empezar.',
+                'Haz la serie del primer ejercicio.',
+                'Pasa directamente al segundo, sin descansar.',
+                'Descansa al terminar el par y repite.',
+            ],
+            'mistakes'    => [
+                'Descansar entre los dos ejercicios.',
+                'Bajar la calidad del segundo ejercicio por ir con prisa: mantén el mismo control.',
+            ],
+            'logging'     => 'Apunta cada ejercicio en su propia tarjeta, como una serie normal.',
+        ],
+        'rest_pause' => [
+            'label'       => 'Rest-pause',
+            'description' => 'Tras llegar al fallo haces una pausa corta y sigues con el mismo peso para sacar unas repeticiones extra.',
+            'steps'       => [
+                'Haz la serie hasta el fallo técnico: no puedes hacer otra repetición con buena forma.',
+                'Deja el peso en posición segura y respira 15-20 segundos.',
+                'Con el mismo peso, vuelve a hacer repeticiones hasta el fallo.',
+                'Termina ahí la serie.',
+            ],
+            'mistakes'    => [
+                'Perder la técnica para arañar una repetición más.',
+                'Usarlo en ejercicios con riesgo si fallas (sentadilla o press banca con barra libre sin ayuda).',
+                'Descansar más de 20 s: se convierte en otra serie.',
+            ],
+            'logging'     => 'Apunta en esa serie el total de repeticiones (antes y después de la pausa) y el peso usado.',
+        ],
+        'rest_pause_ampliado' => [
+            'label'       => 'Rest-pause ampliado',
+            'description' => 'Como el rest-pause, pero con tres mini-series hasta el fallo separadas por pausas cortas.',
+            'steps'       => [
+                'Haz la serie hasta el fallo técnico.',
+                'Descansa 15 segundos y haz repeticiones hasta el fallo con el mismo peso.',
+                'Descansa otros 15 segundos y repite una última vez hasta el fallo.',
+                'Termina la serie tras la tercera mini-serie.',
+            ],
+            'mistakes'    => [
+                'Alargar las pausas entre mini-series.',
+                'Perder la técnica en la última mini-serie.',
+                'Hacerlo en ejercicios donde fallar es peligroso sin ayuda.',
+            ],
+            'logging'     => 'Apunta en esa serie el total de repeticiones de las tres mini-series y el peso.',
+        ],
+        'drop_sets' => [
+            'label'       => 'Drop sets',
+            'description' => 'Al llegar al fallo bajas el peso y sigues sin descansar, para agotar el músculo.',
+            'steps'       => [
+                'Haz la serie hasta el fallo técnico.',
+                'Baja el peso un 20-25 % lo más rápido posible (cambia mancuernas, pin o discos).',
+                'Sin descansar, haz repeticiones hasta el fallo con el peso nuevo.',
+                'Termina ahí la serie, salvo que tu entrenador indique más bajadas.',
+            ],
+            'mistakes'    => [
+                'Tardar mucho en cambiar el peso: prepáralo antes de empezar.',
+                'Bajar demasiado poco peso y no poder hacer casi repeticiones.',
+                'Hacerlo con barra libre sin ayuda en ejercicios de riesgo.',
+            ],
+            'logging'     => 'Apunta el peso inicial y el total de repeticiones de la serie; si quieres, detalla la bajada en la nota para tu entrenador.',
+        ],
+        'drop_sets_mecanicos' => [
+            'label'       => 'Drop sets mecánicos',
+            'description' => 'Al llegar al fallo no bajas el peso: cambias a una variante más fácil del mismo ejercicio y sigues.',
+            'steps'       => [
+                'Haz la serie hasta el fallo técnico con la variante más difícil (por ejemplo, press inclinado).',
+                'Sin soltar el peso ni descansar, cambia a una variante más favorable (por ejemplo, press plano).',
+                'Haz repeticiones hasta el fallo con esa variante.',
+                'Termina ahí la serie.',
+            ],
+            'mistakes'    => [
+                'Descansar al cambiar de variante.',
+                'Elegir una variante que no es realmente más fácil.',
+            ],
+            'logging'     => 'Apunta el peso y el total de repeticiones de las dos variantes en esa serie.',
+        ],
+        'series_mecanicas' => [
+            'label'       => 'Series mecánicas',
+            'description' => 'Enlazas dos ejercicios del mismo patrón: el primero cerca del fallo y el segundo, más fácil, hasta el fallo.',
+            'steps'       => [
+                'Haz el ejercicio A hasta que te quede 1 repetición en recámara (RIR 1).',
+                'Sin descansar, pasa al ejercicio B, del mismo patrón pero más fácil.',
+                'Haz repeticiones del ejercicio B hasta el fallo.',
+                'Descansa y repite si hay más series.',
+            ],
+            'mistakes'    => [
+                'Llegar al fallo en el ejercicio A: debe quedar 1 repetición.',
+                'Descansar al cambiar de ejercicio.',
+            ],
+            'logging'     => 'Apunta cada ejercicio en su tarjeta, con sus repeticiones y peso.',
+        ],
+        'bfr' => [
+            'label'       => 'BFR (oclusión)',
+            'description' => 'Entrenamiento con restricción parcial del flujo sanguíneo: peso ligero y muchas repeticiones con una banda en la extremidad.',
+            'steps'       => [
+                'Coloca la banda en la parte alta del brazo o del muslo, apretada pero sin dolor ni hormigueo (7 sobre 10 de presión).',
+                'Usa un peso ligero y haz una serie de 20-30 repeticiones.',
+                'Descansa unos 30 segundos sin quitar la banda.',
+                'Haz 3 series más cortas (unas 15 repeticiones) a un esfuerzo de RPE 7-8.',
+                'Quita la banda al terminar el ejercicio.',
+            ],
+            'mistakes'    => [
+                'Apretar demasiado: si notas hormigueo, dolor intenso o la piel se pone morada o blanca, afloja o quita la banda.',
+                'Dejar la banda puesta más de 15-20 minutos seguidos.',
+                'Hacerlo si tienes problemas circulatorios, de coagulación o tensión alta sin consultarlo antes.',
+            ],
+            'logging'     => 'Apunta cada serie con sus repeticiones y el peso, como una serie normal.',
+        ],
+        'myo_reps' => [
+            'label'       => 'Myo-reps',
+            'description' => 'Una serie de activación cerca del fallo seguida de mini-series cortas con pausas de pocas respiraciones.',
+            'steps'       => [
+                'Haz una serie de activación de 12-20 repeticiones, cerca del fallo.',
+                'Descansa 3-5 respiraciones profundas (unos 10-15 segundos).',
+                'Haz 3-5 repeticiones con el mismo peso.',
+                'Repite pausa y mini-serie hasta que no puedas completar las 3 repeticiones.',
+            ],
+            'mistakes'    => [
+                'Descansar demasiado entre mini-series.',
+                'Hacer la serie de activación demasiado lejos del fallo.',
+            ],
+            'logging'     => 'Apunta en esa serie el total de repeticiones (activación más mini-series) y el peso.',
+        ],
+        'parciales' => [
+            'label'       => 'Parciales',
+            'description' => 'Al llegar al fallo sigues con repeticiones de recorrido corto en el tramo donde eres más fuerte.',
+            'steps'       => [
+                'Haz la serie hasta el fallo con recorrido completo.',
+                'Sin descansar, haz repeticiones de medio recorrido o menos en la parte más fuerte del movimiento.',
+                'Continúa hasta que no puedas moverte con control.',
+            ],
+            'mistakes'    => [
+                'Hacer parciales desde el principio: primero se llega al fallo con recorrido completo.',
+                'Rebotar o usar impulso.',
+            ],
+            'logging'     => 'Apunta las repeticiones completas de la serie; si quieres, añade las parciales en la nota para tu entrenador.',
+        ],
+        'excentricas' => [
+            'label'       => 'Excéntricas lentas',
+            'description' => 'Bajas el peso muy despacio y controlado en cada repetición.',
+            'steps'       => [
+                'Sube el peso a velocidad normal.',
+                'Bájalo contando 3-5 segundos, con control durante todo el recorrido.',
+                'Repite así en todas las repeticiones de la serie.',
+            ],
+            'mistakes'    => [
+                'Acelerar al final de la bajada.',
+                'Usar el mismo peso de siempre: normalmente hace falta algo menos.',
+            ],
+            'logging'     => 'Apunta repeticiones y peso como una serie normal.',
+        ],
+        'isometricas' => [
+            'label'       => 'Isométricas',
+            'description' => 'Mantienes una posición concreta sin moverte durante el tiempo indicado.',
+            'steps'       => [
+                'Colócate en la posición que indica tu entrenador (por ejemplo, a mitad del recorrido).',
+                'Mantenla quieto, respirando con normalidad, el tiempo marcado.',
+                'Suelta el peso con control al terminar.',
+            ],
+            'mistakes'    => [
+                'Aguantar la respiración.',
+                'Ir perdiendo la posición sin darte cuenta.',
+            ],
+            'logging'     => 'Apunta el tiempo aguantado (o las repeticiones, si las hay) y el peso.',
+        ],
+        self::OTHER => [
+            'label'       => 'Otra',
+            'description' => 'Técnica indicada por tu entrenador. Revisa sus notas en este ejercicio y pregúntale si tienes dudas.',
+            'steps'       => [],
+            'mistakes'    => [],
+            'logging'     => 'Apunta la serie como te haya indicado tu entrenador; si tienes dudas, déjale una nota.',
+        ],
     ];
 
-    /** @return array<int, array{key: string, label: string, description: string}> */
+    /** @return array<int, array{key: string, label: string, description: string, steps: string[], mistakes: string[], logging: string}> */
     public static function list(): array
     {
         $out = [];
-        foreach (self::CATALOG as $key => [$label, $description]) {
-            $out[] = ['key' => $key, 'label' => $label, 'description' => $description];
+        foreach (self::CATALOG as $key => $item) {
+            $out[] = ['key' => $key] + $item;
         }
 
         return $out;
@@ -67,7 +266,7 @@ class TrainingTechniques
             return null;
         }
         $norm = self::normalize($value);
-        foreach (self::CATALOG as $key => [$label]) {
+        foreach (self::CATALOG as $key => ['label' => $label]) {
             if ($key === self::OTHER) {
                 continue;
             }

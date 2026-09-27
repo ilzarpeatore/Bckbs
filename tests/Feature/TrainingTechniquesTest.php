@@ -87,6 +87,16 @@ class TrainingTechniquesTest extends TestCase
         $admin = $this->getJson('/api/admin/training-technique-list')->assertOk()->json('data');
         $this->assertContains('rest_pause', array_column($admin, 'key'));
         $this->assertSame('otra', end($admin)['key']);
+        // Cada técnica del catálogo trae su ficha completa para la app
+        foreach ($admin as $item) {
+            $this->assertNotSame('', $item['label']);
+            $this->assertNotSame('', $item['description']);
+            $this->assertNotSame('', $item['logging']);
+            if ($item['key'] !== 'otra') {
+                $this->assertGreaterThanOrEqual(3, count($item['steps']), $item['key']);
+                $this->assertNotEmpty($item['mistakes'], $item['key']);
+            }
+        }
 
         $this->getJson('/api/v1/training-technique-list')->assertOk()->assertJsonFragment(['key' => 'cluster_sets']);
     }
