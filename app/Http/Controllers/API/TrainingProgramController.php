@@ -5,6 +5,7 @@ namespace App\Http\Controllers\API;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Support\FuzzySearch;
+use App\Support\MacrocycleTitle;
 use App\Models\TrainingProgram;
 use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
@@ -72,6 +73,170 @@ class TrainingProgramController extends Controller
         ];
 
         return json_custom_response($response);
+    }
+
+    /**
+     * Macrociclos (página /macrociclos del panel, pedido 2026-09-27): todos
+     * los programas no personales -- biblioteca Y copias por cliente, a
+     * diferencia de getList() -- agrupados por macrociclo según su título
+     * (ver App\Support\MacrocycleTitle). Un mismo macrociclo de biblioteca
+     * y su copia asignada a un cliente son grupos distintos (clave
+     * macrociclo + client_id): cada cliente tiene sus propias filas desde
+     * TrainingProgram::cloneForClient(). Los programas cuyo título no
+     * menciona mesociclo/macrociclo no aparecen.
+     */
+    public function getMacrocycles(Request $request)
+    {
+        $programs = TrainingProgram::with([
+                'client:id,display_name,email',
+                'clientAssignments' => fn ($q) => $q->with('client:id,display_name,email')->orderBy('start_date'),
+            ])
+            ->where('is_personal', false)
+            ->orderBy('created_at')
+            ->get();
+
+        $groups = [];
+        $unassigned = [];
+        foreach ($programs as $program) {
+            $parsed = self::macrocycleOf($program);
+            if ($parsed === null) {
+                // Programas sueltos: el panel los ofrece para asignarlos a mano a un macrociclo
+                $unassigned[] = [
+                    'id'     => $program->id,
+                    'title'  => $program->title,
+                    'client' => $program->client ? [
+                        'id'           => $program->client->id,
+                        'display_name' => $program->client->display_name,
+                    ] : null,
+                ];
+                continue;
+            }
+
+            $groupKey = $parsed['key'] . '#' . ($program->client_id ?? 'library');
+            if (!isset($groups[$groupKey])) {
+                $groups[$groupKey] = [
+                    'key'        => $groupKey,
+                    'name'       => $parsed['macrocycle'],
+                    'client'     => $program->client ? [
+                        'id'           => $program->client->id,
+                        'display_name' => $program->client->display_name,
+                        'email'        => $program->client->email,
+                    ] : null,
+                    'mesocycles' => [],
+                ];
+            }
+
+            $groups[$groupKey]['mesocycles'][] = [
+                'id'               => $program->id,
+                'title'            => $program->title,
+                'mesocycle_number' => $parsed['mesocycle'],
+                'grouping'         => $parsed['manual'] ? 'manual' : 'title',
+                'macrocycle_name'  => $program->macrocycle_name,
+                'num_weeks'        => $program->num_weeks,
+                'fecha_inicio'     => optional($program->fecha_inicio)->toDateString(),
+                'fecha_fin'        => optional($program->fecha_fin)->toDateString(),
+                'activo'           => (bool) $program->activo,
+                'source'           => $program->source,
+                'source_id'        => $program->source_id,
+                'created_at'       => optional($program->created_at)->toIso8601String(),
+                'assignments'      => $program->clientAssignments->map(fn ($a) => [
+                    'id'          => $a->id,
+                    'client_id'   => $a->client_id,
+                    'client_name' => optional($a->client)->display_name,
+                    'start_date'  => $a->start_date ? Carbon::parse($a->start_date)->toDateString() : null,
+                    'fecha_fin'   => $a->fecha_fin ? Carbon::parse($a->fecha_fin)->toDateString() : null,
+                    'activo'      => (bool) $a->activo,
+                    'cerrado_at'  => $a->cerrado_at ? Carbon::parse($a->cerrado_at)->toIso8601String() : null,
+                ])->values(),
+            ];
+        }
+
+        foreach ($groups as &$group) {
+            // Numerados primero (1, 2, 3...), los sin número al final por fecha de creación
+            usort($group['mesocycles'], function ($a, $b) {
+                $na = $a['mesocycle_number'] ?? PHP_INT_MAX;
+                $nb = $b['mesocycle_number'] ?? PHP_INT_MAX;
+                return $na <=> $nb ?: strcmp((string) $a['created_at'], (string) $b['created_at']);
+            });
+            $group['total_weeks'] = array_sum(array_map(fn ($m) => (int) $m['num_weeks'], $group['mesocycles']));
+            $group['last_created_at'] = max(array_map(fn ($m) => (string) $m['created_at'], $group['mesocycles']));
+        }
+        unset($group);
+
+        // Los macrociclos tocados más recientemente arriba
+        $groups = array_values($groups);
+        usort($groups, fn ($a, $b) => strcmp($b['last_created_at'], $a['last_created_at']));
+
+        return json_custom_response(['data' => $groups, 'unassigned' => $unassigned]);
+    }
+
+    /**
+     * Macrociclo de un programa: el asignado a mano (macrocycle_name) manda;
+     * si no hay, se deduce del título. mesocycle_number manual también manda
+     * sobre el número del título.
+     *
+     * @return array{macrocycle: string, key: string, mesocycle: int|null, manual: bool}|null
+     */
+    private static function macrocycleOf(TrainingProgram $program): ?array
+    {
+        $parsed = MacrocycleTitle::parse($program->title);
+        $manualName = trim((string) $program->macrocycle_name);
+
+        if ($manualName !== '') {
+            return [
+                'macrocycle' => $manualName,
+                'key'        => mb_strtolower($manualName),
+                'mesocycle'  => $program->mesocycle_number ?? ($parsed['mesocycle'] ?? null),
+                'manual'     => true,
+            ];
+        }
+
+        if ($parsed === null) {
+            return null;
+        }
+
+        if ($program->mesocycle_number !== null) {
+            $parsed['mesocycle'] = $program->mesocycle_number;
+        }
+
+        return $parsed + ['manual' => false];
+    }
+
+    /** Nº de mesociclo de un programa (manual o deducido del título), para el dashboard del macrociclo. */
+    public static function mesocycleNumberOf(TrainingProgram $program): ?int
+    {
+        return self::macrocycleOf($program)['mesocycle'] ?? null;
+    }
+
+    /**
+     * Asigna a mano un programa a un macrociclo (página /macrociclos).
+     * macrocycle_name vacío/null quita la asignación manual y el programa
+     * vuelve a agruparse por su título. Mismo control de propiedad que
+     * update(): solo el coach dueño del programa.
+     */
+    public function setMacrocycle(Request $request)
+    {
+        $request->validate([
+            'id'               => 'required|integer',
+            'macrocycle_name'  => 'nullable|string|max:150',
+            'mesocycle_number' => 'nullable|integer|min:1|max:999',
+        ]);
+
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())
+            ->where('is_personal', false)
+            ->find($request->id);
+
+        if ($program == null) {
+            return json_message_response('Programa no encontrado o no eres su coach.', 404);
+        }
+
+        $name = trim((string) $request->input('macrocycle_name', ''));
+        $program->update([
+            'macrocycle_name'  => $name !== '' ? $name : null,
+            'mesocycle_number' => $request->filled('mesocycle_number') ? (int) $request->mesocycle_number : null,
+        ]);
+
+        return json_message_response(__('message.save_form', ['form' => 'Training Program']));
     }
 
     /**

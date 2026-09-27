@@ -14,8 +14,9 @@ class TrainingProgram extends Model
     // AÑADIDO: is_personal, personal_client_id (calendario personal por cliente)
     // AÑADIDO: is_free_accessible, billing_plan_id (acceso gratuito / plan)
     // AÑADIDO: source, source_id (procedencia de imports de programas)
+    // AÑADIDO: macrocycle_name, mesocycle_number (macrociclo asignado a mano, página /macrociclos)
     protected $fillable = [
-        'title', 'is_personal', 'personal_client_id', 'workout_id', 'coach_id', 'client_id',
+        'title', 'macrocycle_name', 'mesocycle_number', 'is_personal', 'personal_client_id', 'workout_id', 'coach_id', 'client_id',
         'num_weeks', 'fecha_inicio', 'fecha_fin', 'activo',
         'is_free_accessible', 'billing_plan_id',
         'source', 'source_id',
@@ -26,6 +27,7 @@ class TrainingProgram extends Model
         'fecha_fin'    => 'date',
         'activo'       => 'boolean',
         'is_personal'  => 'boolean',
+        'mesocycle_number' => 'integer',
     ];
 
     public function workout()
@@ -98,6 +100,8 @@ class TrainingProgram extends Model
     {
         $copy = self::create(array_merge([
             'title'               => $this->title,
+            'macrocycle_name'     => $this->macrocycle_name,
+            'mesocycle_number'    => $this->mesocycle_number,
             'is_personal'         => false,
             'personal_client_id'  => null,
             'workout_id'          => $this->workout_id,

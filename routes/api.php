@@ -214,6 +214,8 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         // necesita leerlo (solo lectura) para poder construir la tabla
         // dinámica de series por ejercicio (enabled_metrics) en la app.
         Route::get('metrics-catalog-list', [ API\MetricController::class, 'getList' ]);
+        // Catálogo de técnicas especiales (App\Support\TrainingTechniques), para mostrarlas al entrenar.
+        Route::get('training-technique-list', [ API\TrainingTechniqueController::class, 'getList' ]);
 
         // AÑADIDO: pantalla de Detalle de Ejercicio (4 pestañas).
         Route::get('exercise-detail', [ API\ExerciseInfoController::class, 'getDetail' ]);
@@ -927,6 +929,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
 
     // ═══ V2: Training Programs ════════════════════════════════════════
     Route::get('training-program-list', [API\TrainingProgramController::class, 'getList']);
+    Route::get('training-program-macrocycles', [API\TrainingProgramController::class, 'getMacrocycles']);
+    Route::post('training-program-set-macrocycle', [API\TrainingProgramController::class, 'setMacrocycle']);
+    Route::get('macrocycle-plan', [API\MacrocycleDashboardController::class, 'plan']);
+    Route::get('training-technique-list', [API\TrainingTechniqueController::class, 'getList']);
+    Route::get('macrocycle-references', [API\MacrocycleDashboardController::class, 'references']);
+    Route::post('macrocycle-references-save', [API\MacrocycleDashboardController::class, 'saveReferences']);
     Route::get('training-program-detail', [API\TrainingProgramController::class, 'getDetail']);
     Route::post('training-program-store', [API\TrainingProgramController::class, 'store']);
     Route::post('training-program-update', [API\TrainingProgramController::class, 'update']);
