@@ -96,9 +96,19 @@ class TrainingProgramController extends Controller
             ->get();
 
         $groups = [];
+        $unassigned = [];
         foreach ($programs as $program) {
-            $parsed = MacrocycleTitle::parse($program->title);
+            $parsed = self::macrocycleOf($program);
             if ($parsed === null) {
+                // Programas sueltos: el panel los ofrece para asignarlos a mano a un macrociclo
+                $unassigned[] = [
+                    'id'     => $program->id,
+                    'title'  => $program->title,
+                    'client' => $program->client ? [
+                        'id'           => $program->client->id,
+                        'display_name' => $program->client->display_name,
+                    ] : null,
+                ];
                 continue;
             }
 
@@ -120,6 +130,8 @@ class TrainingProgramController extends Controller
                 'id'               => $program->id,
                 'title'            => $program->title,
                 'mesocycle_number' => $parsed['mesocycle'],
+                'grouping'         => $parsed['manual'] ? 'manual' : 'title',
+                'macrocycle_name'  => $program->macrocycle_name,
                 'num_weeks'        => $program->num_weeks,
                 'fecha_inicio'     => optional($program->fecha_inicio)->toDateString(),
                 'fecha_fin'        => optional($program->fecha_fin)->toDateString(),
@@ -155,7 +167,70 @@ class TrainingProgramController extends Controller
         $groups = array_values($groups);
         usort($groups, fn ($a, $b) => strcmp($b['last_created_at'], $a['last_created_at']));
 
-        return json_custom_response(['data' => $groups]);
+        return json_custom_response(['data' => $groups, 'unassigned' => $unassigned]);
+    }
+
+    /**
+     * Macrociclo de un programa: el asignado a mano (macrocycle_name) manda;
+     * si no hay, se deduce del título. mesocycle_number manual también manda
+     * sobre el número del título.
+     *
+     * @return array{macrocycle: string, key: string, mesocycle: int|null, manual: bool}|null
+     */
+    private static function macrocycleOf(TrainingProgram $program): ?array
+    {
+        $parsed = MacrocycleTitle::parse($program->title);
+        $manualName = trim((string) $program->macrocycle_name);
+
+        if ($manualName !== '') {
+            return [
+                'macrocycle' => $manualName,
+                'key'        => mb_strtolower($manualName),
+                'mesocycle'  => $program->mesocycle_number ?? ($parsed['mesocycle'] ?? null),
+                'manual'     => true,
+            ];
+        }
+
+        if ($parsed === null) {
+            return null;
+        }
+
+        if ($program->mesocycle_number !== null) {
+            $parsed['mesocycle'] = $program->mesocycle_number;
+        }
+
+        return $parsed + ['manual' => false];
+    }
+
+    /**
+     * Asigna a mano un programa a un macrociclo (página /macrociclos).
+     * macrocycle_name vacío/null quita la asignación manual y el programa
+     * vuelve a agruparse por su título. Mismo control de propiedad que
+     * update(): solo el coach dueño del programa.
+     */
+    public function setMacrocycle(Request $request)
+    {
+        $request->validate([
+            'id'               => 'required|integer',
+            'macrocycle_name'  => 'nullable|string|max:150',
+            'mesocycle_number' => 'nullable|integer|min:1|max:999',
+        ]);
+
+        $program = TrainingProgram::where('coach_id', auth('sanctum')->id())
+            ->where('is_personal', false)
+            ->find($request->id);
+
+        if ($program == null) {
+            return json_message_response('Programa no encontrado o no eres su coach.', 404);
+        }
+
+        $name = trim((string) $request->input('macrocycle_name', ''));
+        $program->update([
+            'macrocycle_name'  => $name !== '' ? $name : null,
+            'mesocycle_number' => $request->filled('mesocycle_number') ? (int) $request->mesocycle_number : null,
+        ]);
+
+        return json_message_response(__('message.save_form', ['form' => 'Training Program']));
     }
 
     /**

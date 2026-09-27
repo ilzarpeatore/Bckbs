@@ -924,6 +924,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     // ═══ V2: Training Programs ════════════════════════════════════════
     Route::get('training-program-list', [API\TrainingProgramController::class, 'getList']);
     Route::get('training-program-macrocycles', [API\TrainingProgramController::class, 'getMacrocycles']);
+    Route::post('training-program-set-macrocycle', [API\TrainingProgramController::class, 'setMacrocycle']);
     Route::get('training-program-detail', [API\TrainingProgramController::class, 'getDetail']);
     Route::post('training-program-store', [API\TrainingProgramController::class, 'store']);
     Route::post('training-program-update', [API\TrainingProgramController::class, 'update']);
