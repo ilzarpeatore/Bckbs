@@ -27,6 +27,7 @@ class PostController extends BaseController
             'category_ids'     => 'nullable|string',
             'blog_category_id' => 'nullable|integer|exists:blog_categories,id',
             'datetime'         => 'nullable|date',
+            'channel'          => 'sometimes|in:app,web,both',
             'is_featured'      => 'sometimes|boolean',
             'description'      => 'nullable|string',
             'content'          => 'nullable|string',

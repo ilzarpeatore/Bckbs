@@ -39,6 +39,15 @@ class PostController extends Controller
             return $q->where('blog_category_id', request('blog_category_id'));
         });
 
+        // AÑADIDO 2026-09-28: la app y la web comparten este mismo endpoint --
+        // sin `channel` no se filtra nada (retrocompatible, comportamiento
+        // idéntico al de siempre) mientras cada consumidor no mande el suyo
+        // (`?channel=app` desde la app, `?channel=web` desde la web). Un post
+        // 'both' se ve siempre, filtres por el canal que filtres.
+        $post->when(request('channel'), function ($q) {
+            return $q->channel(request('channel'));
+        });
+
         $orderBy = request('order_by', 'datetime');
         $orderDir = request('order_dir', 'desc');
 

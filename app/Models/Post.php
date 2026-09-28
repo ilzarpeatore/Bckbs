@@ -16,7 +16,7 @@ class Post extends Model implements HasMedia
 
     protected $fillable = [
         'title', 'slug', 'tags_id', 'category_ids', 'blog_category_id',
-        'datetime', 'status', 'is_featured', 'description', 'content', 'bibliography',
+        'datetime', 'status', 'channel', 'is_featured', 'description', 'content', 'bibliography',
     ];
 
     protected $casts = [
@@ -54,6 +54,16 @@ class Post extends Model implements HasMedia
     public function scopePublish($query)
     {
         return $query->where('status', 'publish');
+    }
+
+    /**
+     * Filtra por canal de publicación ('app'/'web') incluyendo siempre los
+     * posts marcados 'both' -- un post 'both' debe verse en los dos
+     * consumidores, no solo en el que coincide literalmente.
+     */
+    public function scopeChannel($query, string $channel)
+    {
+        return $query->whereIn('channel', [$channel, 'both']);
     }
 
     public function blogCategory()
