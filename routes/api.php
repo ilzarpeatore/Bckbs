@@ -932,6 +932,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('training-program-list', [API\TrainingProgramController::class, 'getList']);
     Route::get('training-program-macrocycles', [API\TrainingProgramController::class, 'getMacrocycles']);
     Route::post('training-program-set-macrocycle', [API\TrainingProgramController::class, 'setMacrocycle']);
+    Route::post('training-program-set-macrocycle-bulk', [API\TrainingProgramController::class, 'setMacrocycleBulk']);
     Route::get('macrocycle-plan', [API\MacrocycleDashboardController::class, 'plan']);
     Route::get('training-technique-list', [API\TrainingTechniqueController::class, 'getList']);
     Route::post('training-technique-save', [API\TrainingTechniqueController::class, 'save']);

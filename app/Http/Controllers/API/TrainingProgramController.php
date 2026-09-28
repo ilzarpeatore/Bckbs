@@ -76,14 +76,23 @@ class TrainingProgramController extends Controller
     }
 
     /**
-     * Macrociclos (página /macrociclos del panel, pedido 2026-09-27): todos
-     * los programas no personales -- biblioteca Y copias por cliente, a
-     * diferencia de getList() -- agrupados por macrociclo según su título
-     * (ver App\Support\MacrocycleTitle). Un mismo macrociclo de biblioteca
-     * y su copia asignada a un cliente son grupos distintos (clave
-     * macrociclo + client_id): cada cliente tiene sus propias filas desde
-     * TrainingProgram::cloneForClient(). Los programas cuyo título no
-     * menciona mesociclo/macrociclo no aparecen.
+     * Macrociclos (página /macrociclos del panel): todos los programas no
+     * personales -- biblioteca Y copias por cliente, a diferencia de
+     * getList() -- agrupados por el macrociclo que el coach les asignó A
+     * MANO (macrocycle_name; ver setMacrocycle/setMacrocycleBulk).
+     *
+     * Ya NO se deduce nada del título (2026-09-28): el texto que quedaba al
+     * quitar «Mesociclo N» era distinto en cada programa con un sufijo
+     * («· Calmar y construir la base», «-- 2/5 -- Progresion…») y cada
+     * mesociclo salía como un macrociclo de un solo elemento. Los programas
+     * sin macrociclo van en `unassigned`, con una SUGERENCIA de nombre y de
+     * nº de mesociclo sacada del título (MacrocycleTitle) para prerrellenar
+     * el formulario; nunca se aplica sola.
+     *
+     * Un mismo macrociclo de biblioteca y su copia asignada a un cliente
+     * son grupos distintos (clave macrociclo + client_id): las copias de
+     * cloneWithStructure() heredan macrocycle_name/mesocycle_number, y
+     * cada cliente tiene sus propias filas desde cloneForClient().
      */
     public function getMacrocycles(Request $request)
     {
@@ -98,19 +107,30 @@ class TrainingProgramController extends Controller
         $groups = [];
         $unassigned = [];
         foreach ($programs as $program) {
-            $parsed = self::macrocycleOf($program);
-            if ($parsed === null) {
-                // Programas sueltos: el panel los ofrece para asignarlos a mano a un macrociclo
+            $manualName = trim((string) $program->macrocycle_name);
+            $parsed = MacrocycleTitle::parse($program->title);
+            if ($manualName === '') {
                 $unassigned[] = [
-                    'id'     => $program->id,
-                    'title'  => $program->title,
-                    'client' => $program->client ? [
+                    'id'                  => $program->id,
+                    'title'               => $program->title,
+                    'client'              => $program->client ? [
                         'id'           => $program->client->id,
                         'display_name' => $program->client->display_name,
                     ] : null,
+                    'num_weeks'           => $program->num_weeks,
+                    'created_at'          => optional($program->created_at)->toIso8601String(),
+                    'assigned_clients'    => $program->clientAssignments->count(),
+                    'suggested_macrocycle' => $parsed['macrocycle'] ?? null,
+                    'suggested_mesocycle'  => $parsed['mesocycle'] ?? null,
                 ];
                 continue;
             }
+            $parsed = [
+                'macrocycle' => $manualName,
+                'key'        => mb_strtolower($manualName),
+                'mesocycle'  => self::mesocycleNumberOf($program),
+                'manual'     => true,
+            ];
 
             $groupKey = $parsed['key'] . '#' . ($program->client_id ?? 'library');
             if (!isset($groups[$groupKey])) {
@@ -171,41 +191,18 @@ class TrainingProgramController extends Controller
     }
 
     /**
-     * Macrociclo de un programa: el asignado a mano (macrocycle_name) manda;
-     * si no hay, se deduce del título. mesocycle_number manual también manda
-     * sobre el número del título.
-     *
-     * @return array{macrocycle: string, key: string, mesocycle: int|null, manual: bool}|null
+     * Nº de mesociclo de un programa: el asignado a mano (mesocycle_number)
+     * manda; si no hay, el que diga su título («Mesociclo 3», «M3»). Solo
+     * es el ORDEN dentro de un macrociclo ya elegido a mano; el título nunca
+     * decide a qué macrociclo pertenece un programa.
      */
-    private static function macrocycleOf(TrainingProgram $program): ?array
-    {
-        $parsed = MacrocycleTitle::parse($program->title);
-        $manualName = trim((string) $program->macrocycle_name);
-
-        if ($manualName !== '') {
-            return [
-                'macrocycle' => $manualName,
-                'key'        => mb_strtolower($manualName),
-                'mesocycle'  => $program->mesocycle_number ?? ($parsed['mesocycle'] ?? null),
-                'manual'     => true,
-            ];
-        }
-
-        if ($parsed === null) {
-            return null;
-        }
-
-        if ($program->mesocycle_number !== null) {
-            $parsed['mesocycle'] = $program->mesocycle_number;
-        }
-
-        return $parsed + ['manual' => false];
-    }
-
-    /** Nº de mesociclo de un programa (manual o deducido del título), para el dashboard del macrociclo. */
     public static function mesocycleNumberOf(TrainingProgram $program): ?int
     {
-        return self::macrocycleOf($program)['mesocycle'] ?? null;
+        if ($program->mesocycle_number !== null) {
+            return (int) $program->mesocycle_number;
+        }
+
+        return MacrocycleTitle::parse($program->title)['mesocycle'] ?? null;
     }
 
     /**
@@ -235,6 +232,56 @@ class TrainingProgramController extends Controller
             'macrocycle_name'  => $name !== '' ? $name : null,
             'mesocycle_number' => $request->filled('mesocycle_number') ? (int) $request->mesocycle_number : null,
         ]);
+
+        return json_message_response(__('message.save_form', ['form' => 'Training Program']));
+    }
+
+    /**
+     * Forma un macrociclo de una vez con los mesociclos que el coach ha
+     * seleccionado en la página /macrociclos: pone el mismo macrocycle_name
+     * en todos y el nº de mesociclo de cada uno (null = se sigue el del
+     * título, si lo hay). macrocycle_name vacío/null DISUELVE la selección:
+     * quita nombre y número de todos los programas enviados.
+     *
+     * Todo o nada: si algún id no existe, es personal o es de otro coach no
+     * se toca ninguno. Mismo control de propiedad que setMacrocycle().
+     */
+    public function setMacrocycleBulk(Request $request)
+    {
+        $request->validate([
+            'macrocycle_name'          => 'nullable|string|max:150',
+            'items'                    => 'required|array|min:1|max:200',
+            'items.*.id'               => 'required|integer|distinct',
+            'items.*.mesocycle_number' => 'nullable|integer|min:1|max:999',
+        ]);
+
+        $items = collect($request->input('items'));
+        $ids = $items->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $programs = TrainingProgram::where('coach_id', auth('sanctum')->id())
+            ->where('is_personal', false)
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        if ($programs->count() !== count($ids)) {
+            return json_message_response('Algún programa no existe o no eres su coach.', 404);
+        }
+
+        $name = trim((string) $request->input('macrocycle_name', ''));
+
+        DB::transaction(function () use ($items, $programs, $name) {
+            foreach ($items as $item) {
+                $number = $name !== '' && isset($item['mesocycle_number']) && $item['mesocycle_number'] !== ''
+                    ? (int) $item['mesocycle_number']
+                    : null;
+
+                $programs[(int) $item['id']]->update([
+                    'macrocycle_name'  => $name !== '' ? $name : null,
+                    'mesocycle_number' => $number,
+                ]);
+            }
+        });
 
         return json_message_response(__('message.save_form', ['form' => 'Training Program']));
     }
