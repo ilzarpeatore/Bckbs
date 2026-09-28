@@ -214,4 +214,62 @@ class TrainingTechniquesTest extends TestCase
             'key' => 'bfr', 'label' => '', 'description' => 'Y', 'steps' => [], 'mistakes' => [],
         ])->assertStatus(422);
     }
+
+    public function test_tecnica_desde_el_editor_del_calendario_plantilla_y_solo_este_cliente(): void
+    {
+        Sanctum::actingAs($this->coach);
+        $client = User::create([
+            'first_name' => 'Cli', 'last_name' => 'Ente', 'username' => 'cliente_tecnicas',
+            'email' => 'cliente-tecnicas@example.test', 'password' => bcrypt('password'),
+            'user_type' => 'user', 'status' => 'active', 'login_type' => 'manual',
+        ]);
+        $exercise = Exercise::create(['title' => 'Press banca', 'status' => 'active']);
+        $program = TrainingProgram::create(['title' => 'Plan de Cli', 'coach_id' => $this->coach->id, 'num_weeks' => 1, 'is_personal' => true, 'personal_client_id' => $client->id, 'activo' => true]);
+        $template = WorkoutTemplate::create(['coach_id' => $this->coach->id, 'title' => 'Torso']);
+        $block = WorkoutTemplateBlock::create(['workout_template_id' => $template->id, 'title' => 'Principal', 'order' => 1]);
+        $row = WorkoutTemplateExercise::create([
+            'workout_template_block_id' => $block->id, 'exercise_id' => $exercise->id, 'sequence' => 1,
+            'prescribed' => ['series' => '3', 'reps' => '8'], 'enabled_metrics' => ['reps', 'carga', 'rir'],
+        ]);
+        $assignment = ProgramDayAssignment::create([
+            'training_program_id' => $program->id, 'week_number' => 1, 'day_of_week' => 1, 'workout_template_id' => $template->id,
+        ]);
+        \App\Models\ProgramClientAssignment::create(['training_program_id' => $program->id, 'client_id' => $client->id, 'start_date' => now()->toDateString(), 'activo' => true]);
+
+        // 1) En la plantilla («Editar solo este día» / plantillas)
+        $this->postJson('/api/admin/workout-template-exercise-technique', [
+            'id' => $row->id, 'tecnica' => 'drop_sets', 'tecnica_series' => 'ultima',
+        ])->assertOk();
+        $this->assertSame(['series' => '3', 'reps' => '8', 'tecnica' => 'drop_sets', 'tecnica_series' => 'ultima'], $row->fresh()->prescribed);
+
+        $this->postJson('/api/admin/workout-template-exercise-technique', ['id' => $row->id, 'tecnica' => 'otra'])->assertStatus(422);
+        $this->postJson('/api/admin/workout-template-exercise-technique', ['id' => $row->id, 'tecnica' => 'inventada'])->assertStatus(422);
+
+        // 2) Solo este cliente en esta sesión (override): cambia la técnica sin tocar la plantilla
+        $override = fn (array $t) => $this->postJson('/api/admin/session-detail-update-override-technique', [
+            'program_day_assignment_id' => $assignment->id, 'client_id' => $client->id, 'workout_template_exercise_id' => $row->id,
+        ] + $t);
+        $override(['tecnica' => 'otra', 'tecnica_otra' => 'Pausa de 2 s abajo'])->assertOk();
+        $this->assertSame('drop_sets', $row->fresh()->prescribed['tecnica']);
+
+        $detail = $this->getJson('/api/admin/session-detail?'.http_build_query(['program_day_assignment_id' => $assignment->id, 'client_id' => $client->id]))->json('data');
+        $prescribed = collect($detail['blocks'][0]['exercises'])->firstWhere('exercise_id', $exercise->id)['prescribed'] ?? null;
+        $this->assertSame('otra', $prescribed['tecnica'] ?? null);
+        $this->assertSame('Pausa de 2 s abajo', $prescribed['tecnica_otra'] ?? null);
+
+        // La app del cliente la recibe (my-calendar-day-detail manda el prescrito como `sets`)
+        Sanctum::actingAs($client);
+        $day = $this->getJson('/api/v1/my-calendar-day-detail?program_day_assignment_id='.$assignment->id)->assertOk()->json('data');
+        $appPrescribed = $day['blocks'][0]['exercises'][0]['sets'];
+        $this->assertSame('otra', $appPrescribed['tecnica']);
+        $this->assertSame('todas', $appPrescribed['tecnica_series']);
+
+        // 3) Quitarla solo para este cliente tapa la de la plantilla
+        Sanctum::actingAs($this->coach);
+        $override(['tecnica' => null])->assertOk();
+        Sanctum::actingAs($client);
+        $appPrescribed = $this->getJson('/api/v1/my-calendar-day-detail?program_day_assignment_id='.$assignment->id)->json('data.blocks.0.exercises.0.sets');
+        $this->assertNull($appPrescribed['tecnica']);
+        $this->assertSame('drop_sets', $row->fresh()->prescribed['tecnica']);
+    }
 }

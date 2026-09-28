@@ -925,6 +925,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('workout-template-exercise-update-field', [API\WorkoutTemplateController::class, 'updatePrescribedField']);
     Route::post('workout-template-exercise-delete', [API\WorkoutTemplateController::class, 'deleteExercise']);
     Route::post('workout-template-exercise-notes', [API\WorkoutTemplateController::class, 'updateExerciseNotes']);
+    Route::post('workout-template-exercise-technique', [API\WorkoutTemplateController::class, 'updateExerciseTechnique']);
     Route::post('workout-template-block-instructions', [API\WorkoutTemplateController::class, 'updateBlockInstructions']);
 
     // ═══ V2: Training Programs ════════════════════════════════════════
@@ -990,6 +991,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('session-detail-duplicate', [API\SessionDetailController::class, 'duplicateToDate']);
     Route::post('session-detail-update-override-field', [API\SessionDetailController::class, 'updatePrescribedOverride']);
     Route::post('session-detail-update-override-notes', [API\SessionDetailController::class, 'updateOverrideNotes']);
+    Route::post('session-detail-update-override-technique', [API\SessionDetailController::class, 'updateOverrideTechnique']);
     Route::post('session-detail-add-block', [API\SessionDetailController::class, 'addBlock']);
     Route::post('session-detail-add-exercise', [API\SessionDetailController::class, 'addExercise']);
     Route::post('session-detail-remove-exercise', [API\SessionDetailController::class, 'removeExercise']);

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Support\TrainingTechniques;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\WorkoutTemplate;
@@ -463,6 +464,44 @@ class WorkoutTemplateController extends Controller
         $exercise->delete();
 
         return json_message_response(__('message.delete_form', ['form' => 'Exercise']));
+    }
+
+    /**
+     * Técnica especial de un ejercicio de la plantilla (rest-pause, drop
+     * set...), validada contra el catálogo (App\Support\TrainingTechniques).
+     * Endpoint propio en vez de tres llamadas a update-field: las tres claves
+     * van juntas y así no se pisan entre sí.
+     */
+    public function updateExerciseTechnique(Request $request)
+    {
+        $request->validate([
+            'id'             => 'required|exists:workout_template_exercises,id',
+            'tecnica'        => 'nullable|string|max:40',
+            'tecnica_series' => 'nullable|in:todas,ultima',
+            'tecnica_otra'   => 'nullable|string|max:120',
+        ]);
+
+        $exercise = WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
+            $q->where('coach_id', auth()->id());
+        })->find($request->id);
+
+        if ($exercise == null) {
+            return json_message_response(__('message.not_found_entry', ['name' => 'Exercise']));
+        }
+
+        if ($blocked = TemplateIsolationGuard::violation($exercise->block->workout_template_id)) {
+            return $blocked;
+        }
+
+        $prescribed = TrainingTechniques::apply(
+            is_array($exercise->prescribed) ? $exercise->prescribed : [],
+            $request->tecnica,
+            $request->tecnica_series,
+            $request->tecnica_otra
+        );
+        $exercise->update(['prescribed' => $prescribed]);
+
+        return json_custom_response(['data' => $exercise]);
     }
 
     public function updateExerciseNotes(Request $request)
