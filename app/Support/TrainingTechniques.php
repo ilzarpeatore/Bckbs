@@ -387,6 +387,34 @@ class TrainingTechniques
      *
      * @throws ValidationException si el slug no está en el catálogo
      */
+    /**
+     * Pone (o quita) la técnica de un prescrito, validada. Con
+     * $maskInherited, quitarla deja `tecnica => null` en vez de borrar la
+     * clave: para los overrides de un cliente, que se fusionan encima del
+     * prescrito de la plantilla (array_merge) -- sin el null, la técnica de
+     * la plantilla volvería a aparecer.
+     */
+    public static function apply(array $prescribed, ?string $key, ?string $series, ?string $otra, bool $maskInherited = false): array
+    {
+        foreach (self::KEYS as $k) {
+            unset($prescribed[$k]);
+        }
+        $key = trim((string) $key);
+        if ($key === '') {
+            if ($maskInherited) {
+                $prescribed['tecnica'] = null;
+            }
+
+            return $prescribed;
+        }
+
+        return self::normalizePrescribed($prescribed + [
+            'tecnica'        => $key,
+            'tecnica_series' => $series,
+            'tecnica_otra'   => $otra,
+        ]);
+    }
+
     public static function normalizePrescribed(array $prescribed): array
     {
         $tecnica = isset($prescribed['tecnica']) ? trim((string) $prescribed['tecnica']) : '';

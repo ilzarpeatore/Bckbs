@@ -18,6 +18,7 @@ use App\Models\User;
 use App\Notifications\CommonNotification;
 use App\Services\MuscleVolumeService;
 use App\Services\TemplateIsolationGuard;
+use App\Support\TrainingTechniques;
 use App\Traits\HasYoutubeThumbnail;
 use Illuminate\Support\Facades\Gate;
 use Carbon\Carbon;
@@ -612,6 +613,39 @@ class SessionDetailController extends Controller
             'client_id'                    => $request->client_id,
             'workout_template_exercise_id' => $request->workout_template_exercise_id,
         ]);
+    }
+
+    /**
+     * Técnica especial solo para ESTE cliente en ESTA sesión (override),
+     * sin tocar la plantilla compartida. Quitarla deja `tecnica => null`
+     * para tapar la que pudiera traer la plantilla (ver TrainingTechniques::apply).
+     */
+    public function updateOverrideTechnique(Request $request)
+    {
+        $request->validate([
+            'program_day_assignment_id'     => 'required|exists:program_day_assignments,id',
+            'client_id'                      => 'required|exists:users,id',
+            'workout_template_exercise_id'   => 'required_without:client_exercise_override_id|nullable|exists:workout_template_exercises,id',
+            'client_exercise_override_id'    => 'required_without:workout_template_exercise_id|nullable|exists:client_exercise_overrides,id',
+            'tecnica'                        => 'nullable|string|max:40',
+            'tecnica_series'                 => 'nullable|in:todas,ultima',
+            'tecnica_otra'                   => 'nullable|string|max:120',
+        ]);
+
+        $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
+
+        $override = $this->resolveEditableOverride($request);
+        $override->prescribed_override = TrainingTechniques::apply(
+            is_array($override->prescribed_override) ? $override->prescribed_override : [],
+            $request->tecnica,
+            $request->tecnica_series,
+            $request->tecnica_otra,
+            // Una adición del cliente no hereda nada de la plantilla.
+            maskInherited: $override->workout_template_exercise_id !== null
+        );
+        $override->save();
+
+        return json_custom_response(['data' => $override]);
     }
 
     /** AÑADIDO: guardar la nota del coach para este ejercicio, solo para este cliente/sesión. */
