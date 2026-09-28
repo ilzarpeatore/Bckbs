@@ -84,6 +84,36 @@ A diferencia de otros formatos de importación de este sistema (que solo traen u
 - Semana de descarga (`deload`): baja series, sube RIR, baja carga ~20-30% — mira la semana 4 del ejemplo adjunto.
 - Cambiar reps/ejercicios entre bloques o mesociclos dentro del mismo programa.
 
+### Reglas de progresión (OBLIGATORIAS)
+
+«Cada semana con su propia prescripción» **no basta**: un macrociclo que repite las mismas series y las mismas reps mes tras mes (solo con la
+onda de RIR) no es una programación. Un programa que incumple estas reglas **no se entrega**. Versión completa, con el porqué y un validador:
+`docs/AGENTE PROGRAMACION/REGLAS_DE_PROGRESION.md` y `validar_progresion.py` (repo `bsa`).
+
+**1. Series — el volumen de cada grupo muscular SUBE mes a mes.** Las series semanales (semana 1) de cada grupo son mayores en cada mesociclo
+que en el anterior: `M1 < M2 < M3 < M4 < M5` y `M6 >= M5`. Incremento típico: +1 serie semanal por grupo y mesociclo, repartido entre ejercicios
+y sesiones. Ejemplo (espalda): 8 → 9 → 11 → 12 → 13 → 14. Mantener las mismas series todos los meses, o bajarlas en el último, es un error.
+Excepción: el prehab de manguito/escápula sube despacio.
+
+**2. Onda dentro del mesociclo y descarga real.** S1 = base; la semana más exigente = base **+1 serie** en los ejercicios de progresión; la última
+semana es **descarga**: mitad de series, carga -25 %, RIR 4 y el rango de reps de la S1 (por debajo del 80 % de la semana pico).
+
+**3. Repeticiones — unos BAJAN, otros SUBEN, y cambian cada semana.** Dentro de cada mesociclo el rango de reps **cambia semana a semana** en
+todos los ejercicios de progresión (solo pueden ir fijos el prehab de hombro, el Face Pull, los gemelos y el core):
+
+| Sentido | Ejemplo | Carga |
+|---|---|---|
+| **Baja** (compuesto de pierna) | 12-15 → 10-12 → 8-10 → 6-8 → 4-6 | sube ~5 % cada semana |
+| **Baja** (tracción / empuje en máquina) | 12-15 → 10-12 → 8-10 (→ 6-8 tracción) | sube |
+| **Sube** (compuesto) | 4-6 o 6-8 → 8-10 / 10-12 → 12-15 | se mantiene (o +2,5 %) |
+| **Sube** (aislamiento) | 10-12 → 12-15 → 15-20 | se mantiene |
+
+- **En cada sesión hay al menos un ejercicio que baja y otro que sube.**
+- Un mismo ejercicio **alterna el sentido de un mesociclo al siguiente** (el que bajaba en M1 sube en M2).
+- Con el paso de los mesociclos los compuestos se mueven a rangos más pesados (arranca en 12-15; hacia M5-M6 llega a 6-8 en tracción y 4-6 en pierna).
+- Las restricciones del cliente mandan (p. ej. hombro inestable: empujes solo en máquina, **mínimo 8 reps y RIR ≥ 2**).
+- Escribe en `notas` qué hace la carga: «Bajas a 10-12 reps: SUBE la carga ~5 %» o «Subes a 12-15 con la misma carga».
+
 ---
 
 ## Ejemplo mínimo (2 filas, ilustrativo)
@@ -103,6 +133,9 @@ Para un ejemplo completo y real de 4 semanas × 5 sesiones, abre `excel.example.
 - [ ] Cabeceras de la fila 1 sin modificar (mismos nombres, mismo orden si es posible).
 - [ ] `semanas` en la hoja Programa coincide con el número de semanas distintas escritas en Programación.
 - [ ] Todas las semanas pedidas están explícitas, cada una con su propia prescripción — no dejar que "se sobreentienda" la progresión.
+- [ ] **Progresión de series:** cada grupo muscular hace más series semanales en cada mesociclo que en el anterior (M6 >= M5), y la última semana de cada mesociclo es una descarga real.
+- [ ] **Progresión de reps:** ningún ejercicio de progresión repite el mismo rango de reps las semanas de carga; en cada sesión hay ejercicios que suben y otros que bajan.
+- [ ] Si se entrega un macrociclo de varios mesociclos, se entrega **también el Excel de revisión del macrociclo completo** (dashboard, visión general, leyenda y una pestaña por mesociclo).
 - [ ] Cada fila de ejercicio tiene `series` y `reps` rellenos.
 - [ ] No se han escrito filas para los días de descanso (salvo que se quiera añadir una nota a ese día).
 - [ ] `rir` o `rpe`, no ambos a la vez en el mismo ejercicio (si se rellenan los dos, no es un error, pero solo se usa `rpe`).
