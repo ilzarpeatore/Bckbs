@@ -260,6 +260,40 @@ class OnboardingExtendedFieldsTest extends TestCase
         $this->assertNull($answer->home_equipment);
     }
 
+    public function test_training_beginner_can_skip_experience_dependent_fields(): void
+    {
+        $user = $this->makeUser();
+        Sanctum::actingAs($user, ['*']);
+
+        $payload = $this->trainingPayload(['training_experience_months' => 0, 'training_location' => 'home_none']);
+        unset(
+            $payload['training_mindset'], $payload['previous_coaching'], $payload['current_routine_style'],
+            $payload['weekly_split_preference'], $payload['technique_level'], $payload['realistic_goal'],
+        );
+
+        $this->postJson('/api/v1/onboarding/training-questionnaire', $payload)->assertStatus(200);
+
+        $answer = TrainingQuestionnaireAnswer::where('user_id', $user->id)->first();
+        $this->assertNull($answer->technique_level);
+        $this->assertNull($answer->realistic_goal);
+        $this->assertSame('home_none', $answer->training_location);
+    }
+
+    public function test_training_experienced_user_still_requires_experience_fields(): void
+    {
+        $user = $this->makeUser();
+        Sanctum::actingAs($user, ['*']);
+
+        $payload = $this->trainingPayload(['training_experience_months' => 24]);
+        unset($payload['technique_level'], $payload['realistic_goal']);
+
+        $response = $this->postJson('/api/v1/onboarding/training-questionnaire', $payload);
+
+        $response->assertStatus(422);
+        $this->assertArrayHasKey('technique_level', $response->json('errors', []));
+        $this->assertArrayHasKey('realistic_goal', $response->json('errors', []));
+    }
+
     // ═══ Nutrición práctica ═════════════════════════════════════════════
 
     public function test_nutrition_persists_practical_fields(): void

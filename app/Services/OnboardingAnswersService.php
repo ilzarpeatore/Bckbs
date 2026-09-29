@@ -123,12 +123,13 @@ class OnboardingAnswersService
             'training_experience_months'   => 'required|integer|min:0',
             'training_days_per_week'       => 'required|integer|min:1|max:7',
             'session_duration_preference'  => 'required|string|in:30,45,60,90,90_plus',
-            'training_mindset'             => 'required|string|in:rushed,calm,motivated,unmotivated',
-            'previous_coaching'            => 'required|string|in:online_coach,in_person_coach,self_trained',
-            'current_routine_style'        => 'required|string|in:improvised,copied,structured,always_same,very_varied',
-            'weekly_split_preference'      => 'required|string|in:upper_lower,push_pull,full_body,no_preference',
-            'technique_level'              => 'required|integer|min:1|max:10',
-            'realistic_goal'               => 'required|string',
+            // Solo si ya ha entrenado (2026-09-29): a quien empieza de cero no se le pregunta.
+            'training_mindset'             => 'required_unless:training_experience_months,0|nullable|string|in:rushed,calm,motivated,unmotivated',
+            'previous_coaching'            => 'required_unless:training_experience_months,0|nullable|string|in:online_coach,in_person_coach,self_trained',
+            'current_routine_style'        => 'required_unless:training_experience_months,0|nullable|string|in:improvised,copied,structured,always_same,very_varied',
+            'weekly_split_preference'      => 'required_unless:training_experience_months,0|nullable|string|in:upper_lower,push_pull,full_body,no_preference',
+            'technique_level'              => 'required_unless:training_experience_months,0|nullable|integer|min:1|max:10',
+            'realistic_goal'               => 'required_unless:training_experience_months,0|nullable|string',
             // Contexto ampliado (2026-09-29): deporte/evento, vida, material y referencias de fuerza.
             'practices_other_sport'        => 'nullable|boolean',
             'other_sport_description'      => 'nullable|string|max:2000',
@@ -140,7 +141,9 @@ class OnboardingAnswersService
             'sleep_hours'                  => 'nullable|integer|min:3|max:12',
             'sleep_regularity'             => 'nullable|string|in:regular,irregular',
             'stress_level'                 => 'nullable|integer|min:1|max:10',
-            'training_location'            => 'nullable|string|in:full_gym,basic_gym,home,outdoor,mixed',
+            // Lugar + material en una sola respuesta (2026-09-29); basic_gym/home/outdoor/mixed
+            // son los valores de la primera versión, se siguen aceptando.
+            'training_location'            => 'nullable|string|in:full_gym,gym_basic,gym_no_equipment,home_full,home_basic,home_none,basic_gym,home,outdoor,mixed',
             'home_equipment'               => 'nullable|array',
             'home_equipment.*'             => 'string|in:' . implode(',', self::HOME_EQUIPMENT_OPTIONS),
             'equipment_notes'              => 'nullable|string|max:2000',
