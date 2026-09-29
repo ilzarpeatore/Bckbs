@@ -294,6 +294,89 @@ class OnboardingExtendedFieldsTest extends TestCase
         $this->assertArrayHasKey('realistic_goal', $response->json('errors', []));
     }
 
+    // ═══ Ida y vuelta: onboarding -> "Mis respuestas" (app) -> guardar ═══
+    // El editor de la app (onboarding_data_screen.tsx) lee GET my-answers y
+    // reenvía cada sección tal cual la recibe (con id, user_id, fechas y los
+    // campos que ya no se preguntan). Eso tiene que validar y no alterar nada.
+
+    public function test_my_answers_round_trip_for_beginner_and_experienced(): void
+    {
+        $cases = [
+            'principiante' => $this->trainingPayload([
+                'training_experience_months' => 0,
+                'training_mindset' => null, 'previous_coaching' => null, 'current_routine_style' => null,
+                'weekly_split_preference' => null, 'technique_level' => null, 'realistic_goal' => null,
+                'training_location' => 'home_none',
+            ]),
+            'con experiencia' => $this->trainingPayload([
+                'training_location' => 'home_basic',
+                'equipment_notes' => 'Mancuernas hasta 20 kg',
+                'has_target_event' => true,
+                'target_event_description' => 'HYROX Madrid',
+                'target_event_date' => '2027-03-14',
+                'strength_squat_kg' => 80, 'strength_squat_reps' => 8,
+                'strength_db_bench_kg' => 22.5, 'strength_db_bench_reps' => 10,
+                'work_schedule' => 'split', 'sleep_hours' => 7, 'sleep_regularity' => 'regular', 'stress_level' => 6,
+            ]),
+        ];
+
+        foreach ($cases as $label => $training) {
+            $user = $this->makeUser();
+            Sanctum::actingAs($user, ['*']);
+
+            $this->postJson('/api/v1/onboarding/par-q', $this->parqPayload($this->injuryFields()))->assertStatus(200);
+            $this->postJson('/api/v1/onboarding/training-questionnaire', $training)->assertStatus(200);
+            $this->postJson('/api/v1/onboarding/nutrition-questionnaire', $this->nutritionPayload([
+                'medications' => null, 'supplements' => 'Creatina', 'intermittent_fasting' => false,
+                'weekly_food_budget' => '40_70', 'alcohol_frequency' => 'weekends', 'water_intake' => '2_3l',
+            ]))->assertStatus(200);
+
+            $before = $this->getJson('/api/v1/onboarding/my-answers')->assertStatus(200)->json('data');
+
+            $this->postJson('/api/v1/onboarding/par-q', $before['par_q'])->assertStatus(200);
+            $this->postJson('/api/v1/onboarding/training-questionnaire', $before['training_questionnaire'])->assertStatus(200);
+            $this->postJson('/api/v1/onboarding/nutrition-questionnaire', $before['nutrition_questionnaire'])->assertStatus(200);
+
+            $after = $this->getJson('/api/v1/onboarding/my-answers')->json('data');
+            foreach (['par_q', 'training_questionnaire', 'nutrition_questionnaire'] as $section) {
+                unset($before[$section]['updated_at'], $after[$section]['updated_at']);
+                $this->assertEquals($before[$section], $after[$section], "$label: $section cambió al reenviarlo");
+            }
+        }
+    }
+
+    public function test_admin_can_edit_new_fields_with_same_rules(): void
+    {
+        Role::findOrCreate('admin', 'web');
+        $admin = $this->makeUser();
+        $admin->forceFill(['user_type' => 'admin'])->save();
+        $admin->assignRole('admin');
+        $client = $this->makeUser();
+        Sanctum::actingAs($admin, ['*']);
+
+        $this->postJson('/api/admin/admin-onboarding-training-questionnaire-update', $this->trainingPayload([
+            'user_id' => $client->id,
+            'training_experience_months' => 0,
+            'training_mindset' => null, 'previous_coaching' => null, 'current_routine_style' => null,
+            'weekly_split_preference' => null, 'technique_level' => null, 'realistic_goal' => null,
+            'training_location' => 'gym_basic',
+            'equipment_notes' => 'Solo mancuernas',
+            'has_target_event' => true,
+            'target_event_date' => '2027-05-01',
+        ]))->assertStatus(200);
+
+        $answer = TrainingQuestionnaireAnswer::where('user_id', $client->id)->first();
+        $this->assertSame('gym_basic', $answer->training_location);
+        $this->assertSame('2027-05-01', $answer->target_event_date->format('Y-m-d'));
+        $this->assertNull($answer->technique_level);
+
+        $this->postJson('/api/admin/admin-onboarding-par-q-update', $this->parqPayload($this->injuryFields([
+            'user_id' => $client->id,
+            'injury_phase' => 'acute',
+        ])))->assertStatus(200);
+        $this->assertTrue((bool) $client->fresh()->flagged_for_review);
+    }
+
     // ═══ Nutrición práctica ═════════════════════════════════════════════
 
     public function test_nutrition_persists_practical_fields(): void
