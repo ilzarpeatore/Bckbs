@@ -26,6 +26,14 @@ class NutritionQuestionnaireAnswer extends Model
         'cooking_minutes_per_meal',
         'cooking_skill_level',
         'cooks_for_others',
+        // Nutrición práctica (2026-09-29)
+        'weekly_food_budget',
+        'meals_away_from_home',
+        'meal_schedule',
+        'intermittent_fasting',
+        'alcohol_frequency',
+        'water_intake',
+        'previous_diets',
     ];
 
     protected $casts = [
@@ -33,6 +41,7 @@ class NutritionQuestionnaireAnswer extends Model
         'desired_meals_per_day'    => 'integer',
         'cooking_minutes_per_meal' => 'integer',
         'cooks_for_others'         => 'boolean',
+        'intermittent_fasting'     => 'boolean',
     ];
 
     public function user()
