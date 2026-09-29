@@ -32,6 +32,13 @@ jobs:
           key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
           restore-keys: composer-${{ runner.os }}-
 
+      # storage/framework/* y storage/logs están en .gitignore (sin .gitkeep):
+      # en un checkout limpio no existen, y el `package:discover` del
+      # post-autoload de composer falla con "Please provide a valid cache
+      # path". En la VPS ya existen, por eso solo se veía aquí.
+      - name: Crear directorios de storage
+        run: mkdir -p storage/framework/{cache/data,sessions,views,testing} storage/logs bootstrap/cache
+
       - name: Instalar dependencias
         run: composer install --no-interaction --prefer-dist --no-progress
 
