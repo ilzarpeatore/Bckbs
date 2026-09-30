@@ -33,6 +33,11 @@ class PlanResource extends JsonResource
             'meal_plan_template_id' => $this->meal_plan_template_id,
             'grants_full_workout_library' => $this->grants_full_workout_library,
             'grants_full_recipe_library' => $this->grants_full_recipe_library,
+            'sold_on_web' => (bool) $this->sold_on_web,
+            'short_description' => $this->short_description,
+            'image_url' => $this->image_url,
+            'habit_template_ids' => $this->habit_template_ids ?? [],
+            'resource_ids' => $this->resource_ids ?? [],
             'created_at' => $this->created_at?->toISOString(),
             'updated_at' => $this->updated_at?->toISOString(),
         ];

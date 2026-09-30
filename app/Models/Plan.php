@@ -18,6 +18,8 @@ class Plan extends Model
         'prorate_day', 'prorate_period', 'prorate_extend_due',
         'active_subscribers_limit', 'sort_order',
         'training_program_id', 'meal_plan_template_id',
+        // Packs vendidos en la web (2026-09-30, ver docs/PACKS_WEB.md).
+        'sold_on_web', 'short_description', 'image_url', 'habit_template_ids', 'resource_ids',
         'grants_full_workout_library', 'grants_full_recipe_library',
     ];
 
@@ -31,6 +33,9 @@ class Plan extends Model
         'sort_order' => 'integer',
         'grants_full_workout_library' => 'boolean',
         'grants_full_recipe_library' => 'boolean',
+        'sold_on_web' => 'boolean',
+        'habit_template_ids' => 'array',
+        'resource_ids' => 'array',
     ];
 
     protected static function boot(): void

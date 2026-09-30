@@ -178,6 +178,10 @@ class OnboardingController extends Controller
             $user->save();
         }
 
+        // Packs comprados en la web: empiezan ahora que el coach ya tiene
+        // sus datos (docs/PACKS_WEB.md).
+        \App\Services\PackPurchaseService::startPendingFor($user);
+
         return json_custom_response(['message' => 'OK', 'status' => true]);
     }
 }

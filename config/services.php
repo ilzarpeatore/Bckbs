@@ -74,4 +74,18 @@ return [
         'api_key' => env('USDA_API_KEY', ''),
     ],
 
+    // Packs vendidos en la web (docs/PACKS_WEB.md). Claves solo en el .env
+    // del servidor: Dashboard de Stripe -> Developers -> API keys / Webhooks.
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+    ],
+
+    'packs' => [
+        // Web donde se venden los packs: vuelta desde Stripe (gracias/cancelar).
+        'web_url' => rtrim(env('PACKS_WEB_URL', 'https://bestronger.es'), '/'),
+        'app_store_url' => env('APP_STORE_URL'),
+        'play_store_url' => env('PLAY_STORE_URL'),
+    ],
+
 ];
