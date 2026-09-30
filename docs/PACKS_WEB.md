@@ -40,7 +40,10 @@ Para la web: `short_description`, `description`, `image_url`, `price` (+ `signup
    futuro (`PlanFulfillmentService::revokeAccess`).
 
 Admin: `GET admin/pack-purchases` (listado, búsqueda por email o código),
-`POST admin/pack-purchases-resend`, `POST admin/pack-purchases-link` (vincular a mano).
+`POST admin/pack-purchases-resend`, `POST admin/pack-purchases-link` (vincular a mano,
+con `user_id` o con `user_email` del cliente). En el panel (`bstronger-admin`):
+**Planes** (marcar "En venta en la web", descripción corta, imagen, hábitos y recursos
+incluidos) y **Compras de packs** (`/pack-purchases`: reenviar email, vincular).
 
 ## Configuración (una vez)
 
