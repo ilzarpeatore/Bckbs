@@ -67,15 +67,24 @@ class PackPurchaseController extends Controller
     {
         $request->validate([
             'id' => 'required|exists:pack_purchases,id',
-            'user_id' => 'required|exists:users,id',
+            // El coach suele conocer el email con el que se registró el cliente, no su id.
+            'user_id' => 'required_without:user_email|nullable|exists:users,id',
+            'user_email' => 'required_without:user_id|nullable|email',
         ]);
         $purchase = PackPurchase::findOrFail($request->id);
         if ($purchase->status !== PackPurchase::STATUS_PAID) {
             return json_message_response('Esta compra ya está vinculada o devuelta.', 422);
         }
 
-        PackPurchaseService::claim($purchase, User::findOrFail($request->user_id));
-        AuditLogger::log('link_pack_purchase', 'pack_purchases', $purchase->id, "Compra vinculada a mano al usuario {$request->user_id}.");
+        $user = $request->filled('user_id')
+            ? User::find($request->user_id)
+            : User::whereRaw('LOWER(email) = ?', [PackPurchase::normalizeEmail($request->user_email)])->first();
+        if (!$user) {
+            return json_message_response('No hay ningún cliente con ese email.', 422);
+        }
+
+        PackPurchaseService::claim($purchase, $user);
+        AuditLogger::log('link_pack_purchase', 'pack_purchases', $purchase->id, "Compra vinculada a mano al usuario {$user->id}.");
 
         return json_message_response('Compra vinculada.');
     }

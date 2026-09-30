@@ -275,6 +275,24 @@ class PackPurchaseTest extends TestCase
         $this->postJson('/api/v1/pack-redeem', ['code' => 'NOEXISTE22'])->assertStatus(422);
     }
 
+    public function test_admin_can_link_purchase_by_client_email(): void
+    {
+        Role::findOrCreate('admin', 'web');
+        $admin = $this->makeUser('admin@example.test');
+        $admin->forceFill(['user_type' => 'admin'])->save();
+        $admin->assignRole('admin');
+        $client = $this->makeUser('cliente@example.test');
+        $plan = $this->makePack();
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'otro@example.test'))->assertStatus(200);
+        Sanctum::actingAs($admin, ['*']);
+
+        $this->getJson('/api/admin/pack-purchases?search=otro@example')->assertStatus(200)->assertJsonPath('data.0.status', 'paid');
+        $this->postJson('/api/admin/pack-purchases-link', ['id' => PackPurchase::first()->id, 'user_email' => 'Cliente@example.test'])
+            ->assertStatus(200);
+
+        $this->assertSame($client->id, PackPurchase::first()->user_id);
+    }
+
     // ═══ Página de gracias y devoluciones ════════════════════════════
 
     public function test_checkout_status_shows_email_and_code(): void
