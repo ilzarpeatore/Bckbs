@@ -22,7 +22,7 @@ class PackController extends Controller
 {
     public function catalog()
     {
-        $plans = Plan::active()->where('sold_on_web', true)->orderBy('sort_order')->orderBy('id')->get();
+        $plans = Plan::active()->where('is_pack', true)->where('sold_on_web', true)->orderBy('sort_order')->orderBy('id')->get();
 
         return json_custom_response(['data' => $plans->map(fn (Plan $plan) => $this->present($plan))->values()]);
     }
@@ -30,7 +30,7 @@ class PackController extends Controller
     public function detail(Request $request)
     {
         $request->validate(['slug' => 'required|string']);
-        $plan = Plan::active()->where('sold_on_web', true)->where('slug', $request->slug)->first();
+        $plan = Plan::active()->where('is_pack', true)->where('sold_on_web', true)->where('slug', $request->slug)->first();
         if (!$plan) {
             return json_message_response('Pack no encontrado.', 404);
         }
@@ -45,7 +45,7 @@ class PackController extends Controller
             'email' => 'nullable|email|max:255',
         ]);
 
-        $plan = Plan::active()->where('sold_on_web', true)->where('slug', $request->slug)->first();
+        $plan = Plan::active()->where('is_pack', true)->where('sold_on_web', true)->where('slug', $request->slug)->first();
         if (!$plan) {
             return json_message_response('Pack no encontrado.', 404);
         }

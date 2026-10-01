@@ -82,6 +82,7 @@ class PackPurchaseTest extends TestCase
             'invoice_period' => 3,
             'invoice_interval' => 'month',
             'is_active' => true,
+            'is_pack' => true,
             'sold_on_web' => true,
             'habit_template_ids' => [$habit->id],
             'resource_ids' => [$resource->id],
@@ -125,6 +126,8 @@ class PackPurchaseTest extends TestCase
     {
         $this->makePack();
         Plan::create(['name' => 'Coaching presencial', 'slug' => 'presencial', 'price' => 99, 'is_active' => true, 'sold_on_web' => false]);
+        // Un plan de suscripción nunca se vende como pack aunque lleve sold_on_web.
+        Plan::create(['name' => 'Mensual', 'slug' => 'mensual', 'price' => 29, 'is_active' => true, 'sold_on_web' => true]);
 
         $response = $this->getJson('/api/pack-catalog')->assertStatus(200);
 
