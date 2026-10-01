@@ -23,7 +23,7 @@ class TwoFactorService
 
     public static function provisioningUri(string $secret, string $accountName, ?string $issuer = null): string
     {
-        $issuer = $issuer ?: config('app.name', 'MightyFitness');
+        $issuer = $issuer ?: config('app.name', 'Be Stronger');
         $label = rawurlencode($issuer) . ':' . rawurlencode($accountName);
         $query = http_build_query([
             'secret' => $secret,

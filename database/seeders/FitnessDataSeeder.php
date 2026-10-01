@@ -375,7 +375,7 @@ class FitnessDataSeeder extends Seeder
 
     private function seedSettings(): void
     {
-        Setting::create(['type' => 'site', 'key' => 'app_name', 'value' => 'MightyFitness']);
+        Setting::create(['type' => 'site', 'key' => 'app_name', 'value' => 'Be Stronger']);
         Setting::create(['type' => 'site', 'key' => 'app_description', 'value' => 'Tu plataforma de entrenamiento personal']);
         $this->command?->info('Settings: 2');
     }

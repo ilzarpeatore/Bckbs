@@ -327,7 +327,7 @@ return new class extends Migration
                         'screenId' => '25',
                         'keyword_id' => 447,
                         'keyword_name' => 'lblMightyfitness',
-                        'keyword_value' => 'Mighty Fitness',
+                        'keyword_value' => 'Be Stronger',
                     ],
                     [
                         'screenId' => '25',

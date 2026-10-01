@@ -11,8 +11,8 @@ class AdminUserSeeder extends Seeder
     {
         $user = new User();
         $user->first_name = 'Admin';
-        $user->last_name = 'MightyFitness';
-        $user->email = 'admin@mightyfitness.com';
+        $user->last_name = 'Stronger';
+        $user->email = 'admin@bestronger.es';
         $user->username = 'admin';
         $user->password = bcrypt('password');
         $user->user_type = 'admin';
@@ -23,6 +23,6 @@ class AdminUserSeeder extends Seeder
 
         $user->assignRole('admin');
 
-        $this->command?->info('Admin creado: admin@mightyfitness.com / password');
+        $this->command?->info('Admin creado: admin@bestronger.es / password');
     }
 }
