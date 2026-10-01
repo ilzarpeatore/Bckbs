@@ -59,6 +59,13 @@ class StripeGateway
             'cancel_url' => $cancelUrl,
             'allow_promotion_codes' => true,
             'locale' => 'es',
+            // Cestas abandonadas (docs/MARKETING_WEB.md): la sesión caduca a las
+            // pocas horas; si el comprador aceptó comunicaciones (casilla que
+            // Stripe muestra donde la ley la exige), al caducar Stripe genera un
+            // enlace para retomar el pago y le enviamos un único recordatorio.
+            'expires_at' => now()->addHours(min(24, max(1, (int) config('services.stripe.checkout_expires_hours', 3))))->timestamp,
+            'consent_collection' => ['promotions' => 'auto'],
+            'after_expiration' => ['recovery' => ['enabled' => true, 'allow_promotion_codes' => true]],
         ];
         if ($email) {
             $params['customer_email'] = $email;

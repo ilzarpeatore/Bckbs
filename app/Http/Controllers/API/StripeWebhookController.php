@@ -13,8 +13,8 @@ use Stripe\Exception\SignatureVerificationException;
  * Webhook de Stripe para los packs vendidos en la web (docs/PACKS_WEB.md).
  * Dashboard de Stripe -> Developers -> Webhooks -> endpoint
  * https://<backend>/api/webhooks/stripe con los eventos
- * checkout.session.completed, checkout.session.async_payment_succeeded y
- * charge.refunded. Su "Signing secret" va en STRIPE_WEBHOOK_SECRET.
+ * checkout.session.completed, checkout.session.async_payment_succeeded,
+ * checkout.session.expired (cestas abandonadas) y charge.refunded. Su "Signing secret" va en STRIPE_WEBHOOK_SECRET.
  */
 class StripeWebhookController extends Controller
 {
@@ -40,6 +40,10 @@ class StripeWebhookController extends Controller
                 // Solo registra si payment_status === 'paid' (los pagos
                 // diferidos llegan después con async_payment_succeeded).
                 PackPurchaseService::recordPaidSession($object);
+                break;
+            case 'checkout.session.expired':
+                // Cesta abandonada (y, si aceptó comunicaciones, recordatorio).
+                \App\Services\CheckoutAttemptService::markExpired($object);
                 break;
             case 'charge.refunded':
                 if (!empty($object->payment_intent)) {

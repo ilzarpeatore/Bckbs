@@ -34,7 +34,20 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::get('pack-detail', [ API\PackController::class, 'detail' ]);
     Route::get('pack-checkout-status', [ API\PackController::class, 'checkoutStatus' ]);
 });
-Route::middleware('throttle:10,1')->post('pack-checkout', [ API\PackController::class, 'checkout' ]);
+// Por visitante real (la web llama desde su servidor; ver App\Support\WebClient).
+Route::middleware('throttle:web-forms')->post('pack-checkout', [ API\PackController::class, 'checkout' ]);
+
+// Marketing de la web (docs/MARKETING_WEB.md): newsletter con doble opt-in,
+// formulario de contacto y analítica propia sin cookies.
+Route::middleware('throttle:web-forms')->group(function () {
+    Route::post('newsletter-subscribe', [ API\NewsletterController::class, 'subscribe' ]);
+    Route::post('contact-message', [ API\ContactMessageController::class, 'store' ]);
+});
+Route::middleware('throttle:30,1')->group(function () {
+    Route::post('newsletter-confirm', [ API\NewsletterController::class, 'confirm' ]);
+    Route::post('newsletter-unsubscribe', [ API\NewsletterController::class, 'unsubscribe' ]);
+});
+Route::middleware('throttle:web-track')->post('track', [ API\TrackController::class, 'pageview' ]);
 // Stripe firma cada llamada (verificada en el controlador); sin auth ni throttle.
 Route::post('webhooks/stripe', [ API\StripeWebhookController::class, 'handle' ]);
 Route::middleware(['auth:sanctum', 'throttle:10,1'])->post('v1/pack-redeem', [ API\PackController::class, 'redeem' ]);
@@ -714,6 +727,17 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('pack-purchases-link', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'link']);
     Route::post('pack-image', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'uploadImage']);
     Route::get('pack-stats', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'stats']);
+
+    // Marketing (docs/MARKETING_WEB.md)
+    Route::get('newsletter-subscribers', [\App\Http\Controllers\API\Admin\MarketingController::class, 'newsletterIndex']);
+    Route::get('newsletter-stats', [\App\Http\Controllers\API\Admin\MarketingController::class, 'newsletterStats']);
+    Route::get('newsletter-export', [\App\Http\Controllers\API\Admin\MarketingController::class, 'newsletterExport']);
+    Route::post('newsletter-delete', [\App\Http\Controllers\API\Admin\MarketingController::class, 'newsletterDelete']);
+    Route::get('contact-messages', [\App\Http\Controllers\API\Admin\MarketingController::class, 'contactIndex']);
+    Route::post('contact-messages-update', [\App\Http\Controllers\API\Admin\MarketingController::class, 'contactUpdate']);
+    Route::post('contact-messages-delete', [\App\Http\Controllers\API\Admin\MarketingController::class, 'contactDelete']);
+    Route::get('checkout-attempts', [\App\Http\Controllers\API\Admin\MarketingController::class, 'checkoutAttempts']);
+    Route::get('web-analytics', [\App\Http\Controllers\API\Admin\MarketingController::class, 'analytics']);
 
     // Comercio (panel React: usage, stats, reminder, revoke, transactions)
     Route::get('subscription-usage', [AdminPlanSubscriptionController::class, 'usage']);

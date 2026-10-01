@@ -77,6 +77,7 @@ Tras cambiar el `.env`: `php artisan config:cache`.
 Webhook en Stripe: Dashboard → Developers → Webhooks → *Add endpoint*
 - URL: `https://testapp.bestronger.es/api/webhooks/stripe`
 - Eventos: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.expired` (cestas abandonadas, ver docs/MARKETING_WEB.md) y
   `charge.refunded`
 - Copiar el *Signing secret* a `STRIPE_WEBHOOK_SECRET`.
 

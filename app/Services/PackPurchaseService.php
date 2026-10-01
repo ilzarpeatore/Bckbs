@@ -76,6 +76,7 @@ class PackPurchaseService
         }
 
         self::sendConfirmation($purchase);
+        CheckoutAttemptService::markCompleted($session, $purchase);
 
         $user = User::whereRaw('LOWER(email) = ?', [$email])->first();
         if ($user) {
