@@ -109,7 +109,9 @@ class MarketingController extends Controller
     public function contactIndex(Request $request)
     {
         $query = ContactMessage::query()->latest('id');
-        if ($request->filled('status')) {
+        if ($request->status === 'inbox') {
+            $query->where('status', '!=', 'archived');
+        } elseif ($request->filled('status')) {
             $query->where('status', $request->status);
         }
         if ($request->filled('search')) {

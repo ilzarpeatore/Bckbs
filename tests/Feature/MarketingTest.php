@@ -270,6 +270,21 @@ class MarketingTest extends TestCase
         $this->assertStringNotContainsString('p@example.test', $csv);
     }
 
+    public function test_contact_inbox_hides_archived_and_counts_unread(): void
+    {
+        $base = ['name' => 'X', 'email' => 'x@example.test', 'message' => 'Hola'];
+        $new = ContactMessage::create($base + ['status' => 'new']);
+        ContactMessage::create($base + ['status' => 'archived']);
+
+        $this->actingAsAdmin();
+        $this->getJson('/api/admin/contact-messages?status=inbox')->assertStatus(200)
+            ->assertJsonCount(1, 'data')->assertJsonPath('unread', 1);
+
+        $this->postJson('/api/admin/contact-messages-update', ['id' => $new->id, 'status' => 'read'])->assertStatus(200);
+        $this->assertNotNull($new->fresh()->read_at);
+        $this->getJson('/api/admin/contact-messages')->assertJsonCount(2, 'data')->assertJsonPath('unread', 0);
+    }
+
     public function test_marketing_admin_endpoints_require_admin(): void
     {
         $this->getJson('/api/admin/web-analytics')->assertStatus(401);
