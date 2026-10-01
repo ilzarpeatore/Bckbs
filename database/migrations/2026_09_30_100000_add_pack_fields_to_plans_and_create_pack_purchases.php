@@ -17,7 +17,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('plans', function (Blueprint $table) {
-            $table->boolean('sold_on_web')->default(false)->after('is_active');
+            // is_pack: se gestiona desde la página Packs del panel (pago único,
+            // sin campos de suscripción); sold_on_web: publicado en la web.
+            $table->boolean('is_pack')->default(false)->after('is_active');
+            $table->boolean('sold_on_web')->default(false)->after('is_pack');
             $table->string('short_description', 255)->nullable()->after('description');
             $table->string('image_url')->nullable()->after('short_description');
             // Plantillas de hábitos (habits con client_id NULL) y recursos que el pack asigna.
@@ -43,6 +46,9 @@ return new class extends Migration
             $table->unsignedBigInteger('plan_subscription_id')->nullable();
             $table->timestamp('claimed_at')->nullable();
             $table->timestamp('refunded_at')->nullable();
+            // Recordatorios a quien pagó y no se ha registrado (packs:remind-unclaimed).
+            $table->unsignedTinyInteger('reminders_sent')->default(0);
+            $table->timestamp('last_reminder_at')->nullable();
             $table->timestamps();
 
             $table->index('email');
@@ -55,7 +61,7 @@ return new class extends Migration
     {
         Schema::dropIfExists('pack_purchases');
         Schema::table('plans', function (Blueprint $table) {
-            $table->dropColumn(['sold_on_web', 'short_description', 'image_url', 'habit_template_ids', 'resource_ids']);
+            $table->dropColumn(['is_pack', 'sold_on_web', 'short_description', 'image_url', 'habit_template_ids', 'resource_ids']);
         });
     }
 };

@@ -48,6 +48,7 @@ class PackPurchaseController extends Controller
                     'email' => $p->user->email,
                 ] : null,
                 'started' => (bool) $p->subscription?->fulfilled_at,
+                'reminders_sent' => $p->reminders_sent,
                 'claimed_at' => $p->claimed_at?->toISOString(),
                 'created_at' => $p->created_at?->toISOString(),
             ]),

@@ -45,6 +45,21 @@ con `user_id` o con `user_email` del cliente). En el panel (`bstronger-admin`):
 **Planes** (marcar "En venta en la web", descripción corta, imagen, hábitos y recursos
 incluidos) y **Compras de packs** (`/pack-purchases`: reenviar email, vincular).
 
+### Página Packs del panel (2026-10-01)
+- Un pack es un `Plan` con `is_pack = true`. La página **Packs** del panel solo lista
+  esos (`GET admin/plans?is_pack=1`) y tiene un formulario propio sin campos de
+  suscripción (prueba, gracia, facturación): duración, precio, contenido y la web.
+- **Enlace**: `plans.slug` es la URL pública (`{PACKS_WEB_URL}/packs/{slug}`), único
+  (sufijo `-2`, `-3`… si se repite el nombre) y editable. `PlanResource.pack_url` lo
+  da hecho cuando el pack se vende en la web.
+- **Imagen**: `POST admin/pack-image` (jpg/png/webp, máx. 5 MB) la guarda en el disco
+  `public` (`storage/app/public/packs`) y devuelve la URL para `image_url`.
+- **Estadísticas**: `GET admin/pack-stats` → por pack: compras (sin devoluciones),
+  ingresos, registrados en la app, sin registrar, devoluciones.
+- **Recordatorio**: `php artisan packs:remind-unclaimed` (cron diario 10:00 Madrid)
+  envía `PackReminderMail` a quien pagó y sigue sin cuenta vinculada: a los 3 días y
+  a los 10 (máximo 2; `pack_purchases.reminders_sent`). `--dry-run` para ver a quién.
+
 ## Configuración (una vez)
 
 En el `.env` del servidor (nunca en el repo):

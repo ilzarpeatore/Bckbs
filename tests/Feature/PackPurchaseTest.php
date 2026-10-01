@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\PackPurchaseMail;
+use App\Mail\PackReminderMail;
 use App\Models\Habit;
 use App\Models\PackPurchase;
 use App\Models\Plan;
@@ -13,6 +14,8 @@ use App\Models\User;
 use App\Services\PackPurchaseService;
 use App\Services\Stripe\StripeGateway;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Mail;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -336,5 +339,110 @@ class PackPurchaseTest extends TestCase
         $purchase = PackPurchase::first();
         $this->assertSame(PackPurchase::STATUS_REFUNDED, $purchase->status);
         $this->assertNotNull($purchase->subscription->access_revoked_at);
+    }
+
+    // ═══ Página Packs del panel ═════════════════════════════════════
+
+    private function actingAsAdmin(): User
+    {
+        Role::findOrCreate('admin', 'web');
+        $admin = $this->makeUser('admin_' . uniqid() . '@example.test');
+        $admin->forceFill(['user_type' => 'admin'])->save();
+        $admin->assignRole('admin');
+        Sanctum::actingAs($admin, ['*']);
+
+        return $admin;
+    }
+
+    public function test_admin_creates_pack_with_unique_slug_and_public_link(): void
+    {
+        $this->actingAsAdmin();
+        Plan::create(['name' => 'Glúteo 3 meses', 'price' => 10, 'currency' => 'EUR']);
+
+        $this->postJson('/api/admin/plans', [
+            'name' => 'Glúteo 3 meses', 'price' => 49, 'currency' => 'EUR', 'is_pack' => true,
+            'sold_on_web' => true, 'invoice_period' => 3, 'invoice_interval' => 'month',
+        ])->assertStatus(201);
+
+        $pack = Plan::where('is_pack', true)->firstOrFail();
+        $this->assertSame('gluteo-3-meses-2', $pack->slug);
+
+        $res = $this->getJson('/api/admin/plans?is_pack=1')->assertStatus(200);
+        $this->assertCount(1, $res->json('data'));
+        $this->assertSame('https://bestronger.test/packs/gluteo-3-meses-2', $res->json('data.0.pack_url'));
+        $this->assertCount(1, $this->getJson('/api/admin/plans?is_pack=0')->json('data'));
+    }
+
+    public function test_admin_can_change_pack_slug_but_not_to_a_taken_one(): void
+    {
+        $this->actingAsAdmin();
+        $pack = $this->makePack(['is_pack' => true]);
+        Plan::create(['name' => 'Otro', 'slug' => 'otro', 'price' => 10, 'currency' => 'EUR']);
+
+        $this->putJson("/api/admin/plans/{$pack->id}", ['name' => $pack->name, 'price' => 49, 'slug' => 'otro'])->assertStatus(422);
+        $this->putJson("/api/admin/plans/{$pack->id}", ['name' => $pack->name, 'price' => 49, 'slug' => 'gluteo-12-semanas'])->assertStatus(200);
+        $this->assertSame('gluteo-12-semanas', $pack->fresh()->slug);
+    }
+
+    public function test_admin_uploads_pack_image(): void
+    {
+        Storage::fake('public');
+        $this->actingAsAdmin();
+
+        $res = $this->post('/api/admin/pack-image', ['image' => UploadedFile::fake()->image('gluteo.jpg', 1200, 750)], ['Accept' => 'application/json'])
+            ->assertStatus(200);
+
+        $url = $res->json('data.url');
+        $this->assertStringContainsString('/storage/packs/', $url);
+        Storage::disk('public')->assertExists('packs/' . basename($url));
+        $this->post('/api/admin/pack-image', ['image' => UploadedFile::fake()->create('doc.pdf', 10, 'application/pdf')], ['Accept' => 'application/json'])
+            ->assertStatus(422);
+    }
+
+    public function test_pack_stats_count_revenue_and_registered_buyers(): void
+    {
+        $plan = $this->makePack();
+        $this->makeUser('ya@example.test');
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'ya@example.test', 'cs_a'))->assertStatus(200);
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'nuevo@example.test', 'cs_b'))->assertStatus(200);
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'devuelto@example.test', 'cs_c'))->assertStatus(200);
+        PackPurchase::where('stripe_session_id', 'cs_c')->update(['status' => PackPurchase::STATUS_REFUNDED]);
+        $this->actingAsAdmin();
+
+        $row = $this->getJson('/api/admin/pack-stats')->assertStatus(200)->json('data.0');
+
+        $this->assertSame($plan->id, $row['plan_id']);
+        $this->assertSame(2, $row['purchases']);
+        $this->assertEquals(98, $row['revenue']);
+        $this->assertSame(1, $row['registered']);
+        $this->assertSame(1, $row['not_registered']);
+        $this->assertSame(1, $row['refunded']);
+    }
+
+    public function test_reminders_go_to_unregistered_buyers_at_3_and_10_days(): void
+    {
+        $plan = $this->makePack();
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'olvidadiza@example.test', 'cs_r'))->assertStatus(200);
+        $this->makeUser('ya@example.test');
+        $this->postWebhook('checkout.session.completed', $this->sessionPayload($plan, 'ya@example.test', 'cs_s'))->assertStatus(200);
+        $pending = PackPurchase::where('stripe_session_id', 'cs_r')->firstOrFail();
+
+        $this->artisan('packs:remind-unclaimed')->assertExitCode(0);
+        Mail::assertNotQueued(PackReminderMail::class);
+
+        $this->travel(3)->days();
+        $this->artisan('packs:remind-unclaimed')->assertExitCode(0);
+        $this->artisan('packs:remind-unclaimed')->assertExitCode(0);
+        Mail::assertQueued(PackReminderMail::class, 1);
+        Mail::assertQueued(PackReminderMail::class, fn ($m) => $m->hasTo('olvidadiza@example.test'));
+        $this->assertSame(1, $pending->fresh()->reminders_sent);
+
+        $this->travel(7)->days();
+        $this->artisan('packs:remind-unclaimed')->assertExitCode(0);
+        $this->assertSame(2, $pending->fresh()->reminders_sent);
+
+        $this->travel(30)->days();
+        $this->artisan('packs:remind-unclaimed')->assertExitCode(0);
+        Mail::assertQueued(PackReminderMail::class, 2);
     }
 }

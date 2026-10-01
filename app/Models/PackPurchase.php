@@ -21,13 +21,15 @@ class PackPurchase extends Model
     protected $fillable = [
         'plan_id', 'email', 'customer_name', 'stripe_session_id', 'stripe_payment_intent_id',
         'amount_cents', 'currency', 'status', 'redeem_code', 'user_id', 'plan_subscription_id',
-        'claimed_at', 'refunded_at',
+        'claimed_at', 'refunded_at', 'reminders_sent', 'last_reminder_at',
     ];
 
     protected $casts = [
         'amount_cents' => 'integer',
         'claimed_at' => 'datetime',
         'refunded_at' => 'datetime',
+        'reminders_sent' => 'integer',
+        'last_reminder_at' => 'datetime',
     ];
 
     public function plan(): BelongsTo

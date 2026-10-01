@@ -712,6 +712,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('pack-purchases', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'index']);
     Route::post('pack-purchases-resend', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'resend']);
     Route::post('pack-purchases-link', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'link']);
+    Route::post('pack-image', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'uploadImage']);
+    Route::get('pack-stats', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'stats']);
 
     // Comercio (panel React: usage, stats, reminder, revoke, transactions)
     Route::get('subscription-usage', [AdminPlanSubscriptionController::class, 'usage']);

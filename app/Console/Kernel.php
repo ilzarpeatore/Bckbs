@@ -80,6 +80,8 @@ class Kernel extends ConsoleKernel
         // Backup de BD (docs/TAREAS.md: "sigue sin automatizarse" hasta
         // ahora) - el comando en si comprueba AppSetting->backup_enabled y
         // ->backup_frequency, el toggle real vive en /app-settings.
+        // Packs comprados en la web y no activados en la app (docs/PACKS_WEB.md).
+        $schedule->command('packs:remind-unclaimed')->dailyAt('10:00')->timezone('Europe/Madrid');
         $schedule->command('backup:run')->dailyAt('05:00')->timezone('Europe/Madrid');
         // Red de seguridad para exercise_id roto en workout_template_exercises
         // (ver app/Console/Commands/CheckProgramsIntegrityCommand.php y
