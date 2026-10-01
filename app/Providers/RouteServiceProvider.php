@@ -58,7 +58,18 @@ class RouteServiceProvider extends ServiceProvider
     protected function configureRateLimiting()
     {
         RateLimiter::for('api', function (Request $request) {
-            return Limit::perMinute(60)->by(optional($request->user())->id ?: $request->ip());
+            return Limit::perMinute(60)->by(optional($request->user())->id ?: \App\Support\WebClient::ip($request));
+        });
+
+        // Formularios públicos de la web (newsletter, contacto, comprar): por
+        // visitante real, no por la IP del servidor de la web.
+        RateLimiter::for('web-forms', function (Request $request) {
+            return Limit::perMinute(10)->by('forms|' . \App\Support\WebClient::ip($request));
+        });
+
+        // Visitas de la analítica propia: solo las manda el servidor de la web.
+        RateLimiter::for('web-track', function (Request $request) {
+            return Limit::perMinute(240)->by('track|' . \App\Support\WebClient::ip($request));
         });
     }
 }

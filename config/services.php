@@ -79,6 +79,18 @@ return [
     'stripe' => [
         'secret' => env('STRIPE_SECRET_KEY'),
         'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        // Horas hasta que caduca una sesión de pago sin completar (mín. 1, máx. 24).
+        'checkout_expires_hours' => (int) env('STRIPE_CHECKOUT_EXPIRES_HOURS', 3),
+    ],
+
+    // La web pública (webbs) llama al backend desde su servidor: todas sus
+    // peticiones llegan con la misma IP. Con esta clave compartida (WEB_SERVER_KEY,
+    // la misma en el .env de ambos) el backend la reconoce, lee la IP real del
+    // visitante (X-Client-IP) para los límites de peticiones y acepta las
+    // visitas de la analítica propia. Ver docs/MARKETING_WEB.md.
+    'web' => [
+        'server_key' => env('WEB_SERVER_KEY'),
+        'contact_notify_email' => env('CONTACT_NOTIFY_EMAIL'),
     ],
 
     'packs' => [

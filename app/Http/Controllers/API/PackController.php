@@ -55,12 +55,16 @@ class PackController extends Controller
         }
 
         $web = config('services.packs.web_url');
+        $email = $request->email ? PackPurchase::normalizeEmail($request->email) : null;
         $session = $stripe->createCheckoutSession(
             $plan,
             $web . '/packs/gracias?session_id={CHECKOUT_SESSION_ID}',
             $web . '/packs/' . $plan->slug,
-            $request->email ? PackPurchase::normalizeEmail($request->email) : null,
+            $email,
         );
+
+        // Intento de compra con su campaña de origen (embudo y cestas abandonadas).
+        \App\Services\CheckoutAttemptService::start($plan, $session, $email, \App\Support\Attribution::fromRequest($request));
 
         return json_custom_response(['data' => ['url' => $session->url]]);
     }
