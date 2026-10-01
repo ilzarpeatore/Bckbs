@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ mighty_language_direction() }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" dir="{{ bs_language_direction() }}">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -15,7 +15,7 @@
         <!-- Styles -->
         <link rel="stylesheet" href="{{ asset('css/libs.min.css') }}">
         <link rel="stylesheet" href="{{asset('css/hope-ui.css?v=1.0')}}">
-        @if(mighty_language_direction() == 'rtl')
+        @if(bs_language_direction() == 'rtl')
             <link rel="stylesheet" href="{{ asset('css/rtl.css') }}">
         @endif
         <!-- remixicon -->

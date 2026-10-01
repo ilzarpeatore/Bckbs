@@ -16,7 +16,7 @@ class AppSettingTableSeeder extends Seeder
     public function run()
     {
         $appsetting = [
-            'site_name' => 'Mighty Fitness',
+            'site_name' => 'Be Stronger',
             'site_email' => NULL,
             'site_description' => NULL,
             'site_copyright' => NULL,

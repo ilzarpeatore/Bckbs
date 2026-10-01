@@ -640,7 +640,7 @@ function stringLong($str = '', $type = 'title', $length = 0) //Add … if string
         return $str;
     }
 }
-function mighty_language_direction($language = null)
+function bs_language_direction($language = null)
 {
     if (empty($language)) {
         $language = app()->getLocale();

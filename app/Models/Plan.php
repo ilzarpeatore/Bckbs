@@ -112,7 +112,7 @@ class Plan extends Model
         return $this->trial_period > 0;
     }
 
-    // MightyFitness relations
+    // Relaciones heredadas del backend original
     public function trainingProgram()
     {
         return $this->belongsTo(TrainingProgram::class, 'training_program_id');
