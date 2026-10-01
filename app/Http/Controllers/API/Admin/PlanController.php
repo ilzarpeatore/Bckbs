@@ -39,6 +39,16 @@ class PlanController extends BaseController
             'meal_plan_template_id'   => 'nullable|exists:meal_plan_templates,id',
             'grants_full_workout_library' => 'sometimes|boolean',
             'grants_full_recipe_library'  => 'sometimes|boolean',
+            // Packs vendidos en la web (docs/PACKS_WEB.md)
+            'is_pack'               => 'sometimes|boolean',
+            'slug'                  => 'sometimes|nullable|alpha_dash|max:100|unique:plans,slug' . ($id ? ",{$id}" : ''),
+            'sold_on_web'           => 'sometimes|boolean',
+            'short_description'     => 'nullable|string|max:255',
+            'image_url'             => 'nullable|url|max:2048',
+            'habit_template_ids'    => 'nullable|array',
+            'habit_template_ids.*'  => 'integer|exists:habits,id',
+            'resource_ids'          => 'nullable|array',
+            'resource_ids.*'        => 'integer|exists:resources,id',
         ];
     }
 }

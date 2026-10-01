@@ -133,6 +133,11 @@ class UserController extends Controller
             // AÑADIDO: entrenamiento de bienvenida en el calendario del
             // cliente nuevo desde el primer día — ver assignDemoWorkoutIfNeeded().
             $this->assignDemoWorkoutIfNeeded($user);
+
+            // Packs comprados en la web con este email antes de tener cuenta
+            // (docs/PACKS_WEB.md): se vinculan ya; el contenido se asigna al
+            // terminar el onboarding.
+            \App\Services\PackPurchaseService::claimPendingByEmail($user);
         }
 
         $user->api_token = $user->createToken('auth_token')->plainTextToken;

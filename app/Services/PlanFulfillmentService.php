@@ -10,6 +10,8 @@ use App\Models\DailyPlan;
 use App\Models\DailyPlanRecipe;
 use App\Models\TrainingProgram;
 use App\Models\ProgramClientAssignment;
+use App\Models\Habit;
+use App\Models\Resource;
 use Carbon\Carbon;
 
 /**
@@ -36,6 +38,10 @@ class PlanFulfillmentService
         if ($plan->training_program_id && $plan->trainingProgram) {
             self::assignTrainingProgram($subscriber, $plan->trainingProgram, $startDate, $subscription->id);
         }
+
+        // Packs (2026-09-30): hábitos y recursos incluidos en el plan.
+        self::assignHabitTemplates($subscriber, (array) ($plan->habit_template_ids ?? []));
+        self::assignResources($subscriber, (array) ($plan->resource_ids ?? []));
 
         $subscription->fulfilled_at = now();
         $subscription->saveQuietly();
@@ -128,6 +134,39 @@ class PlanFulfillmentService
                 ]);
             }
         }
+    }
+
+    /**
+     * Copia propia de cada plantilla de hábito (mismo criterio que
+     * ClientHabitController::adopt): si el cliente ya tenía ese hábito de
+     * esa plantilla, no se duplica.
+     */
+    private static function assignHabitTemplates(User $user, array $templateIds): void
+    {
+        if (empty($templateIds)) return;
+        $templates = Habit::templates()->whereIn('id', $templateIds)->get();
+        foreach ($templates as $template) {
+            $already = Habit::forClient($user->id)->where('source_template_id', $template->id)->exists();
+            if ($already) continue;
+            Habit::create([
+                'coach_id'           => null,
+                'client_id'          => $user->id,
+                'source_template_id' => $template->id,
+                'title'              => $template->title,
+                'icon'               => $template->icon,
+                'category'           => $template->category,
+                'target_value'       => $template->target_value,
+                'target_unit'        => $template->target_unit,
+                'frequency'          => $template->frequency,
+            ]);
+        }
+    }
+
+    private static function assignResources(User $user, array $resourceIds): void
+    {
+        if (empty($resourceIds)) return;
+        Resource::whereIn('id', $resourceIds)->get()
+            ->each(fn (Resource $resource) => $resource->assignedClients()->syncWithoutDetaching([$user->id]));
     }
 
     /**

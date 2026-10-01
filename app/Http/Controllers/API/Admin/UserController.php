@@ -86,6 +86,8 @@ class UserController extends BaseController
         $user = User::create($data);
         $user->assignRole('user');
         WelcomeMailService::sendFor($user);
+        // Si ya había comprado un pack en la web con este email (docs/PACKS_WEB.md).
+        \App\Services\PackPurchaseService::claimPendingByEmail($user);
 
         $response = [
             'message' => 'User created successfully.',

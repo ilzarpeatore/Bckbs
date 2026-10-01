@@ -28,6 +28,17 @@ Route::middleware('throttle:6,1')->group(function () {
     Route::post('social-mail-login',[ API\UserController::class, 'socialMailLogin' ]);
     Route::post('social-otp-login',[ API\UserController::class, 'socialOTPLogin' ]);
 });
+// Packs vendidos en la web (docs/PACKS_WEB.md): públicos, sin cuenta.
+Route::middleware('throttle:60,1')->group(function () {
+    Route::get('pack-catalog', [ API\PackController::class, 'catalog' ]);
+    Route::get('pack-detail', [ API\PackController::class, 'detail' ]);
+    Route::get('pack-checkout-status', [ API\PackController::class, 'checkoutStatus' ]);
+});
+Route::middleware('throttle:10,1')->post('pack-checkout', [ API\PackController::class, 'checkout' ]);
+// Stripe firma cada llamada (verificada en el controlador); sin auth ni throttle.
+Route::post('webhooks/stripe', [ API\StripeWebhookController::class, 'handle' ]);
+Route::middleware(['auth:sanctum', 'throttle:10,1'])->post('v1/pack-redeem', [ API\PackController::class, 'redeem' ]);
+
 Route::middleware('throttle:10,1')->group(function () {
     Route::post('register',[ API\UserController::class, 'register']);
     Route::post('check-invite-code',[ API\UserController::class, 'checkInviteCode']);
@@ -697,6 +708,12 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::apiResource('plan-features', PlanFeatureController::class);
     Route::apiResource('plan-subscriptions', AdminPlanSubscriptionController::class)->only(['index', 'show']);
     Route::post('plan-subscriptions-grant', [AdminPlanSubscriptionController::class, 'grantPlan']);
+    // Compras de packs en la web (docs/PACKS_WEB.md)
+    Route::get('pack-purchases', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'index']);
+    Route::post('pack-purchases-resend', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'resend']);
+    Route::post('pack-purchases-link', [\App\Http\Controllers\API\Admin\PackPurchaseController::class, 'link']);
+    Route::post('pack-image', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'uploadImage']);
+    Route::get('pack-stats', [\App\Http\Controllers\API\Admin\PackAdminController::class, 'stats']);
 
     // Comercio (panel React: usage, stats, reminder, revoke, transactions)
     Route::get('subscription-usage', [AdminPlanSubscriptionController::class, 'usage']);
