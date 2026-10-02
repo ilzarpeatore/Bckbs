@@ -767,6 +767,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::get('subscription-payments', [SubscriptionPaymentController::class, 'index']);
     Route::get('subscription-payments/summary', [SubscriptionPaymentController::class, 'summary']);
     Route::get('subscription-payments/years', [SubscriptionPaymentController::class, 'years']);
+    Route::get('subscription-payments/merge-candidates', [SubscriptionPaymentController::class, 'mergeCandidates']);
+    Route::post('subscription-payments/external/{client}/merge', [SubscriptionPaymentController::class, 'mergeExternal']);
     Route::post('subscription-payments/external', [SubscriptionPaymentController::class, 'storeExternal']);
     Route::put('subscription-payments/external/{client}', [SubscriptionPaymentController::class, 'updateExternal']);
     Route::delete('subscription-payments/external/{client}', [SubscriptionPaymentController::class, 'destroyExternal']);

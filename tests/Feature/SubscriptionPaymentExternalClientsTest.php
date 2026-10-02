@@ -96,4 +96,66 @@ class SubscriptionPaymentExternalClientsTest extends TestCase
     {
         $this->postJson('/api/admin/subscription-payments/external', ['monthly_fee' => 10])->assertStatus(422);
     }
+
+    private function makeUser(string $first, string $last, bool $personal = false): User
+    {
+        $user = User::create([
+            'first_name' => $first,
+            'last_name'  => $last,
+            'username'   => 'client_' . uniqid(),
+            'email'      => uniqid() . '@example.test',
+            'password'   => bcrypt('password'),
+            'user_type'  => 'user',
+            'status'     => 'active',
+            'login_type' => 'manual',
+        ]);
+        $user->forceFill(['is_personal_client' => $personal])->save();
+
+        return $user;
+    }
+
+    public function test_name_score_tolerates_typos_and_nicknames(): void
+    {
+        $score = fn ($a, $b) => \App\Http\Controllers\API\Admin\SubscriptionPaymentController::nameScore($a, $b);
+        $this->assertGreaterThan(0, $score('Hamza Bilbao', 'Hamsa Dris Bakkali'));
+        $this->assertGreaterThan(0, $score('Toni Perez', 'Antonio Pérez'));
+        $this->assertGreaterThan(0, $score('Nerea TEAM', 'Nerea Gómez'));
+        $this->assertSame(3, $score('Borja Betanzos', 'Borja Betanzos'));
+        $this->assertSame(0, $score('Borja Betanzos', 'Lucía Vidal'));
+    }
+
+    public function test_merge_candidates_and_merge_into_real_user(): void
+    {
+        $hamsa = $this->makeUser('Hamsa', 'Dris Bakkali');
+        $this->makeUser('Lucía', 'Vidal');
+
+        $externalId = $this->postJson('/api/admin/subscription-payments/external', [
+            'name' => 'Hamza Bilbao', 'monthly_fee' => 70,
+        ])->json('data.id');
+        foreach ([4, 5, 6] as $m) {
+            $this->putJson("/api/admin/subscription-payments/external/{$externalId}/2026/{$m}", ['paid' => true, 'amount' => 70])->assertStatus(200);
+        }
+        // El usuario ya tenía junio pagado con otro importe: se respeta el suyo.
+        SubscriptionPaymentRecord::create(['user_id' => $hamsa->id, 'year' => 2026, 'month' => 6, 'amount' => 65, 'paid' => true]);
+
+        $candidates = $this->getJson('/api/admin/subscription-payments/merge-candidates')->assertStatus(200);
+        $this->assertSame($hamsa->id, $candidates->json('data.0.candidates.0.id'));
+        $this->assertCount(1, $candidates->json('data.0.candidates'));
+
+        $this->postJson("/api/admin/subscription-payments/external/{$externalId}/merge", ['user_id' => $hamsa->id])
+            ->assertStatus(200)
+            ->assertJsonPath('data.moved', 2)
+            ->assertJsonPath('data.skipped', 1);
+
+        $this->assertNull(SubscriptionPaymentClient::find($externalId));
+        $hamsa->refresh();
+        $this->assertTrue((bool) $hamsa->is_personal_client);
+        $this->assertEquals(70, $hamsa->monthly_fee);
+        $this->assertEquals(65, SubscriptionPaymentRecord::where('user_id', $hamsa->id)->where('month', 6)->value('amount'));
+        $this->assertSame(3, SubscriptionPaymentRecord::where('user_id', $hamsa->id)->count());
+
+        $rows = collect($this->getJson('/api/admin/subscription-payments?year=2026')->json('data.clients'));
+        $this->assertCount(1, $rows);
+        $this->assertSame('user', $rows[0]['source']);
+    }
 }
