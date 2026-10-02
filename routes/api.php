@@ -1021,6 +1021,8 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'admin.api'])->group(functio
     Route::post('client-calendar-assign-direct', [API\ClientProfileCalendarController::class, 'assignDirect']);
     Route::post('client-calendar-import-program', [API\ClientProfileCalendarController::class, 'importProgram']);
     Route::post('client-calendar-remove', [API\ClientProfileCalendarController::class, 'removeAssignment']);
+    // Vaciado en bloque (seleccion multiple, vaciar semana, vaciar calendario) -- solo lo no realizado.
+    Route::post('client-calendar-bulk-remove', [API\ClientProfileCalendarController::class, 'bulkRemoveAssignments']);
     Route::get('client-session-feedback', [API\ClientProfileCalendarController::class, 'getSessionFeedback']);
     Route::get('client-readiness-checks', [API\ClientProfileCalendarController::class, 'getReadinessChecks']);
     Route::get('client-workout-adherence', [API\ClientProfileCalendarController::class, 'getAdherence']);

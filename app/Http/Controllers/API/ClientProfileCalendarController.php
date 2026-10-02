@@ -9,10 +9,12 @@ use App\Models\ProgramClientAssignment;
 use App\Models\ProgramDayAssignment;
 use App\Models\WorkoutTemplate;
 use App\Models\WorkoutTemplateExercise;
+use App\Models\WorkoutSessionReview;
 use App\Services\CalendarDateMapper;
 use App\Services\EmptySessionAlertService;
 use App\Services\TemplateIsolationGuard;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class ClientProfileCalendarController extends Controller
 {
@@ -312,6 +314,165 @@ class ClientProfileCalendarController extends Controller
     }
 
     /**
+     * Vaciado en bloque del calendario del cliente — tres alcances, un solo
+     * endpoint (panel: selección múltiple de sesiones, "Vaciar semana" y
+     * "Vaciar calendario"):
+     *   - selection: los `assignment_ids` marcados a mano.
+     *   - week:      todo lo que cae entre `from` y `to` (fechas reales).
+     *   - all:       el calendario completo del cliente, sin límite de mes.
+     *
+     * Dos reglas que NO se negocian aquí:
+     *   1. Solo se quita lo NO realizado. Una sesión con reseña finalizada
+     *      (WorkoutSessionReview::completed_at) se respeta, igual que
+     *      cualquier otra sesión del mismo día que el cliente ya cerró —
+     *      mismo criterio con el que el panel la pinta en verde (ver
+     *      SessionDetailController::listCompletedSessions).
+     *   2. Aislamiento: solo se tocan días de la copia propia del cliente o
+     *      de su calendario personal. Un día de un programa de la biblioteca
+     *      compartido con otros clientes se cuenta como bloqueado y se deja
+     *      intacto (TemplateIsolationGuard), nunca se borra "de paso".
+     * El borrado es soft-delete (ProgramDayAssignment usa SoftDeletes), así
+     * que un vaciado por error es recuperable en base de datos.
+     */
+    public function bulkRemoveAssignments(Request $request)
+    {
+        $request->validate([
+            'client_id'        => 'required|exists:users,id',
+            'scope'            => 'required|in:selection,week,all',
+            'assignment_ids'   => 'required_if:scope,selection|array|min:1',
+            'assignment_ids.*' => 'integer',
+            'from'             => 'required_if:scope,week|nullable|date',
+            'to'               => 'required_if:scope,week|nullable|date|after_or_equal:from',
+        ]);
+
+        $client_id = (int) $request->client_id;
+        $candidates = $this->clientCalendarAssignments($client_id);
+        $requested_missing = 0;
+
+        if ($request->scope === 'selection') {
+            $wanted = array_unique(array_map('intval', $request->input('assignment_ids', [])));
+            $candidates = array_intersect_key($candidates, array_flip($wanted));
+            $requested_missing = count($wanted) - count($candidates);
+        } elseif ($request->scope === 'week') {
+            $from = Carbon::parse($request->from)->toDateString();
+            $to   = Carbon::parse($request->to)->toDateString();
+            $candidates = array_filter($candidates, fn ($c) => $c['date'] >= $from && $c['date'] <= $to);
+        }
+
+        $reviews = WorkoutSessionReview::where('user_id', $client_id)
+            ->whereNotNull('completed_at')
+            ->get(['program_day_assignment_id', 'completed_at']);
+
+        $completed_ids = $reviews->pluck('program_day_assignment_id')
+            ->filter()->map(fn ($id) => (int) $id)->unique()->flip();
+        $completed_dates = $reviews->pluck('completed_at')
+            ->filter()->map(fn ($d) => Carbon::parse($d)->toDateString())->unique()->flip();
+
+        $deleted = 0;
+        $skipped_completed = 0;
+        $skipped_blocked = 0;
+
+        // El guard solo depende del programa al que pertenece el día, así que se
+        // resuelve una vez por programa y no una por sesión (vaciar un
+        // calendario entero son decenas de días).
+        $blocked_programs = [];
+
+        DB::transaction(function () use ($candidates, $completed_ids, $completed_dates, $client_id, &$blocked_programs, &$deleted, &$skipped_completed, &$skipped_blocked) {
+            foreach ($candidates as $assignment_id => $candidate) {
+                if ($completed_ids->has($assignment_id) || $completed_dates->has($candidate['date'])) {
+                    $skipped_completed++;
+                    continue;
+                }
+
+                $program_id = (int) $candidate['assignment']->training_program_id;
+                if (!array_key_exists($program_id, $blocked_programs)) {
+                    $blocked_programs[$program_id] = TemplateIsolationGuard::assignmentOutsideClient($candidate['assignment'], $client_id) !== null;
+                }
+                if ($blocked_programs[$program_id]) {
+                    $skipped_blocked++;
+                    continue;
+                }
+
+                $candidate['assignment']->delete();
+                $deleted++;
+            }
+        });
+
+        $message = $deleted === 0
+            ? 'No se ha quitado ningún entrenamiento.'
+            : ($deleted === 1 ? '1 entrenamiento quitado del calendario.' : $deleted.' entrenamientos quitados del calendario.');
+
+        if ($skipped_completed > 0) {
+            $message .= ' Se han respetado '.$skipped_completed.' ya realizado(s).';
+        }
+        if ($skipped_blocked > 0) {
+            $message .= ' '.$skipped_blocked.' pertenece(n) a un programa compartido con otros clientes y no se han tocado.';
+        }
+        if ($requested_missing > 0) {
+            $message .= ' '.$requested_missing.' ya no estaba(n) en este calendario.';
+        }
+
+        return json_custom_response([
+            'message' => $message,
+            'data'    => [
+                'deleted'           => $deleted,
+                'skipped_completed' => $skipped_completed,
+                'skipped_blocked'   => $skipped_blocked,
+                'not_found'         => $requested_missing,
+            ],
+        ]);
+    }
+
+    /**
+     * Todas las sesiones del calendario de este cliente con su fecha real,
+     * indexadas por assignment_id. Es la misma proyección que
+     * getMergedMonth (programas activos del cliente x sus días, vía
+     * CalendarDateMapper) pero sin limitarse a la cuadrícula de un mes, que
+     * es lo que necesita "Vaciar calendario": el frontend solo tiene cargado
+     * el mes visible.
+     *
+     * Indexar por assignment_id es además el filtro de pertenencia del modo
+     * `selection`: un id que no salga de aquí no está en el calendario de
+     * este cliente y no se borra.
+     *
+     * @return array<int,array{assignment:ProgramDayAssignment,date:string}>
+     */
+    private function clientCalendarAssignments(int $client_id): array
+    {
+        $this->getOrCreatePersonalProgram($client_id);
+
+        $mapper = new CalendarDateMapper();
+        $out = [];
+
+        $client_assignments = ProgramClientAssignment::where('client_id', $client_id)
+            ->where('activo', true)
+            ->with('trainingProgram')
+            ->get();
+
+        foreach ($client_assignments as $client_assignment) {
+            $program = $client_assignment->trainingProgram;
+            if (!$program) continue;
+
+            $start_date = Carbon::parse($client_assignment->start_date);
+
+            $days = ProgramDayAssignment::where('training_program_id', $program->id)
+                ->whereNotNull('workout_template_id')
+                ->get();
+
+            foreach ($days as $day) {
+                if ($day->week_number < 1 || $day->week_number > $program->num_weeks) continue;
+
+                $out[(int) $day->id] = [
+                    'assignment' => $day,
+                    'date'       => $mapper->toRealDate($start_date, (int) $day->week_number, (int) $day->day_of_week)->toDateString(),
+                ];
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * Visibilidad admin del feedback post-entrenamiento (workout_feedback_screen.tsx
      * -> finishSession) y de las notas por ejercicio que el cliente escribe
      * durante la sesion (workout_session_screen.tsx) - antes ninguno de los
@@ -323,7 +484,7 @@ class ClientProfileCalendarController extends Controller
 
         $emptySessionAlerts = app(EmptySessionAlertService::class);
 
-        $reviews = \App\Models\WorkoutSessionReview::where('user_id', $request->client_id)
+        $reviews = WorkoutSessionReview::where('user_id', $request->client_id)
             ->whereNotNull('completed_at')
             ->with(['programDayAssignment.workoutTemplate:id,title', 'workoutTemplate:id,title'])
             ->orderByDesc('completed_at')
