@@ -179,6 +179,40 @@ class ClientCalendarBulkRemoveTest extends TestCase
         $this->assertTrue($this->alive('w1d3'), 'el dia 07-oct estaba realizado');
     }
 
+    public function test_a_day_with_two_sessions_is_not_closed_wholesale_by_a_review_without_link(): void
+    {
+        // Segunda sesión el MISMO día que w1d3 (07-oct), en el calendario
+        // personal del cliente: el caso que el panel ya deja desplegar.
+        // 2020-01-06 es el lunes ancla del calendario personal; el 07-oct-2026
+        // cae en su semana 353, miércoles.
+        $personal = TrainingProgram::create([
+            'title' => 'Calendario personal', 'coach_id' => $this->coach->id,
+            'personal_client_id' => $this->client->id, 'is_personal' => true,
+            'num_weeks' => 1000, 'fecha_inicio' => '2020-01-06', 'activo' => true,
+        ]);
+        ProgramClientAssignment::create([
+            'training_program_id' => $personal->id, 'client_id' => $this->client->id,
+            'start_date' => '2020-01-06', 'fecha_fin' => '2039-01-01', 'activo' => true,
+        ]);
+        $second = $this->makeDay($personal, 353, 3);
+
+        // El cliente cerró "algo" el 07-oct sin decir cuál de las dos sesiones.
+        WorkoutSessionReview::create([
+            'user_id'                   => $this->client->id,
+            'program_day_assignment_id' => null,
+            'completed_at'              => '2026-10-07 08:30:00',
+        ]);
+
+        $res = $this->bulk(['scope' => 'week', 'from' => '2026-10-05', 'to' => '2026-10-11'])->assertStatus(200);
+
+        // Con dos sesiones ese día ya no se dan las dos por hechas: se quitan
+        // las tres pendientes de la semana (05-oct y las dos del 07-oct).
+        $this->assertSame(3, $res->json('data.deleted'));
+        $this->assertSame(0, $res->json('data.skipped_completed'));
+        $this->assertFalse($this->alive('w1d3'));
+        $this->assertFalse(ProgramDayAssignment::whereKey($second->id)->exists());
+    }
+
     public function test_all_scope_sweeps_every_month_and_respects_what_was_done(): void
     {
         WorkoutSessionReview::create([

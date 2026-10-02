@@ -346,8 +346,14 @@ class ClientProfileCalendarController extends Controller
         ]);
 
         $client_id = (int) $request->client_id;
-        $candidates = $this->clientCalendarAssignments($client_id);
+        $calendar = $this->clientCalendarAssignments($client_id);
+        $candidates = $calendar;
         $requested_missing = 0;
+
+        // Cuántas sesiones tiene cada fecha en TODO el calendario (no solo entre
+        // las candidatas): decide si una reseña sin enlace a la asignación puede
+        // atribuirse a un día concreto. Ver más abajo.
+        $per_date = array_count_values(array_column($calendar, 'date'));
 
         if ($request->scope === 'selection') {
             $wanted = array_unique(array_map('intval', $request->input('assignment_ids', [])));
@@ -377,9 +383,15 @@ class ClientProfileCalendarController extends Controller
         // calendario entero son decenas de días).
         $blocked_programs = [];
 
-        DB::transaction(function () use ($candidates, $completed_ids, $completed_dates, $client_id, &$blocked_programs, &$deleted, &$skipped_completed, &$skipped_blocked) {
+        DB::transaction(function () use ($candidates, $completed_ids, $completed_dates, $per_date, $client_id, &$blocked_programs, &$deleted, &$skipped_completed, &$skipped_blocked) {
             foreach ($candidates as $assignment_id => $candidate) {
-                if ($completed_ids->has($assignment_id) || $completed_dates->has($candidate['date'])) {
+                // El día cerrado sin saber qué sesión era solo cuenta si ese día
+                // tiene UNA sola sesión; con varias no se puede atribuir a
+                // ninguna y las demás seguirían pendientes sin poder quitarlas.
+                $date_counts_as_done = $completed_dates->has($candidate['date'])
+                    && ($per_date[$candidate['date']] ?? 0) === 1;
+
+                if ($completed_ids->has($assignment_id) || $date_counts_as_done) {
                     $skipped_completed++;
                     continue;
                 }
