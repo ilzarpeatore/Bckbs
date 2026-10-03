@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Support\RecordingRequests;
 use App\Support\TrainingTechniques;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
@@ -479,7 +480,7 @@ class WorkoutTemplateController extends Controller
             'tecnica'        => 'nullable|string|max:40',
             'tecnica_series' => 'nullable|in:todas,ultima',
             'tecnica_otra'   => 'nullable|string|max:120',
-        ]);
+        ] + RecordingRequests::rules());
 
         $exercise = WorkoutTemplateExercise::whereHas('block.workoutTemplate', function ($q) {
             $q->where('coach_id', auth()->id());
@@ -499,6 +500,11 @@ class WorkoutTemplateController extends Controller
             $request->tecnica_series,
             $request->tecnica_otra
         );
+        // «Pedir grabación» viaja en la misma petición; un panel antiguo que
+        // no manda `grabar` no la toca.
+        if ($request->has('grabar')) {
+            $prescribed = RecordingRequests::apply($prescribed, $request->boolean('grabar'), $request->grabar_series, $request->grabar_nota);
+        }
         $exercise->update(['prescribed' => $prescribed]);
 
         return json_custom_response(['data' => $exercise]);

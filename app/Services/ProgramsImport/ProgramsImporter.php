@@ -3,6 +3,7 @@
 namespace App\Services\ProgramsImport;
 
 use App\Models\BodyPart;
+use App\Support\RecordingRequests;
 use App\Support\TrainingTechniques;
 use App\Models\Equipment;
 use App\Models\Exercise;
@@ -551,6 +552,9 @@ final class ProgramsImporter
                 $p['tecnica_otra'] = mb_substr($otra, 0, 120);
             }
         }
+        if (RecordingRequests::truthy($ex['record'] ?? null)) {
+            $p = RecordingRequests::apply($p, true, RecordingRequests::resolveSeries($ex['record_sets'] ?? null), $ex['record_note'] ?? null);
+        }
 
         return $p;
     }
@@ -615,6 +619,9 @@ final class ProgramsImporter
                     'duration_sec'   => $e['duration_sec'] ?? null,
                     'technique'      => $e['technique'] ?? null,
                     'technique_sets' => $e['technique_sets'] ?? null,
+                    'record'         => $e['record'] ?? null,
+                    'record_sets'    => $e['record_sets'] ?? null,
+                    'record_note'    => $e['record_note'] ?? null,
                 ], (array) ($b['exercises'] ?? [])),
             ], (array) ($day['blocks'] ?? [])),
         ];

@@ -607,6 +607,15 @@ class ClientCalendarController extends Controller
             }
         }
 
+        // «Pedir grabación»: `grabado` no es una métrica del catálogo, se
+        // conserva aparte (solo como `true`) para que el coach vea qué
+        // series se grabó el cliente (SessionDetailController sets_detail).
+        foreach ((array) $request->logged_sets as $index => $set) {
+            if (isset($clean_sets[$index]) && is_array($set) && \App\Support\RecordingRequests::truthy($set['grabado'] ?? null)) {
+                $clean_sets[$index]['grabado'] = true;
+            }
+        }
+
         $log = ClientExerciseLog::create([
             'client_id'                     => auth('sanctum')->id(),
             'workout_template_exercise_id'  => $request->workout_template_exercise_id,

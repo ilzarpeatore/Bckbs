@@ -199,6 +199,9 @@ final class ExcelWorkoutAdapter implements AdapterInterface
                 'notes'              => FlexArray::string($row, ['notas'], null),
                 'technique'          => FlexArray::string($row, ['tecnica', 'técnica'], null),
                 'technique_sets'     => FlexArray::string($row, ['tecnica_series', 'técnica_series'], null),
+                'record'             => FlexArray::string($row, ['grabar'], null),
+                'record_sets'        => FlexArray::string($row, ['grabar_series'], null),
+                'record_note'        => FlexArray::string($row, ['grabar_nota'], null),
                 'duration_sec'       => FlexArray::int($row, ['duracion_seg'], null),
             ];
             unset($blocks);
