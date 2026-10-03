@@ -52,7 +52,7 @@ class TrainingTechniques
                 'Llegar al fallo en cada mini-bloque; la idea es mantener la técnica limpia.',
                 'Usarlo en ejercicios donde no puedes descansar con seguridad con el peso encima.',
             ],
-            'logging'     => 'Apunta en esa serie el total de repeticiones (las de la primera parte más las de los mini-bloques) y el peso usado.',
+            'logging'     => 'Apunta en la serie las repeticiones del primer bloque y el peso. Añade cada mini-bloque con «+ Mini-serie»: al pulsarlo empieza una pausa de 15 s.',
         ],
         'bisets' => [
             'label'       => 'Bisets',
@@ -98,7 +98,7 @@ class TrainingTechniques
                 'Usarlo en ejercicios con riesgo si fallas (sentadilla o press banca con barra libre sin ayuda).',
                 'Descansar más de 20 s: se convierte en otra serie.',
             ],
-            'logging'     => 'Apunta en esa serie el total de repeticiones (antes y después de la pausa) y el peso usado.',
+            'logging'     => 'Apunta en la serie las repeticiones hasta el fallo y el peso. Añade las de después de la pausa con «+ Mini-serie»: al pulsarlo empieza una pausa de 15 s.',
         ],
         'rest_pause_ampliado' => [
             'label'       => 'Rest-pause ampliado',
@@ -114,7 +114,7 @@ class TrainingTechniques
                 'Perder la técnica en la última mini-serie.',
                 'Hacerlo en ejercicios donde fallar es peligroso sin ayuda.',
             ],
-            'logging'     => 'Apunta en esa serie el total de repeticiones de las tres mini-series y el peso.',
+            'logging'     => 'Apunta en la serie la primera tanda hasta el fallo y el peso. Añade las otras dos con «+ Mini-serie»: cada una empieza con una pausa de 15 s.',
         ],
         'drop_sets' => [
             'label'       => 'Drop sets',
@@ -130,7 +130,7 @@ class TrainingTechniques
                 'Bajar demasiado poco peso y no poder hacer casi repeticiones.',
                 'Hacerlo con barra libre sin ayuda en ejercicios de riesgo.',
             ],
-            'logging'     => 'Apunta el peso inicial y el total de repeticiones de la serie; si quieres, detalla la bajada en la nota para tu entrenador.',
+            'logging'     => 'Apunta en la serie el peso inicial y sus repeticiones. Añade cada bajada con «+ Bajada» (peso nuevo y repeticiones).',
         ],
         'drop_sets_mecanicos' => [
             'label'       => 'Drop sets mecánicos',
@@ -145,7 +145,7 @@ class TrainingTechniques
                 'Descansar al cambiar de variante.',
                 'Elegir una variante que no es realmente más fácil.',
             ],
-            'logging'     => 'Apunta el peso y el total de repeticiones de las dos variantes en esa serie.',
+            'logging'     => 'Apunta en la serie la primera variante (peso y repeticiones) y la segunda con «+ Bajada».',
         ],
         'series_mecanicas' => [
             'label'       => 'Series mecánicas',
@@ -192,7 +192,7 @@ class TrainingTechniques
                 'Descansar demasiado entre mini-series.',
                 'Hacer la serie de activación demasiado lejos del fallo.',
             ],
-            'logging'     => 'Apunta en esa serie el total de repeticiones (activación más mini-series) y el peso.',
+            'logging'     => 'Apunta en la serie la serie de activación y el peso. Añade cada mini-serie con «+ Mini-serie»: al pulsarlo empieza una pausa de 15 s.',
         ],
         'parciales' => [
             'label'       => 'Parciales',
@@ -206,7 +206,7 @@ class TrainingTechniques
                 'Hacer parciales desde el principio: primero se llega al fallo con recorrido completo.',
                 'Rebotar o usar impulso.',
             ],
-            'logging'     => 'Apunta las repeticiones completas de la serie; si quieres, añade las parciales en la nota para tu entrenador.',
+            'logging'     => 'Apunta en la serie solo las repeticiones completas y el peso. Si quieres, añade las parciales con «+ Parciales».',
         ],
         'excentricas' => [
             'label'       => 'Excéntricas lentas',

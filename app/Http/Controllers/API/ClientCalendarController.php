@@ -562,6 +562,7 @@ class ClientCalendarController extends Controller
             $this->resolveOwnedAssignment((int) $request->program_day_assignment_id);
         }
 
+        $wte = null;
         if ($request->workout_template_exercise_id) {
             $wte = \App\Models\WorkoutTemplateExercise::find($request->workout_template_exercise_id);
             $allowed_keys = $wte->enabled_metrics ?? [];
@@ -576,8 +577,28 @@ class ClientCalendarController extends Controller
         }
 
         $clean_sets = collect($request->logged_sets)->map(function ($set) use ($allowed_keys) {
-            return collect($set)->only($allowed_keys)->toArray();
+            // `tecnica` y `partes` (bajadas / mini-series) no son métricas del
+            // catálogo: se validan aparte (LoggedSetMath, 2026-10-03).
+            return collect($set)->only($allowed_keys)->toArray()
+                + \App\Support\LoggedSetMath::sanitizeExtras(is_array($set) ? $set : []);
         })->toArray();
+
+        // Versiones de la app sin `tecnica` por serie: se toma del prescrito
+        // (plantilla + override del cliente) para que los récords sepan qué
+        // series se apuntaron como "total de repeticiones".
+        if ($wte) {
+            $prescribed = is_array($wte->prescribed) ? $wte->prescribed : [];
+            if ($request->program_day_assignment_id) {
+                $override = \App\Models\ClientExerciseOverride::where('program_day_assignment_id', $request->program_day_assignment_id)
+                    ->where('client_id', auth('sanctum')->id())
+                    ->where('workout_template_exercise_id', $wte->id)
+                    ->first();
+                if (is_array($override->prescribed_override ?? null)) {
+                    $prescribed = array_merge($prescribed, $override->prescribed_override);
+                }
+            }
+            $clean_sets = \App\Support\LoggedSetMath::annotate(array_values($clean_sets), $prescribed);
+        }
 
         // RIR/RPE obligatorio (uno u otro) al registrar una serie
         // completada -- solo se exige si el ejercicio tiene alguno de los

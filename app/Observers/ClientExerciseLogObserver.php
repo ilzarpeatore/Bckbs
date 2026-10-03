@@ -12,6 +12,7 @@ use App\Models\TrainingQuestionnaireAnswer;
 use App\Models\User;
 use App\Models\WorkoutSessionReview;
 use App\Notifications\CommonNotification;
+use App\Support\LoggedSetMath;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -78,20 +79,28 @@ class ClientExerciseLogObserver
         $totalVolume = 0.0;
 
         foreach ($sets as $set) {
+            $set = is_array($set) ? $set : [];
             $weight = (float) ($set['carga'] ?? 0);
             $reps = (int) ($set['reps'] ?? 0);
             if ($weight <= 0 || $reps <= 0) {
                 continue;
             }
 
-            $totalVolume += $weight * $reps;
+            // Bajadas / mini-series (partes) suman volumen. Una serie
+            // antigua de técnica apuntada como "total de repeticiones"
+            // cuenta para volumen y peso máximo, pero sus reps no valen
+            // para 1RM ni para el récord de reps (LoggedSetMath, 2026-10-03).
+            $totalVolume += LoggedSetMath::volume($set);
+            $strengthReps = LoggedSetMath::strengthReps($set);
             if ($weight > $maxWeight) {
                 $maxWeight = $weight;
-                $maxWeightReps = $reps;
-            } elseif ($weight == $maxWeight && $reps > $maxWeightReps) {
-                $maxWeightReps = $reps;
+                $maxWeightReps = $strengthReps ?? 0;
+            } elseif ($weight == $maxWeight && $strengthReps !== null && $strengthReps > $maxWeightReps) {
+                $maxWeightReps = $strengthReps;
             }
-            $maxOneRm = max($maxOneRm, PersonalRecord::calculateEpley1RM($weight, $reps));
+            if ($strengthReps !== null) {
+                $maxOneRm = max($maxOneRm, PersonalRecord::calculateEpley1RM($weight, $strengthReps));
+            }
         }
 
         if ($maxWeight <= 0 && $maxOneRm <= 0 && $totalVolume <= 0) {
@@ -597,6 +606,9 @@ class ClientExerciseLogObserver
 
         $candidateLogs->each(function (ClientExerciseLog $previousLog) use ($weight, &$historicalMaxReps) {
             foreach (($previousLog->logged_sets ?? []) as $set) {
+                if (!is_array($set) || LoggedSetMath::isInflated($set)) {
+                    continue;
+                }
                 $setWeight = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : null;
                 $setReps = isset($set['reps']) && is_numeric($set['reps']) ? (int) $set['reps'] : null;
                 if ($setWeight === null || $setReps === null || $setReps <= 0) {

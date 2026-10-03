@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\LoggedSetMath;
 use App\Models\ClientExerciseCalibration;
 use App\Models\ClientExerciseLog;
 use App\Models\ClientExerciseOverride;
@@ -229,10 +230,46 @@ class SessionInterpretationService
      * descriptor (series/reps/rir/carga objetivo) aplicado a todos los
      * sets del ejercicio, no una prescripción por set individual.
      */
+    /**
+     * Recalcula carga_efectiva / carga_efectiva_reps / volumen_total /
+     * e1rm_estimado de una fila ya guardada, con las reglas de técnicas de
+     * LoggedSetMath (comando records:recalcular-tecnicas, 2026-10-03). No
+     * toca nada más (tendencias, outlier, motor). Devuelve los valores
+     * nuevos, o null si no encuentra el log de esa sesión.
+     */
+    public function recomputeStrengthFields(ExerciseSessionMetric $metric): ?array
+    {
+        $review = WorkoutSessionReview::find($metric->workout_session_review_id);
+        if (!$review) {
+            return null;
+        }
+        $performedDate = optional($review->completed_at)->toDateString() ?? optional($review->created_at)->toDateString();
+        $log = $this->sessionLogsQuery((int) $metric->client_id, $review->program_day_assignment_id, $review->workout_template_id, (string) $performedDate)
+            ->where('exercise_id', $metric->exercise_id)
+            ->orderByDesc('id')
+            ->first();
+        if (!$log || !$log->hasSets()) {
+            return null;
+        }
+        $agg = $this->aggregateSetLogs($log);
+        $e1rm = ($agg['carga_efectiva'] !== null && $agg['carga_efectiva_reps'] !== null)
+            ? PersonalRecord::calculateEpley1RM((float) $agg['carga_efectiva'], (int) $agg['carga_efectiva_reps'])
+            : null;
+
+        return [
+            'carga_efectiva'      => $agg['carga_efectiva'],
+            'carga_efectiva_reps' => $agg['carga_efectiva_reps'],
+            'volumen_total'       => $agg['volumen_total'],
+            'e1rm_estimado'       => $e1rm,
+        ];
+    }
+
     public function aggregateSetLogs(ClientExerciseLog $log): array
     {
-        $sets = is_array($log->logged_sets) ? $log->logged_sets : [];
         $prescribed = $this->resolvePrescribed($log);
+        // Series antiguas sin `tecnica`: se marca desde el prescrito para no
+        // estimar e1RM con un "total de repeticiones" (LoggedSetMath).
+        $sets = LoggedSetMath::annotate(is_array($log->logged_sets) ? $log->logged_sets : [], $prescribed);
 
         $prescribedSeries = isset($prescribed['series']) && is_numeric($prescribed['series'])
             ? (int) $prescribed['series']
@@ -270,7 +307,7 @@ class SessionInterpretationService
             $isCompleted = $weight !== null && $weight > 0 && $reps !== null && $reps > 0;
             if ($isCompleted) {
                 $completedCount++;
-                $volumenTotal += $weight * $reps;
+                $volumenTotal += LoggedSetMath::volume($set);
             }
 
             if ($rir === null) {
@@ -292,7 +329,7 @@ class SessionInterpretationService
                 }
             }
 
-            if ($isCompleted && ($prescribedReps === null || $reps >= $prescribedReps)) {
+            if ($isCompleted && !LoggedSetMath::isInflated($set) && ($prescribedReps === null || $reps >= $prescribedReps)) {
                 if ($cargaEfectiva === null || $weight > $cargaEfectiva) {
                     $cargaEfectiva = $weight;
                     $cargaEfectivaReps = $reps;
@@ -326,7 +363,7 @@ class SessionInterpretationService
         ];
     }
 
-    private function resolvePrescribed(ClientExerciseLog $log): array
+    public function resolvePrescribed(ClientExerciseLog $log): array
     {
         if (!$log->workout_template_exercise_id) {
             return [];
