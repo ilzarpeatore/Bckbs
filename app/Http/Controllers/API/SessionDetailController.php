@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\API;
 
+use App\Support\LoggedSetMath;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use App\Models\ProgramDayAssignment;
@@ -278,8 +279,11 @@ class SessionDetailController extends Controller
                 $reps   = (int) ($set['reps'] ?? 0);
                 $rpe_rir = $set['rpe'] ?? $set['rir'] ?? null;
 
-                $volume = $weight * $reps;
-                $one_rm = ($weight > 0 && $reps > 0) ? PersonalRecord::calculateEpley1RM($weight, $reps) : 0;
+                // Bajadas/mini-series suman volumen; una serie antigua de
+                // "total de repeticiones" no da 1RM (LoggedSetMath).
+                $volume = is_array($set) ? LoggedSetMath::volume($set) : $weight * $reps;
+                $one_rm = ($weight > 0 && $reps > 0 && !(is_array($set) && LoggedSetMath::isInflated($set)))
+                    ? PersonalRecord::calculateEpley1RM($weight, $reps) : 0;
 
                 if ($weight > 0) $total_sets++;
                 $total_volume += $volume;
@@ -292,6 +296,8 @@ class SessionDetailController extends Controller
                     'rpe_rir' => $rpe_rir,
                     'one_rm' => round($one_rm, 1),
                     'volume' => round($volume, 1),
+                    'tecnica' => is_array($set) ? ($set['tecnica'] ?? null) : null,
+                    'partes' => is_array($set) ? LoggedSetMath::parts($set) : [],
                 ];
             }
 
@@ -526,7 +532,8 @@ class SessionDetailController extends Controller
             foreach (($log->logged_sets ?? []) as $i => $set) {
                 $weight = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : null;
                 $reps = isset($set['reps']) && is_numeric($set['reps']) ? (int) $set['reps'] : null;
-                $one_rm = ($weight && $reps) ? round(PersonalRecord::calculateEpley1RM($weight, $reps), 1) : null;
+                $one_rm = ($weight && $reps && !(is_array($set) && LoggedSetMath::isInflated($set)))
+                    ? round(PersonalRecord::calculateEpley1RM($weight, $reps), 1) : null;
 
                 $rows[] = [
                     'id'          => "{$log->id}-{$i}",

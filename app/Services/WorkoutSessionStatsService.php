@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\LoggedSetMath;
 use App\Models\ClientExerciseLog;
 use App\Models\Exercise;
 use App\Models\User;
@@ -209,6 +210,11 @@ class WorkoutSessionStatsService
     {
         $best = null;
         foreach ($sets as $set) {
+            // Serie antigua de técnica con "total de repeticiones": no
+            // representa la mejor serie real (LoggedSetMath, 2026-10-03).
+            if (is_array($set) && LoggedSetMath::isInflated($set)) {
+                continue;
+            }
             $carga = isset($set['carga']) && is_numeric($set['carga']) ? (float) $set['carga'] : 0.0;
             $reps = isset($set['reps']) && is_numeric($set['reps']) ? (float) $set['reps'] : 0.0;
             if ($carga <= 0 && $reps <= 0) {
