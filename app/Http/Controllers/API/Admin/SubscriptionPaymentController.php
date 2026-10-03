@@ -7,6 +7,8 @@ use App\Models\SubscriptionPaymentClient;
 use App\Models\SubscriptionPaymentRecord;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 /**
  * Seguimiento manual de pagos mensuales (Informes > Seguimiento de pagos).
@@ -249,6 +251,134 @@ class SubscriptionPaymentController extends Controller
         $client->delete();
 
         return json_custom_response(['data' => ['id' => (int) $clientId]]);
+    }
+
+    // ═══ DUPLICADOS: externo ↔ usuario real ══════════════════════════
+    // Para cada cliente externo propone los usuarios de la app cuyo nombre
+    // se parece (tolera tildes, "Hamza"/"Hamsa", "Toni"/"Antonio",
+    // apellidos de más o de menos). El admin confirma antes de fusionar.
+    public function mergeCandidates()
+    {
+        $users = User::where('user_type', 'user')
+            ->get(['id', 'first_name', 'last_name', 'display_name', 'email', 'is_personal_client', 'monthly_fee']);
+
+        $data = SubscriptionPaymentClient::orderBy('name')->get()->map(function ($client) use ($users) {
+            $candidates = $users
+                ->map(function ($user) use ($client) {
+                    $name = $user->display_name ?: trim("{$user->first_name} {$user->last_name}");
+                    $full = trim("{$user->first_name} {$user->last_name} {$user->display_name}");
+                    $emailMatch = $client->email && $user->email && strcasecmp($client->email, $user->email) === 0;
+                    $score = $emailMatch ? 10 : self::nameScore($client->name, $full);
+
+                    return [
+                        'id' => $user->id,
+                        'name' => $name,
+                        'email' => $user->email,
+                        'is_personal_client' => (bool) $user->is_personal_client,
+                        'score' => $score,
+                    ];
+                })
+                ->filter(fn ($c) => $c['score'] > 0)
+                ->sortByDesc('score')
+                ->take(5)
+                ->values();
+
+            return [
+                'id' => $client->id,
+                'name' => $client->name,
+                'email' => $client->email,
+                'monthly_fee' => (float) $client->monthly_fee,
+                'payments_count' => $client->records()->count(),
+                'candidates' => $candidates,
+            ];
+        });
+
+        return json_custom_response(['data' => $data->values()]);
+    }
+
+    // Fusiona un cliente externo en un usuario real: sus meses pasan al
+    // usuario (si el usuario ya tiene ese mes pagado, se respeta el del
+    // usuario), el usuario queda en el seguimiento de pagos y el externo
+    // se elimina.
+    public function mergeExternal(Request $request, $clientId)
+    {
+        $validated = $request->validate(['user_id' => 'required|integer']);
+
+        $client = SubscriptionPaymentClient::find($clientId);
+        $user = User::find($validated['user_id']);
+        if (!$client || !$user) {
+            return json_message_response('Cliente no encontrado.', 404);
+        }
+
+        $moved = 0;
+        $skipped = 0;
+        DB::transaction(function () use ($client, $user, &$moved, &$skipped) {
+            foreach ($client->records()->get() as $record) {
+                $existing = SubscriptionPaymentRecord::where('user_id', $user->id)
+                    ->where('year', $record->year)
+                    ->where('month', $record->month)
+                    ->first();
+
+                if ($existing && ($existing->paid || !$record->paid)) {
+                    $record->delete();
+                    $skipped++;
+                    continue;
+                }
+                $existing?->delete();
+                $record->forceFill(['user_id' => $user->id, 'external_client_id' => null])->save();
+                $moved++;
+            }
+
+            $user->is_personal_client = true;
+            if (!$user->monthly_fee && $client->monthly_fee) {
+                $user->monthly_fee = $client->monthly_fee;
+            }
+            $user->save();
+
+            $client->delete();
+        });
+
+        return json_custom_response(['data' => [
+            'user_id' => $user->id,
+            'moved' => $moved,
+            'skipped' => $skipped,
+        ]]);
+    }
+
+    private static function nameTokens(string $name): array
+    {
+        $clean = Str::lower(Str::ascii($name));
+        $tokens = preg_split('/[^a-z]+/', $clean, -1, PREG_SPLIT_NO_EMPTY);
+
+        return array_values(array_filter($tokens, fn ($t) => strlen($t) >= 3 && !in_array($t, ['team', 'del', 'las', 'los'], true)));
+    }
+
+    private static function tokensMatch(string $a, string $b): bool
+    {
+        if ($a === $b) return true;
+        if (strlen($a) >= 4 && strlen($b) >= 4) {
+            if (levenshtein($a, $b) <= 1) return true;                 // hamza ~ hamsa
+            if (str_contains($a, $b) || str_contains($b, $a)) return true; // toni ~ antonio
+        }
+
+        return false;
+    }
+
+    public static function nameScore(string $external, string $user): int
+    {
+        $userTokens = self::nameTokens($user);
+        $score = 0;
+        foreach (self::nameTokens($external) as $i => $token) {
+            foreach ($userTokens as $candidate) {
+                if (self::tokensMatch($token, $candidate)) {
+                    // El nombre de pila pesa más que un apellido suelto.
+                    $score += $i === 0 ? 2 : 1;
+                    break;
+                }
+            }
+        }
+
+        return $score;
     }
 
     private function externalPayload(SubscriptionPaymentClient $client): array
