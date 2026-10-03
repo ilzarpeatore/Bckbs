@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\RecordingRequests;
 use App\Support\TrainingTechniques;
 use App\Models\ProgramDayAssignment;
 use App\Models\TrainingProgram;
@@ -26,7 +27,7 @@ use Illuminate\Validation\ValidationException;
 class ProgramSessionMatrixService
 {
     /** Claves de `prescribed` que se editan desde la matriz. */
-    public const EDITABLE_KEYS = ['series', 'reps', 'carga', 'rir', 'rpe', 'descanso', 'tempo', 'duracion', ...TrainingTechniques::KEYS];
+    public const EDITABLE_KEYS = ['series', 'reps', 'carga', 'rir', 'rpe', 'descanso', 'tempo', 'duracion', ...TrainingTechniques::KEYS, ...RecordingRequests::KEYS];
 
     /**
      * Métricas opcionales que, si se rellena su valor, deben estar habilitadas en `enabled_metrics`
@@ -381,8 +382,9 @@ class ProgramSessionMatrixService
             }
         }
 
-        // Técnica especial: slug válido, alcance por defecto "todas", "otra" con texto
-        return TrainingTechniques::normalizePrescribed($result);
+        // Técnica especial: slug válido, alcance por defecto "todas", "otra" con texto.
+        // Pedir grabación: `true` real, alcance por defecto "todas".
+        return RecordingRequests::normalizePrescribed(TrainingTechniques::normalizePrescribed($result));
     }
 
     /** Notas del ejercicio: texto o null (vacío = sin nota). */

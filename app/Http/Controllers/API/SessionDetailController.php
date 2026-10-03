@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Notifications\CommonNotification;
 use App\Services\MuscleVolumeService;
 use App\Services\TemplateIsolationGuard;
+use App\Support\RecordingRequests;
 use App\Support\TrainingTechniques;
 use App\Traits\HasYoutubeThumbnail;
 use Illuminate\Support\Facades\Gate;
@@ -291,6 +292,8 @@ class SessionDetailController extends Controller
 
                 $sets_detail[] = [
                     'set'    => $i + 1,
+                    // «Pedir grabación»: el cliente marcó esta serie como grabada
+                    'grabado' => is_array($set) && ($set['grabado'] ?? false) === true,
                     'weight' => $weight,
                     'reps'   => $reps,
                     'rpe_rir' => $rpe_rir,
@@ -637,7 +640,7 @@ class SessionDetailController extends Controller
             'tecnica'                        => 'nullable|string|max:40',
             'tecnica_series'                 => 'nullable|in:todas,ultima',
             'tecnica_otra'                   => 'nullable|string|max:120',
-        ]);
+        ] + RecordingRequests::rules());
 
         $this->assertClientOwnsAssignment((int) $request->program_day_assignment_id, (int) $request->client_id);
 
@@ -650,6 +653,15 @@ class SessionDetailController extends Controller
             // Una adición del cliente no hereda nada de la plantilla.
             maskInherited: $override->workout_template_exercise_id !== null
         );
+        if ($request->has('grabar')) {
+            $override->prescribed_override = RecordingRequests::apply(
+                $override->prescribed_override,
+                $request->boolean('grabar'),
+                $request->grabar_series,
+                $request->grabar_nota,
+                maskInherited: $override->workout_template_exercise_id !== null
+            );
+        }
         $override->save();
 
         return json_custom_response(['data' => $override]);

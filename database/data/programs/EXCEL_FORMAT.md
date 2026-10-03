@@ -58,6 +58,9 @@ Una fila = un ejercicio dentro de un bloque, dentro de un día, dentro de una se
 | 19 | `notas` | texto | no | `al fallo la última serie` | Nota de ese ejercicio suelto (no de la sesión ni del bloque). |
 | 20 | `tecnica` | texto | no | `Rest-pause` | Técnica especial de ese ejercicio esa semana. Usa el nombre del catálogo: Cluster sets, Bisets, Superseries, Rest-pause, Rest-pause ampliado, Drop sets, Drop sets mecánicos, Series mecánicas, BFR (oclusión), Myo-reps, Parciales, Excéntricas lentas, Isométricas. Cualquier otro texto se guarda como técnica «Otra» con ese texto. El cliente la ve en la app con su explicación. |
 | 21 | `tecnica_series` | texto | no | `última` | `última` si la técnica va solo en la última serie; vacío o `todas` = en todas las series. |
+| 22 | `grabar` | sí/no | no | `sí` | «Pedir grabación»: `sí` si quieres que el cliente se grabe haciendo ese ejercicio esa semana. Vacío = no. La app le avisa al abrir la sesión y marca las series a grabar. |
+| 23 | `grabar_series` | texto | no | `última` | Qué series grabar: `primera`, `última` o vacío/`todas`. Solo cuenta si `grabar` = sí. |
+| 24 | `grabar_nota` | texto | no | `de lado, que se vea la cadera` | Indicación para el cliente sobre cómo grabarse (máx. 200 caracteres). |
 
 \* `ejercicio`, `series` y `reps` son obligatorias **salvo que la fila sea de descanso** (`es_descanso=TRUE`), en cuyo caso se dejan vacías.
 

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BodyPart;
 use App\Models\ProgramDayAssignment;
+use App\Support\RecordingRequests;
 use App\Models\TrainingProgram;
 use Illuminate\Support\Collection;
 
@@ -83,6 +84,9 @@ class MacrocyclePlanService
                         'tecnica'        => self::str($p['tecnica'] ?? null),
                         'tecnica_series' => self::str($p['tecnica_series'] ?? null),
                         'tecnica_otra'   => self::str($p['tecnica_otra'] ?? null),
+                        'grabar'         => RecordingRequests::truthy($p['grabar'] ?? null),
+                        'grabar_series'  => self::str($p['grabar_series'] ?? null),
+                        'grabar_nota'    => self::str($p['grabar_nota'] ?? null),
                     ];
                 }
             }
