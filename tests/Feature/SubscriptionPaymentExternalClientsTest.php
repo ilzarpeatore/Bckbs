@@ -37,6 +37,11 @@ class SubscriptionPaymentExternalClientsTest extends TestCase
         ]);
         $this->admin->assignRole('admin');
         Sanctum::actingAs($this->admin, ['*']);
+
+        // La migración 2026_10_02_190000_import_notion_payments_2026 siembra
+        // los clientes de Notion; estos tests parten de una tabla vacía.
+        SubscriptionPaymentRecord::query()->delete();
+        SubscriptionPaymentClient::query()->delete();
     }
 
     public function test_external_client_lifecycle(): void
