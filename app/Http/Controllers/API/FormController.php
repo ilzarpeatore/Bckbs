@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\API;
 
 use App\Http\Controllers\Controller;
+use App\Services\ProgressPhotoService;
 use Illuminate\Http\Request;
 use App\Models\Form;
 use App\Models\FormAssignment;
@@ -169,12 +170,30 @@ class FormController extends Controller
                     if ($request->hasFile("media_{$question->id}")) {
                         $uploaded = $request->file("media_{$question->id}");
                         $uploaded = is_array($uploaded) ? $uploaded : [$uploaded];
-                        foreach ($uploaded as $file) {
-                            $collection = $question->type === 'progress_photos' ? 'progress_photos' : 'form_media';
-                            $media = $user->addMedia($file)
-                                ->usingName("Form media")
-                                ->toMediaCollection($collection);
-                            $files[] = $media->getUrl();
+                        // Pose de cada foto (front/side/back), en el mismo
+                        // orden que los archivos: poses_{id}[] (opcional).
+                        $poses = (array) $request->input("poses_{$question->id}", []);
+                        foreach (array_values($uploaded) as $i => $file) {
+                            if ($question->type === 'progress_photos') {
+                                // Mismas fotos que la galería de progreso de la
+                                // app; se guarda una referencia y FormAnswer
+                                // la firma al leerla (disco 'private', sin URL
+                                // pública: getUrl() daba un enlace roto).
+                                $media = $user->addMedia($file)
+                                    ->usingName('Progress Photo')
+                                    ->withCustomProperties([
+                                        'pose'     => ProgressPhotoService::normalizePose($poses[$i] ?? null),
+                                        'taken_at' => now()->toDateString(),
+                                        'source'   => 'checkin',
+                                    ])
+                                    ->toMediaCollection('progress_photos');
+                                $files[] = 'progress-photo:'.$media->id;
+                            } else {
+                                $media = $user->addMedia($file)
+                                    ->usingName("Form media")
+                                    ->toMediaCollection('form_media');
+                                $files[] = $media->getUrl();
+                            }
                         }
                     }
                     $value = json_encode($files);
