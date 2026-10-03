@@ -301,6 +301,11 @@ Route::group(['middleware' => ['auth:sanctum']], function () {
         Route::get('my-privacy-settings', [ API\PrivacyStatsController::class, 'mySettings' ]);
         Route::post('my-privacy-settings', [ API\PrivacyStatsController::class, 'updateMySettings' ]);
 
+        // AÑADIDO (2026-10-03): fotos de progreso propias desde la app (antes/después).
+        Route::get('my-progress-photos', [ API\MyProgressPhotoController::class, 'index' ]);
+        Route::post('my-progress-photo-store', [ API\MyProgressPhotoController::class, 'store' ]);
+        Route::post('my-progress-photo-delete', [ API\MyProgressPhotoController::class, 'destroy' ]);
+
         // AÑADIDO: rutas para ClientHabitController, que ya estaba
         // implementado (espejo cliente de HabitController) pero nunca se
         // había conectado a ninguna ruta -- la pantalla de Hábitos de la
